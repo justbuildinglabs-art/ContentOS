@@ -10,14 +10,14 @@ ffmpeg subprocess call per timestamp, idempotent), and
 and `.superpowers/sdd/trying-to-make-a-clever-ritchie/task-12-brief.md`
 for the exact interface.
 
-Nothing here calls a real ffmpeg: `extract_frames`'s `runner` is always
-a small fake that records argv and writes (or withholds) a placeholder
-output file, mirroring test_video.py's `_ScriptedDownloader`.
-NoNetworkTestCase is also a second line of defense, though nothing here
-exercises `--refresh-expired`'s network path by name -- see
-lib/frames.py's own module docstring for why that is a thin, mostly
-already-covered composition of `video.refresh_video_url` and
-`http.download_to_file`.
+Nothing here calls a real ffmpeg or touches the network: `extract_frames`'s
+`runner` is always a small fake that records argv and writes (or withholds)
+a placeholder output file, mirroring test_video.py's `_ScriptedDownloader`;
+`--refresh-expired`'s own Apify call is exercised with a small scripted
+transport local to this module (mirroring test_video.py's
+`_ScriptedApifyTransport`, kept local so this module does not reach into
+another test module's internals) plus a fake downloader. NoNetworkTestCase
+is also a second line of defense throughout.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from tests.helpers import NoNetworkTestCase, REPO_ROOT, run_cli, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
-from lib import frames, research, store, video  # noqa: E402
+from lib import frames, http, research, store, video  # noqa: E402
 from lib.env import Keys  # noqa: E402
 
 FIXTURES_DIR = REPO_ROOT / "fixtures"
@@ -482,6 +482,182 @@ class FramesCliTests(NoNetworkTestCase):
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
         self.assertIn("02-outliers.json", err)
+
+
+class _ScriptedApifyTransport:
+    """Returns/raises each scripted response from `.request_json` in order.
+
+    Mirrors test_video.py's `_ScriptedApifyTransport` (itself mirroring
+    test_research.py's `_ScriptedTransport`), kept local here so this
+    module does not reach into another test module's internals.
+    """
+
+    def __init__(self, responses: List[Any]) -> None:
+        self._responses = list(responses)
+        self.calls: List[Dict[str, Any]] = []
+
+    def request_json(
+        self,
+        method: str,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        json_body: Optional[Any] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        self.calls.append(
+            {"method": method, "url": url, "headers": headers, "json_body": json_body, "params": params}
+        )
+        if not self._responses:
+            raise AssertionError("scripted transport exhausted")
+        item = self._responses.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+class _RecordingDownloader:
+    """Fake `downloader`: records (url, dest, max_bytes), always "ok".
+
+    Mirrors test_video.py's `_ScriptedDownloader`'s "ok" branch -- a
+    few sentinel bytes land at `dest` so a later `extract_frames` call
+    (via `frames_for_selected`) has a real file path to pass to its
+    runner, exactly like a real download would leave behind.
+    """
+
+    def __init__(self) -> None:
+        self.calls: List[Any] = []
+
+    def __call__(self, url: str, dest: Path, max_bytes: int, **_kwargs: Any) -> http.DownloadResult:
+        self.calls.append((url, Path(dest), max_bytes))
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"fresh-video-bytes")
+        return http.DownloadResult("ok", len(b"fresh-video-bytes"), 200)
+
+
+class RunFramesRefreshExpiredTests(NoNetworkTestCase):
+    def test_refresh_expired_updates_video_status_then_extracts(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acct1"]})
+            cfg = store.load_config(project_dir)
+            run_dir = store.init_run(project_dir, cfg, "live")
+
+            reel = _reel("AAA001", video_status="expired")
+            store.write_json_atomic(run_dir / "02-outliers.json", _outliers_doc([reel]))
+
+            transport = _ScriptedApifyTransport(
+                [
+                    {"data": {"id": "run-1", "status": "READY", "defaultDatasetId": "ds-1"}},
+                    {"data": {"id": "run-1", "status": "SUCCEEDED", "defaultDatasetId": "ds-1"}},
+                    [{"shortCode": "AAA001", "videoUrl": "https://fresh.example/AAA001.mp4"}],
+                ]
+            )
+            downloader = _RecordingDownloader()
+            ffmpeg_runner = _RecordingRunner()
+            keys = Keys(apify="tok-123", source="env", warnings=[])
+
+            # Patched so this test's outcome never depends on whether the
+            # machine running it actually has ffmpeg installed -- only
+            # ffmpeg_runner (a fake) is ever allowed to "run" it.
+            with mock.patch("lib.frames.ffmpeg_available", return_value=True):
+                result = frames.run_frames(
+                    project_dir,
+                    run_dir.name,
+                    cfg,
+                    keys,
+                    mock=False,
+                    refresh_expired=True,
+                    transport=transport,
+                    downloader=downloader,
+                    runner=ffmpeg_runner,
+                    log=lambda _m: None,
+                )
+
+            on_disk = store.read_json(run_dir / "02-outliers.json")
+
+        # The refresh call used the reel's own token and shortCode; the
+        # download landed on video_path with the configured MB cap.
+        self.assertEqual(len(downloader.calls), 1)
+        url, dest, max_bytes = downloader.calls[0]
+        self.assertEqual(url, "https://fresh.example/AAA001.mp4")
+        self.assertEqual(dest, video.video_path(run_dir, "AAA001"))
+        self.assertEqual(max_bytes, cfg["max_video_mb"] * 1024 * 1024)
+        self.assertEqual(transport.calls[0]["headers"], {"Authorization": "Bearer tok-123"})
+
+        # video_status flips from "expired" to the download's own "ok",
+        # and frames_for_selected then extracts (real ffmpeg is faked).
+        self.assertEqual(on_disk["selected"][0]["video_status"], "ok")
+        self.assertEqual(on_disk["selected"][0]["frames_status"], "ok")
+        self.assertEqual(
+            result,
+            {"run_id": run_dir.name, "frames": {"ok": 1, "cover_only": 0, "failed": 0, "no_video": 0}},
+        )
+
+    def test_refresh_expired_leaves_reel_expired_when_no_fresh_url(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acct1"]})
+            cfg = store.load_config(project_dir)
+            run_dir = store.init_run(project_dir, cfg, "live")
+
+            reel = _reel("ZZZ999", video_status="expired")
+            store.write_json_atomic(run_dir / "02-outliers.json", _outliers_doc([reel]))
+
+            transport = _ScriptedApifyTransport(
+                [
+                    {"data": {"id": "run-2", "status": "READY", "defaultDatasetId": "ds-2"}},
+                    {"data": {"id": "run-2", "status": "SUCCEEDED", "defaultDatasetId": "ds-2"}},
+                    [],  # no items -- refresh_video_url returns None
+                ]
+            )
+
+            def _boom_downloader(url: str, dest: Path, max_bytes: int, **_kwargs: Any) -> Any:
+                raise AssertionError("no fresh URL means download_to_file must never be called")
+
+            result = frames.run_frames(
+                project_dir,
+                run_dir.name,
+                cfg,
+                Keys(apify="tok-123", source="env", warnings=[]),
+                mock=False,
+                refresh_expired=True,
+                transport=transport,
+                downloader=_boom_downloader,
+                log=lambda _m: None,
+            )
+
+            on_disk = store.read_json(run_dir / "02-outliers.json")
+
+        self.assertEqual(on_disk["selected"][0]["video_status"], "expired")
+        self.assertEqual(on_disk["selected"][0]["frames_status"], "no_video")
+        self.assertEqual(result["frames"], {"ok": 0, "cover_only": 0, "failed": 0, "no_video": 1})
+
+    def test_refresh_expired_skipped_under_mock(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acct1"]})
+            cfg = store.load_config(project_dir)
+            run_dir = store.init_run(project_dir, cfg, "mock")
+
+            reel = _reel("AAA001", video_status="expired")
+            store.write_json_atomic(run_dir / "02-outliers.json", _outliers_doc([reel]))
+
+            def _boom_transport(*_args: Any, **_kwargs: Any) -> Any:
+                raise AssertionError("--mock must never call the Apify transport")
+
+            result = frames.run_frames(
+                project_dir,
+                run_dir.name,
+                cfg,
+                _mock_keys(),
+                mock=True,
+                refresh_expired=True,
+                transport=_boom_transport,
+                fixtures_dir=FIXTURES_DIR,
+                log=lambda _m: None,
+            )
+
+        # Still "expired" (never refreshed) -> frames_for_selected's own
+        # not-"ok" handling, "no_video", same as without the flag at all.
+        self.assertEqual(result["frames"], {"ok": 0, "cover_only": 0, "failed": 0, "no_video": 1})
 
 
 if __name__ == "__main__":
