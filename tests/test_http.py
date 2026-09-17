@@ -10,6 +10,7 @@ second line of defense in case a test forgets to pass `opener=`.
 from __future__ import annotations
 
 import io
+import socket
 import unittest
 import urllib.error
 import urllib.request
@@ -56,6 +57,38 @@ class ScriptedResponse:
         chunk = self._body[self._pos : self._pos + n]
         self._pos += len(chunk)
         return chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class ReadFailsResponse:
+    """A fake response whose `.read()` succeeds once, then raises.
+
+    Models a connection that opens fine (a real status, real headers)
+    but drops partway through the body -- the scenario a plain
+    `ScriptedResponse` can't produce, since its `.read()` never raises.
+    """
+
+    def __init__(
+        self,
+        status: int,
+        first_chunk: bytes,
+        error: BaseException,
+        headers: Optional[dict] = None,
+    ) -> None:
+        self.status = status
+        self.headers = dict(headers or {})
+        self._first_chunk = first_chunk
+        self._error = error
+        self._calls = 0
+        self.closed = False
+
+    def read(self, n: int = -1) -> bytes:
+        self._calls += 1
+        if self._calls == 1:
+            return self._first_chunk
+        raise self._error
 
     def close(self) -> None:
         self.closed = True
@@ -372,6 +405,66 @@ class DownloadToFileTests(NoNetworkTestCase):
             self.assertFalse(dest.exists())
             self.assertFalse(dest.with_name(dest.name + ".part").exists())
 
+    def test_download_retries_when_read_fails_mid_stream_and_cleans_part(self) -> None:
+        full_body = b"z" * 5000
+        opener = FakeOpener(
+            [
+                ReadFailsResponse(200, b"partial-first-chunk", socket.timeout("timed out")),
+                ScriptedResponse(
+                    200, body=full_body, headers={"Content-Length": str(len(full_body))}
+                ),
+            ]
+        )
+        sleeps: List[float] = []
+
+        with temp_project() as project_dir:
+            dest = project_dir / "videos" / "flaky-stream.mp4"
+
+            result = download_to_file(
+                "https://cdn.example.com/flaky-stream.mp4",
+                dest,
+                max_bytes=1_000_000,
+                opener=opener,
+                sleep=sleeps.append,
+            )
+
+            self.assertEqual(result, DownloadResult("ok", len(full_body), 200))
+            self.assertTrue(dest.exists())
+            self.assertEqual(dest.read_bytes(), full_body)
+            self.assertFalse(dest.with_name(dest.name + ".part").exists())
+
+        self.assertEqual(sleeps, [BACKOFF_S[0]])
+        self.assertEqual(len(opener.requests), 2)
+
+    def test_download_failed_after_mid_stream_errors_leaves_no_part(self) -> None:
+        opener = FakeOpener(
+            [
+                ReadFailsResponse(200, b"chunk", socket.timeout("t1")),
+                ReadFailsResponse(200, b"chunk", socket.timeout("t2")),
+                ReadFailsResponse(200, b"chunk", socket.timeout("t3")),
+            ]
+        )
+        sleeps: List[float] = []
+
+        with temp_project() as project_dir:
+            dest = project_dir / "videos" / "always-flaky.mp4"
+
+            result = download_to_file(
+                "https://cdn.example.com/always-flaky.mp4",
+                dest,
+                max_bytes=1_000_000,
+                opener=opener,
+                sleep=sleeps.append,
+                retries=2,
+            )
+
+            self.assertEqual(result, DownloadResult("failed", 0, 200))
+            self.assertFalse(dest.exists())
+            self.assertFalse(dest.with_name(dest.name + ".part").exists())
+
+        self.assertEqual(len(opener.requests), 3)
+        self.assertEqual(sleeps, [BACKOFF_S[0], BACKOFF_S[1]])
+
     def test_download_maps_410_expired_403_blocked_404_failed(self) -> None:
         cases = [(410, "expired"), (403, "blocked"), (404, "failed")]
         for code, expected_status in cases:
@@ -391,6 +484,29 @@ class DownloadToFileTests(NoNetworkTestCase):
                     self.assertFalse(dest.exists())
 
                 self.assertEqual(len(opener.requests), 1)
+
+    def test_download_treats_returned_error_status_like_raised_error(self) -> None:
+        # No exception here: the opener just hands back a response whose
+        # .status is already 403, the way a custom/fake opener might.
+        response = ScriptedResponse(403, body=b"<html>Forbidden</html>")
+        opener = FakeOpener([response])
+
+        with temp_project() as project_dir:
+            dest = project_dir / "videos" / "returned-403.mp4"
+
+            result = download_to_file(
+                "https://cdn.example.com/returned-403.mp4",
+                dest,
+                max_bytes=1000,
+                opener=opener,
+            )
+
+            self.assertEqual(result, DownloadResult("blocked", 0, 403))
+            self.assertFalse(dest.exists())
+            self.assertFalse(dest.with_name(dest.name + ".part").exists())
+
+        self.assertEqual(response.read_calls, 0)
+        self.assertTrue(response.closed)
 
     def test_download_sets_user_agent_and_referer(self) -> None:
         body = b"abc"

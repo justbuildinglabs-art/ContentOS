@@ -224,6 +224,52 @@ def request_json(
     raise AssertionError("unreachable: the retry loop always returns or raises")
 
 
+def _classify_download_status(status: int) -> str:
+    """Classify a >=400 download status.
+
+    Returns "expired" (410), "blocked" (403), "retry" (429 or 5xx -- the
+    caller still has to decide whether an attempt remains), or "failed"
+    (any other 4xx, including 404). This is the single mapping shared by
+    both of `download_to_file`'s error paths: a raised
+    `urllib.error.HTTPError` and a response returned normally but
+    carrying an error status.
+    """
+    if status == 410:
+        return "expired"
+    if status == 403:
+        return "blocked"
+    if status == 429 or status >= 500:
+        return "retry"
+    return "failed"
+
+
+def _resolve_bad_status(
+    status: int,
+    headers: Any,
+    attempt: int,
+    is_last_attempt: bool,
+    sleep: Callable[[float], None],
+) -> Optional[DownloadResult]:
+    """Turn a >=400 download status into a terminal result, or None to retry.
+
+    None means `_classify_download_status` said "retry" (429/5xx): the
+    right backoff has already been slept, skipped when this is the last
+    attempt since there is nothing left to wait for. The caller should
+    then just `continue` its attempt loop -- on the last attempt,
+    `continue` ends the loop exactly like `break` would (there is no
+    next iteration), falling through to the caller's own final `failed`
+    return.
+    """
+    outcome = _classify_download_status(status)
+    if outcome == "retry":
+        if not is_last_attempt:
+            sleep(_retry_delay(attempt, status, headers))
+        return None
+    if outcome == "failed":
+        return DownloadResult("failed", 0, status)
+    return DownloadResult(outcome, 0, status)  # "expired" | "blocked"
+
+
 def download_to_file(
     url: str,
     dest: Path,
@@ -242,22 +288,34 @@ def download_to_file(
     Instagram `Referer`, merged under any caller `headers` (so a caller
     can override either).
 
-    Bails out as `too_large` without reading the body when
-    `Content-Length` parses as bigger than `max_bytes`. Otherwise streams
-    the body in 64 KiB chunks to `<dest>.part` (creating `dest`'s parent
-    directories first); if the bytes read so far exceed `max_bytes`
-    partway through, streaming stops and the partial `.part` file is
-    deleted, also as `too_large`. On completion, `.part` is atomically
+    A >=400 status is handled identically whether the opener raises
+    `urllib.error.HTTPError` for it or just returns a response object
+    carrying that status (`_classify_download_status` is the one mapping
+    both branches use): 410 -> `expired`, 403 -> `blocked`, 429/5xx ->
+    retried, any other 4xx -> `failed`. None of these read the body.
+
+    A response under 400 is bailed out as `too_large`, without reading
+    the body, when `Content-Length` parses as bigger than `max_bytes`.
+    Otherwise it is streamed in 64 KiB chunks to `<dest>.part` (creating
+    `dest`'s parent directories first). Three things can happen mid
+    stream: the bytes read so far exceed `max_bytes`, in which case
+    streaming stops and `.part` is deleted, also as `too_large`; a
+    `URLError`/`socket.timeout`/`OSError` (a dropped connection, a local
+    disk error), which is treated exactly like a connection failure that
+    never got a response at all -- `.part` is deleted and the attempt
+    retries with the same backoff; or any other, truly unexpected
+    exception, which still deletes `.part` before propagating rather
+    than leaving it behind. On a clean completion, `.part` is atomically
     renamed onto `dest`.
 
-    Maps HTTP 410 to `expired` and 403 to `blocked` (both permanent
-    signals to the caller to pull from backfill); any other 4xx
-    (including 404) to `failed`, also permanent, none of these three are
-    retried. 429, 5xx, and `URLError`/`socket.timeout` retry with the
-    same backoff as `request_json` (`retries` extra attempts, honoring a
-    429's `Retry-After`), then give up as `failed`. `http_code` on the
-    result is the last HTTP status observed across all attempts, or None
-    when every attempt was a pure network failure.
+    429, 5xx, and `URLError`/`socket.timeout` -- whether raised while
+    opening the connection or mid-stream -- retry with the same backoff
+    as `request_json` (`retries` extra attempts, honoring a 429's
+    `Retry-After`), then give up as `failed`. `http_code` on the result
+    is the last HTTP status observed across all attempts (set as soon as
+    a response, successful or not, is actually received -- even if
+    streaming it then fails), or None when every attempt was a pure
+    network failure before any response arrived.
     """
     dest = Path(dest)
     if dest.exists() and dest.stat().st_size > 0:
@@ -286,28 +344,32 @@ def download_to_file(
         except urllib.error.HTTPError as exc:
             status = exc.code
             last_http_code = status
+            error_headers = exc.headers
             exc.close()
-            if status == 410:
-                return DownloadResult("expired", 0, status)
-            if status == 403:
-                return DownloadResult("blocked", 0, status)
-            if status == 429 or status >= 500:
-                if not is_last_attempt:
-                    sleep(_retry_delay(attempt, status, exc.headers))
-                    continue
-                break
-            return DownloadResult("failed", 0, status)
+            result = _resolve_bad_status(status, error_headers, attempt, is_last_attempt, sleep)
+            if result is not None:
+                return result
+            continue
         except (urllib.error.URLError, socket.timeout):
             if not is_last_attempt:
                 sleep(_backoff_for(attempt))
-                continue
-            break
+            continue
+
+        status = _status_of(response)
+        last_http_code = status
+
+        if status >= 400:
+            error_headers = response.headers
+            response.close()
+            result = _resolve_bad_status(status, error_headers, attempt, is_last_attempt, sleep)
+            if result is not None:
+                return result
+            continue
 
         written = 0
         stream_too_large = False
+        stream_failed = False
         try:
-            status = _status_of(response)
-            last_http_code = status
             content_length = _int_header(response.headers, "Content-Length")
             if content_length is not None and content_length > max_bytes:
                 return DownloadResult("too_large", 0, status)
@@ -323,12 +385,26 @@ def download_to_file(
                         stream_too_large = True
                         break
                     fh.write(chunk)
+        except (urllib.error.URLError, socket.timeout, OSError):
+            # A connection drop or local disk error partway through the
+            # stream is no different from one that happens before any
+            # bytes arrive: clean up and retry it the same way.
+            stream_failed = True
+        except Exception:
+            part_path.unlink(missing_ok=True)
+            raise
         finally:
             response.close()
 
         if stream_too_large:
             part_path.unlink(missing_ok=True)
             return DownloadResult("too_large", 0, status)
+
+        if stream_failed:
+            part_path.unlink(missing_ok=True)
+            if not is_last_attempt:
+                sleep(_backoff_for(attempt))
+            continue
 
         os.replace(part_path, dest)
         return DownloadResult("ok", written, status)
