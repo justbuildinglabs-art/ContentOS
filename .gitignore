@@ -1,0 +1,11 @@
+# founder state never belongs in the plugin repo
+.contentos/
+# downloaded media
+*.mp4
+!fixtures/sample.mp4
+# python
+__pycache__/
+*.pyc
+# SDD scratch
+.superpowers/
+.DS_Store
