@@ -41,6 +41,13 @@ _STATUS_FAILED = "failed"
 _STATUS_COVER_ONLY = "cover_only"
 _STATUS_NO_VIDEO = "no_video"
 _STATUS_EXPIRED = "expired"
+_STATUS_BLOCKED = "blocked"
+
+# What `--refresh-expired` re-scrapes. Instagram's CDN answers an
+# expired *signed* URL with 403, which `lib/http.py` maps to "blocked",
+# not "expired" (410) -- so "blocked" is in practice the common shape of
+# an expired URL and both are refresh candidates.
+_REFRESH_STATUSES = (_STATUS_EXPIRED, _STATUS_BLOCKED)
 
 _FFMPEG_HINT = (
     "ffmpeg not found: install it (brew install ffmpeg) for keyframes; "
@@ -324,14 +331,17 @@ def run_frames(
     yet.
 
     `refresh_expired`, when true and not `--mock`, re-scrapes every
-    `selected` reel whose `video_status` is exactly `"expired"` via
-    `video.refresh_video_url` (one Apify call per expired reel), then
+    `selected` reel whose `video_status` is `"expired"` or `"blocked"`
+    via `video.refresh_video_url` (one Apify call per such reel), then
     downloads the URL it returns over the same `video_path`, capped at
-    `cfg["max_video_mb"]`, updating `video_status` in place. A reel
-    `refresh_video_url` cannot get a fresh URL for (it returns `None`,
-    already logged there) is simply left `"expired"`, which
-    `frames_for_selected` below then records as `"no_video"` -- exactly
-    like any other non-`"ok"` `video_status`.
+    `cfg["max_video_mb"]`, updating `video_status` in place. Both
+    statuses count because Instagram's CDN answers an expired signed
+    URL with 403, which `lib/http.py` maps to `"blocked"` (410 is what
+    maps to `"expired"`), so refreshing only the literal `"expired"`
+    would miss the common case. A reel `refresh_video_url` cannot get a
+    fresh URL for (it returns `None`, already logged there) keeps the
+    status it had, which `frames_for_selected` below then records as
+    `"no_video"` -- exactly like any other non-`"ok"` `video_status`.
 
     Either way, `frames_for_selected` does the real extraction work and
     its own atomic rewrite of `02-outliers.json`, covering both any
@@ -358,7 +368,7 @@ def run_frames(
         token = keys.apify if (keys and keys.apify) else ""
         max_bytes = cfg["max_video_mb"] * 1024 * 1024
         for reel in outliers_doc.get("selected", []):
-            if reel.get("video_status") != _STATUS_EXPIRED:
+            if reel.get("video_status") not in _REFRESH_STATUSES:
                 continue
             shortcode = reel["shortCode"]
             fresh_url = video.refresh_video_url(token, shortcode, transport, log=log)

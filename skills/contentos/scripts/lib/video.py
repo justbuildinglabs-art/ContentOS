@@ -10,9 +10,8 @@ reel it downloads the mp4 to `video_path` and the cover jpg to
 or by copying the tiny committed fixture under `--mock` -- and, on any
 non-`ok` video status, promotes the next reel from the `backfill` pool
 in its place. `refresh_video_url` is the separate, later escape hatch
-(spec: `direct --refresh-expired`, not wired up until that CLI
-subcommand exists) for re-scraping a single reel whose CDN URL has
-since expired.
+(`frames --refresh-expired`) for re-scraping a single reel whose CDN
+URL has since expired or started answering 403.
 
 See the design spec's "Stage 1 -- research" step 7 for the algorithm
 and "Architecture" for the run-dir paths this module writes under.

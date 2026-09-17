@@ -593,6 +593,51 @@ class RunFramesRefreshExpiredTests(NoNetworkTestCase):
             {"run_id": run_dir.name, "frames": {"ok": 1, "cover_only": 0, "failed": 0, "no_video": 0}},
         )
 
+    def test_refresh_expired_also_refreshes_a_blocked_reel(self) -> None:
+        # Instagram's CDN answers an expired signed URL with 403, which
+        # lib/http.py maps to "blocked", not "expired". Refreshing only
+        # the literal "expired" status would leave the common case
+        # untouched and the reel stuck at no_video.
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acct1"]})
+            cfg = store.load_config(project_dir)
+            run_dir = store.init_run(project_dir, cfg, "live")
+
+            reel = _reel("BLK001", video_status="blocked")
+            store.write_json_atomic(run_dir / "02-outliers.json", _outliers_doc([reel]))
+
+            transport = _ScriptedApifyTransport(
+                [
+                    {"data": {"id": "run-3", "status": "READY", "defaultDatasetId": "ds-3"}},
+                    {"data": {"id": "run-3", "status": "SUCCEEDED", "defaultDatasetId": "ds-3"}},
+                    [{"shortCode": "BLK001", "videoUrl": "https://fresh.example/BLK001.mp4"}],
+                ]
+            )
+            downloader = _RecordingDownloader()
+            ffmpeg_runner = _RecordingRunner()
+
+            with mock.patch("lib.frames.ffmpeg_available", return_value=True):
+                result = frames.run_frames(
+                    project_dir,
+                    run_dir.name,
+                    cfg,
+                    Keys(apify="tok-123", source="env", warnings=[]),
+                    mock=False,
+                    refresh_expired=True,
+                    transport=transport,
+                    downloader=downloader,
+                    runner=ffmpeg_runner,
+                    log=lambda _m: None,
+                )
+
+            on_disk = store.read_json(run_dir / "02-outliers.json")
+
+        self.assertEqual(len(downloader.calls), 1)
+        self.assertEqual(downloader.calls[0][0], "https://fresh.example/BLK001.mp4")
+        self.assertEqual(on_disk["selected"][0]["video_status"], "ok")
+        self.assertEqual(on_disk["selected"][0]["frames_status"], "ok")
+        self.assertEqual(result["frames"]["ok"], 1)
+
     def test_refresh_expired_leaves_reel_expired_when_no_fresh_url(self) -> None:
         with temp_project() as project_dir:
             _write_config(project_dir, {"competitors": ["acct1"]})

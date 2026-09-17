@@ -299,6 +299,9 @@ class QaPromptTests(NoNetworkTestCase):
             self.assertIn(str((run_dir / "03-briefs.json").resolve()), prompt)
             self.assertIn(str((REFERENCES_DIR / "formats.md").resolve()), prompt)
             self.assertIn(str((REFERENCES_DIR / "qa-rubric.md").resolve()), prompt)
+            # The rubric asks the reviewer to enforce scripting.md's banned
+            # vocabulary list, so scripting.md has to be an input it can read.
+            self.assertIn(str((REFERENCES_DIR / "scripting.md").resolve()), prompt)
             self.assertIn("qa_pass_threshold: 8", prompt)
             self.assertIn("length_tolerance: 0.1", prompt)
             self.assertIn("Word budget: 100 words", prompt)

@@ -155,8 +155,10 @@ def _frames_handler(args: argparse.Namespace) -> int:
     """Cut keyframes for one run's selected reels, or re-run to fill gaps.
 
     `--refresh-expired` first re-scrapes and re-downloads any `expired`
-    video before extracting (real mode only; `--mock` never touches
-    the network at all). Prints the JSON frame-status summary
+    or `blocked` video before extracting -- Instagram's CDN answers an
+    expired signed URL with 403, which `lib/http.py` records as
+    `blocked` -- (real mode only; `--mock` never touches the network at
+    all). Prints the JSON frame-status summary
     `frames.run_frames` returns and exits 0. An unresolvable `--run`
     (`store.RunNotFound`) or a run with no `02-outliers.json` yet
     (`frames.OutliersMissing`) both exit 2, message on stderr --

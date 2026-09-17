@@ -437,6 +437,10 @@ def qa_prompt(
     lines.append("Reference files:")
     lines.append(f"- {(references_dir / 'formats.md').resolve()}")
     lines.append(f"- {(references_dir / 'qa-rubric.md').resolve()}")
+    # qa-rubric.md's `ai_tells` check defers to scripting.md's banned
+    # vocabulary list, so the reviewer needs that file too: without it the
+    # check has no list to enforce and the reviewer may read nothing else.
+    lines.append(f"- {(references_dir / 'scripting.md').resolve()}")
     lines.append("")
 
     lines.append("## Thresholds")
@@ -878,10 +882,17 @@ def brief_state(run_dir: Path, brief_id: str) -> Dict[str, Any]:
     with a written script, or None. `verdict` comes from the highest-
     revision QA file that exists, or None. `placeholders` lists every
     `[NEED ...]` in the latest script. `needs_human` is true when the
-    latest verdict is `revise` at revision 1 or later, or when two
-    revisions both came back `revise`. `status` is `needs_human` when
-    that is true, else the verdict when one exists, else `written` when
-    a script exists with no QA yet, else `pending`.
+    latest verdict is `revise` at revision 1 or later, when two
+    revisions both came back `revise`, or when the latest verdict is
+    `reject` -- all three are the end of the write/QA loop (SKILL.md:
+    "A second `revise`, or any `reject`. Final."), so all three belong
+    in `report.md`'s "Needs a human" section and in `status`.
+
+    `status` is `needs_human` only for the two `revise` cases; a
+    rejected brief keeps `status: "reject"`, because "rejected" says
+    more about what happened than "needs a human" does. Otherwise
+    `status` is the verdict when one exists, else `written` when a
+    script exists with no QA yet, else `pending`.
     """
     run_dir = Path(run_dir)
 
@@ -903,11 +914,12 @@ def brief_state(run_dir: Path, brief_id: str) -> Dict[str, Any]:
     )
     verdict = qa_verdicts.get(qa_revision) if qa_revision is not None else None
     revise_count = sum(1 for value in qa_verdicts.values() if value == "revise")
-    needs_human = (verdict == "revise" and qa_revision is not None and qa_revision >= 1) or (
-        revise_count >= 2
-    )
+    revise_exhausted = (
+        verdict == "revise" and qa_revision is not None and qa_revision >= 1
+    ) or (revise_count >= 2)
+    needs_human = revise_exhausted or verdict == "reject"
 
-    if needs_human:
+    if revise_exhausted:
         status = "needs_human"
     elif verdict is not None:
         status = verdict

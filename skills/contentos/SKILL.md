@@ -284,9 +284,16 @@ again. Once only.
 
 ### Loop 1: director, one per selected reel
 
-Read `<run_dir>/02-outliers.json` and take every reel in `selected` whose
-`frames_status` is `ok` or `cover_only`. Skip the rest and say how many you
-skipped. For each reel:
+Get the reel list from `status`, which gives you one small entry per selected
+reel and keeps the scraped captions and comments out of your context:
+
+```bash
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" status --project "$PWD" --run <run_id>
+```
+
+Parse its `reels` list and take every reel whose `frames_status` is `ok` or
+`cover_only`. Skip the rest and say how many you skipped. Never read
+`02-outliers.json` yourself. For each reel:
 
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" direct-prompt --project "$PWD" --run <run_id> --shortcode <sc> > "$RUN_DIR/prompts/direct-<sc>.md"
@@ -395,6 +402,9 @@ Two more worth knowing:
 
 - Keyframes missing, or CDN links expired before the videos downloaded:
   `python3 "$CONTENTOS_ROOT/scripts/contentos.py" frames --project "$PWD" --run <run_id> --refresh-expired`
+  This re-scrapes every selected reel whose `video_status` is `expired` or `blocked`.
+  Instagram answers an expired signed link with 403, which ContentOS records as
+  `blocked`, so both count as stale links worth refreshing.
 - Lost track of where a run got to:
   `python3 "$CONTENTOS_ROOT/scripts/contentos.py" status --project "$PWD" --run latest`
 

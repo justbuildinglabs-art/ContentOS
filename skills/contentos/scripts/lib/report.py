@@ -58,11 +58,44 @@ def _qa_summary(state: Dict[str, Any]) -> str:
     return summary if summary else f"verdict: {qa.get('verdict')}"
 
 
+def _reel_states(run_dir: Path) -> List[Dict[str, Any]]:
+    """Per-reel pipeline state for every `selected` reel, in selection order.
+
+    Four keys per reel -- `shortCode`, `video_status`, `frames_status`,
+    `analysis_status` -- and nothing else. This is deliberately narrow:
+    it is what the orchestrator needs to decide which reels are worth
+    dispatching the director at, and it keeps it from having to read
+    `02-outliers.json`, which carries the scraped captions and comments
+    straight into its own context. A status the pipeline has not written
+    yet is `None`. A run with no `02-outliers.json` (or an unreadable
+    one) has no reels yet, which is an empty list, not an error.
+    """
+    try:
+        outliers = store.read_json(Path(run_dir) / "02-outliers.json")
+    except (OSError, ValueError):
+        return []
+    selected = outliers.get("selected") if isinstance(outliers, dict) else None
+    if not isinstance(selected, list):
+        return []
+    return [
+        {
+            "shortCode": reel.get("shortCode"),
+            "video_status": reel.get("video_status"),
+            "frames_status": reel.get("frames_status"),
+            "analysis_status": reel.get("analysis_status"),
+        }
+        for reel in selected
+        if isinstance(reel, dict)
+    ]
+
+
 def status(run_dir: Path) -> Dict[str, Any]:
     """The machine-readable state `status --run <id>` prints.
 
-    `{run_id, mode, stages, briefs, costs, warnings}`, where `briefs`
-    is `agents.brief_state` for every ranked brief, in ranked order.
+    `{run_id, mode, stages, briefs, reels, costs, warnings}`, where
+    `briefs` is `agents.brief_state` for every ranked brief, in ranked
+    order, and `reels` is `_reel_states` for every `selected` reel, in
+    selection order.
     """
     run_dir = Path(run_dir)
     run_data = store.read_json(run_dir / "run.json")
@@ -71,6 +104,7 @@ def status(run_dir: Path) -> Dict[str, Any]:
         "mode": run_data.get("mode"),
         "stages": run_data.get("stages") or {},
         "briefs": _brief_states(run_dir),
+        "reels": _reel_states(run_dir),
         "costs": run_data.get("costs") or {},
         "warnings": run_data.get("warnings") or [],
     }

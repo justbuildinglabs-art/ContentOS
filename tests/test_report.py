@@ -137,6 +137,31 @@ def _build_run_with_every_status(project: Path) -> Path:
 
     # B05: pending. No script, no QA.
 
+    store.write_json_atomic(
+        run_dir / "02-outliers.json",
+        {
+            "selected": [
+                {
+                    "shortCode": "AAA001",
+                    "caption": "a caption the orchestrator must never have to read",
+                    "video_status": "ok",
+                    "frames_status": "ok",
+                    "analysis_status": "ok",
+                },
+                {
+                    "shortCode": "BBB002",
+                    "caption": "another caption",
+                    "video_status": "failed",
+                    "frames_status": "no_video",
+                },
+            ],
+            "backfill": [],
+            "excluded": [],
+            "account_status": {},
+            "baselines": {},
+        },
+    )
+
     return run_dir
 
 
@@ -168,6 +193,10 @@ class RenderReportTests(NoNetworkTestCase):
 
             self.assertIn("## Needs a human", text)
             self.assertIn("B04: B04 r1: revise for testing.", text)
+            # A reject is final too, so it needs a human even though its
+            # status column keeps saying "reject" (SKILL.md, the write/QA
+            # loop: "A second `revise`, or any `reject`. Final.").
+            self.assertIn("B03: B03 r0: reject for testing.", text)
 
             self.assertIn("## Costs and timings", text)
             self.assertIn("apify", text)
@@ -220,7 +249,8 @@ class StatusTests(NoNetworkTestCase):
             result = report.status(run_dir)
 
             self.assertEqual(
-                set(result.keys()), {"run_id", "mode", "stages", "briefs", "costs", "warnings"}
+                set(result.keys()),
+                {"run_id", "mode", "stages", "briefs", "costs", "warnings", "reels"},
             )
             self.assertEqual(result["run_id"], run_dir.name)
             self.assertEqual(result["mode"], "mock")
@@ -241,10 +271,43 @@ class StatusTests(NoNetworkTestCase):
             self.assertEqual(by_id["B01"]["status"], "pass")
             self.assertEqual(by_id["B02"]["status"], "revise")
             self.assertEqual(by_id["B03"]["status"], "reject")
+            self.assertTrue(by_id["B03"]["needs_human"])
             self.assertEqual(by_id["B04"]["status"], "needs_human")
             self.assertTrue(by_id["B04"]["needs_human"])
+            self.assertFalse(by_id["B01"]["needs_human"])
             self.assertEqual(by_id["B05"]["status"], "pending")
             self.assertIsNone(by_id["B05"]["revision"])
+
+            # `reels` lets the orchestrator find analyzable reels without
+            # reading 02-outliers.json, which carries raw captions and
+            # comments straight into its own context.
+            self.assertEqual(
+                result["reels"],
+                [
+                    {
+                        "shortCode": "AAA001",
+                        "video_status": "ok",
+                        "frames_status": "ok",
+                        "analysis_status": "ok",
+                    },
+                    {
+                        "shortCode": "BBB002",
+                        "video_status": "failed",
+                        "frames_status": "no_video",
+                        "analysis_status": None,
+                    },
+                ],
+            )
+            self.assertEqual(
+                list(result["reels"][0].keys()),
+                ["shortCode", "video_status", "frames_status", "analysis_status"],
+            )
+
+    def test_status_reels_is_empty_without_an_outliers_file(self) -> None:
+        with temp_project() as project:
+            run_dir = _new_run(project)
+
+            self.assertEqual(report.status(run_dir)["reels"], [])
 
 
 class ReportCliTests(NoNetworkTestCase):

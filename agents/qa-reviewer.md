@@ -39,7 +39,9 @@ page against the brief, `product.md`, and the rubric.
 Read `formats.md` for this format's budget and beat skeleton, and
 `qa-rubric.md` for the full anchors behind every check and score below. The
 lines here are reminders, and `qa-rubric.md` is the authority for the anchors.
-The verdict rules below are the authority for the verdict. Read `product.md`
+The verdict rules below are the authority for the verdict. Read `scripting.md`
+for the banned vocabulary list `ai_tells` enforces; it is the authority for
+that list. Read `product.md`
 for every claim check: Core features, Allowed claims, Forbidden claims, Proof
 assets, Demo moments, the audience profile, and Brand voice.
 
