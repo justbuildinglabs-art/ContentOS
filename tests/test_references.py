@@ -123,17 +123,28 @@ def _section_text(text: str, heading_line: str) -> str:
     return "\n".join(lines[start:end])
 
 
+def _parse_markdown_table(section_text: str) -> List[Dict[str, str]]:
+    """Parse the single `| ... |` table inside one heading's body.
+
+    `section_text` is a heading's full body as `_section_text` returns it
+    (the heading line, its surrounding prose, and exactly one table). Every
+    data row becomes one dict keyed by the header row's cells, in table
+    order. Used for every table this module checks, so a corrupted cell
+    fails on the exact row/column it lives in, not on a substring search
+    that could also match unrelated prose elsewhere in the section.
+    """
+    rows = [line.strip() for line in section_text.splitlines() if line.strip().startswith("|")]
+    header = [cell.strip() for cell in rows[0].strip("|").split("|")]
+    return [
+        dict(zip(header, (cell.strip() for cell in row.strip("|").split("|"))))
+        for row in rows[2:]  # rows[1] is the "| --- | --- |" separator
+    ]
+
+
 def _parse_format_table(text: str) -> Dict[str, Dict[str, str]]:
     """Parse the single table under `## Format table`, keyed by `format`."""
     section = _section_text(text, "## Format table")
-    rows = [line.strip() for line in section.splitlines() if line.strip().startswith("|")]
-    header = [cell.strip() for cell in rows[0].strip("|").split("|")]
-    table: Dict[str, Dict[str, str]] = {}
-    for row in rows[2:]:  # rows[1] is the "| --- | --- |" separator
-        cells = [cell.strip() for cell in row.strip("|").split("|")]
-        record = dict(zip(header, cells))
-        table[record["format"]] = record
-    return table
+    return {row["format"]: row for row in _parse_markdown_table(section)}
 
 
 class ReferenceFilesExistTests(NoNetworkTestCase):
@@ -241,9 +252,19 @@ class ScoringMdTests(NoNetworkTestCase):
     def test_scoring_md_states_viral_proof_table(self) -> None:
         text = (REFERENCES_DIR / "scoring.md").read_text(encoding="utf-8")
         section = _section_text(text, "### viral_proof")
-        for token in ("3.96", "7.5", "10"):
-            with self.subTest(token=token):
-                self.assertIn(token, section)
+        rows = _parse_markdown_table(section)
+        table = {row["outlier_ratio"]: row["viral_proof"] for row in rows}
+
+        # A substring search over the whole section would also match "10"
+        # and "3.96" in the surrounding prose (the "0 to 10" range, the
+        # "clamped to 10" clause, the "3.9624..." explanation below the
+        # table), so a corrupted table row could still pass. Parsing the
+        # table and comparing its own cells rules that out.
+        expected = {"3": "3.96", "8": "7.5", "16": "10"}
+        self.assertEqual(set(table), set(expected), "unexpected outlier_ratio rows")
+        for ratio, viral_proof in expected.items():
+            with self.subTest(outlier_ratio=ratio):
+                self.assertEqual(table[ratio], viral_proof)
 
 
 if __name__ == "__main__":

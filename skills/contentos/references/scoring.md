@@ -24,8 +24,10 @@ Every account gets a baseline: a median value plus a confidence label. Count
   `blended = (n * account_median + (min_reels_for_median - n) * pooled_median) / min_reels_for_median`.
   Confidence `low`.
 - `n` above 0 but below 3: the baseline is the account's own median, with no
-  blending. Confidence `none`. Every reel scored against a `none` baseline is
-  excluded later with reason `no_baseline`.
+  blending. Confidence `none`. A reel with a `plays` value, scored against a
+  `none` baseline, is excluded later with reason `no_baseline`. A reel with
+  no `plays` value is excluded as `no_plays` first, before its baseline is
+  even checked (the same order the Selection section below uses).
 - `n` is 0, but the account has at least one reel with a `likes` count: the
   baseline is the median of those `likes` counts instead. Confidence `low`,
   and the baseline's metric switches from `plays` to `likes`. A reel scored
