@@ -336,6 +336,7 @@ class EnsureGitignoreTests(NoNetworkTestCase):
                 ".env",
                 "runs/*/videos/",
                 "runs/*/frames/",
+                "runs/*/prompts/",
                 "setup-answers.json",
             ):
                 self.assertIn(line, first_text.splitlines())
@@ -362,6 +363,7 @@ class EnsureGitignoreTests(NoNetworkTestCase):
             ".env",
             "runs/*/videos/",
             "runs/*/frames/",
+            "runs/*/prompts/",
             "setup-answers.json",
         ):
             self.assertIn(line, lines)

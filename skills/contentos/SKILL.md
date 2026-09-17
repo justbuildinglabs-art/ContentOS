@@ -122,6 +122,11 @@ can read.
 | `/contentos status` | `contentos.py status --run latest` | stages done, briefs by status, warnings | whatever stage comes next |
 | `/contentos diagnose` | `contentos.py diagnose --live`, or drop `--live` in `--mock` | key source, python, ffmpeg, warnings | fix whatever is false |
 
+`--run` accepts a run id or the word `latest`, which is the newest run in the
+project. The standalone stages, `direct`, `write`, and `qa`, work on the latest
+run unless the founder names one. Never start a new research run to satisfy
+them. When there is no run at all, say so and offer `/contentos research`.
+
 `--mock` runs research and ranking off the committed fixtures, with no key and
 no network. The reels come from four sample accounts, so the founder's own
 competitors show as `empty` in the per-account table. Say so once, so nobody
@@ -168,8 +173,14 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" setup --project "$PWD" \
    voice is what makes the scripts sound like them.
 
 Setup exits 2 and changes nothing when `product.md` already exists. Only then,
-use AskUserQuestion to ask whether to overwrite it, and re-run with `--force`
-if they say yes. `--force` never touches `rules.md`.
+use AskUserQuestion to ask whether to re-run with `--force`. Say exactly what
+`--force` does before they choose:
+
+- `product.md` is rewritten from the new answers. Anything they filled in by
+  hand is lost.
+- `config.json` keeps every setting they tuned and gets the new competitor
+  list. Nothing else in it changes.
+- `rules.md` is never touched.
 
 ## The run flow
 
@@ -196,16 +207,30 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" research --project "$PWD" --yes
 
 Add `--mock` for a mock run. This is the slow one. Progress goes to stderr, one
 line at a time. The per-account table and the final `RESULT {...}` line go to
-stdout. Take `run_id` from that line and use it for every later command. If the
-Bash call times out, do not start a second run. Re-run with the run id from the
-`starting run <id>` line, which stderr prints before any network call:
+stdout. If the Bash call times out, do not start a second run. Re-run with the
+run id from the `starting run <id>` line, which stderr prints before any
+network call:
 
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" research --project "$PWD" --yes --resume <run_id>
 ```
 
+The `RESULT` line's JSON carries both `run_id` and `run_dir`. Keep both. Every
+`<run_id>` below is that run id, and every `<run_dir>` below is that absolute
+run directory path, which is
+`<project>/.contentos/runs/<run_id>`. Set `RUN_DIR="<run_dir>"` at the top of
+each Bash call that needs it.
+
 Tell the founder how many reels were scored, how many were selected, and name
 any account that came back `private`, `not_found`, or `empty`.
+
+**In `--mock`, skip steps 4 and 5** and run this at step 6 instead. It seeds the
+fixture analyses and `03-patterns.md`, so a mock run reaches briefs without
+dispatching a subagent:
+
+```bash
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" rank --project "$PWD" --run <run_id> --mock
+```
 
 4. **Director loop.** Loop 1 below, one dispatch per selected reel.
 5. **Synthesis.** Loop 2 below, one dispatch for the whole run.
@@ -214,10 +239,6 @@ any account that came back `private`, `not_found`, or `empty`.
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" rank --project "$PWD" --run <run_id>
 ```
-
-In `--mock`, skip loops 1 and 2 and run `contentos.py rank --run <run_id> --mock`
-instead. That seeds the fixture analyses and `03-patterns.md`, so a mock run
-reaches briefs without dispatching a subagent.
 
 7. **Brief selection.** See "Choosing briefs" below.
 8. **Write and QA.** Loops 3 and 4 below, for each chosen brief.
@@ -233,10 +254,11 @@ It prints the path of the `report.md` it wrote. Then send the final message.
 
 Each loop is the same shape: build a prompt into a file, dispatch the subagent
 at that file, verify what it wrote. Never paste a generated prompt into your
-own context. Redirect it to a file under `<run_dir>/prompts/` and hand the
+own context. Redirect it to a file under `$RUN_DIR/prompts/` and hand the
 subagent the path.
 
-`mkdir -p "<run_dir>/prompts"` once before the first dispatch.
+`mkdir -p "$RUN_DIR/prompts"` once before the first dispatch. Those prompt
+files are gitignored, so they can stay there for you to look at later.
 
 Every dispatch message is exactly this, with the absolute path filled in:
 
@@ -248,6 +270,18 @@ Read `parallel_agents` from `.contentos/config.json` (default 3). That is how
 many Agent calls go in one message. Send one batch, wait for all of them, then
 verify each one, then send the next batch.
 
+**Appending verify errors for a re-dispatch.** Do it in the shell, in the same
+Bash call as the verify, so the prompt and its errors never pass through your
+own context. `<name>` is the prompt file's own name, such as `direct-DWN006` or
+`write-B01.r0`:
+
+```bash
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <run_id> --stage <stage> <selector> 2> "$RUN_DIR/prompts/verify-<name>.err" || { printf '\n## Fix these problems\n' >> "$RUN_DIR/prompts/<name>.md"; cat "$RUN_DIR/prompts/verify-<name>.err" >> "$RUN_DIR/prompts/<name>.md"; }
+```
+
+Then dispatch the same subagent at the same prompt file once more, and verify
+again. Once only.
+
 ### Loop 1: director, one per selected reel
 
 Read `<run_dir>/02-outliers.json` and take every reel in `selected` whose
@@ -255,47 +289,48 @@ Read `<run_dir>/02-outliers.json` and take every reel in `selected` whose
 skipped. For each reel:
 
 ```bash
-python3 "$CONTENTOS_ROOT/scripts/contentos.py" direct-prompt --project "$PWD" --run <run_id> --shortcode <sc> > "<run_dir>/prompts/direct-<sc>.md"
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" direct-prompt --project "$PWD" --run <run_id> --shortcode <sc> > "$RUN_DIR/prompts/direct-<sc>.md"
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <run_id> --stage direct --shortcode <sc>
 ```
 
 Between those two, dispatch `contentos:content-director` at
-`direct-<sc>.md`. Then verify. On exit 7, append the verify errors to the
-bottom of the prompt file under a `## Fix these problems` heading, dispatch the
-same subagent once more, and verify again. If it fails twice, leave it: verify
-has already marked that reel `analysis_status: failed` in `02-outliers.json`,
-and `rank` skips it. Move on to the next reel. Never edit an analysis yourself.
+`direct-<sc>.md`. Then verify. On exit 7, append the verify errors to the prompt
+file with the recipe above, using `<name>` = `direct-<sc>`, dispatch the same
+subagent once more, and verify again. If it fails twice, leave it: verify has
+already marked that reel `analysis_status: failed` in `02-outliers.json`, and
+`rank` skips it. Move on to the next reel. Never edit an analysis yourself.
 
 ### Loop 2: synthesis, one per run
 
 ```bash
-python3 "$CONTENTOS_ROOT/scripts/contentos.py" synth-prompt --project "$PWD" --run <run_id> > "<run_dir>/prompts/synth.md"
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" synth-prompt --project "$PWD" --run <run_id> > "$RUN_DIR/prompts/synth.md"
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <run_id> --stage synth
 ```
 
 Dispatch `contentos:content-director` at `synth.md` between them. It writes
 `03-patterns.md`: proven hooks, recurring formats, saturated angles, a
 structural recommendation, and a language bank. On exit 7 the file is missing a
-heading; re-dispatch once with the problems appended, then carry on either way.
+heading; append the problems with the same recipe, using `<name>` = `synth`,
+re-dispatch once, then carry on either way.
 `rank` does not need this file, so a failed synthesis is not a reason to stop.
 
 ### Loop 3: writer, one per chosen brief
 
 ```bash
-python3 "$CONTENTOS_ROOT/scripts/contentos.py" write-prompt --project "$PWD" --run <run_id> --brief B01 > "<run_dir>/prompts/write-B01.r0.md"
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" write-prompt --project "$PWD" --run <run_id> --brief B01 > "$RUN_DIR/prompts/write-B01.r0.md"
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <run_id> --stage write --brief B01
 ```
 
 Dispatch `contentos:script-writer` at `write-B01.r0.md` between them. Verify
 prints `ok <path> words=... read_time_s=... placeholders=...` on success. On
-exit 7, append the problems to the prompt file, re-dispatch once, verify again.
-Twice failed means the brief gets no script: say so and keep going with the
-other briefs.
+exit 7, append the problems with the recipe above, using `<name>` =
+`write-B01.r0`, re-dispatch once, verify again. Twice failed means the brief
+gets no script: say so and keep going with the other briefs.
 
 ### Loop 4: QA, one per written script
 
 ```bash
-python3 "$CONTENTOS_ROOT/scripts/contentos.py" qa-prompt --project "$PWD" --run <run_id> --brief B01 > "<run_dir>/prompts/qa-B01.r0.md"
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" qa-prompt --project "$PWD" --run <run_id> --brief B01 > "$RUN_DIR/prompts/qa-B01.r0.md"
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <run_id> --stage qa --brief B01
 ```
 
@@ -308,9 +343,9 @@ Then act on the verdict:
 - **`revise`, the first time.** One revision, and only one:
 
 ```bash
-python3 "$CONTENTOS_ROOT/scripts/contentos.py" write-prompt --project "$PWD" --run <run_id> --brief B01 --revision 1 > "<run_dir>/prompts/write-B01.r1.md"
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" write-prompt --project "$PWD" --run <run_id> --brief B01 --revision 1 > "$RUN_DIR/prompts/write-B01.r1.md"
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <run_id> --stage write --brief B01 --revision 1
-python3 "$CONTENTOS_ROOT/scripts/contentos.py" qa-prompt --project "$PWD" --run <run_id> --brief B01 --revision 1 > "<run_dir>/prompts/qa-B01.r1.md"
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" qa-prompt --project "$PWD" --run <run_id> --brief B01 --revision 1 > "$RUN_DIR/prompts/qa-B01.r1.md"
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <run_id> --stage qa --brief B01 --revision 1
 ```
 

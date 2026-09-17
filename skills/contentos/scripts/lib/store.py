@@ -53,6 +53,7 @@ _GITIGNORE_LINES = (
     ".env",
     "runs/*/videos/",
     "runs/*/frames/",
+    "runs/*/prompts/",
     "setup-answers.json",
 )
 

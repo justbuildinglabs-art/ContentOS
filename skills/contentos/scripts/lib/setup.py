@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from lib import codes, store
 
@@ -96,7 +98,15 @@ not written here does not exist for the writer or the reviewer. Keep each answer
 short and concrete. Plain language, no em dashes. Anything marked TODO is still
 yours to fill in."""
 
-_INSTAGRAM_MARKER = "instagram.com/"
+# What Instagram allows in a username, and therefore the only shape a
+# competitor entry may reduce to. Anything else is a typo, not an
+# account, and scraping it would spend the founder's money on nothing.
+_HANDLE_RE = re.compile(r"^[A-Za-z0-9._]+$")
+
+# instagram.com, or any subdomain of it. `notinstagram.com` and
+# `instagram.com.example.net` both fail: the optional group has to end
+# in a dot, and the match is anchored at both ends.
+_INSTAGRAM_HOST_RE = re.compile(r"^(?:[A-Za-z0-9.-]+\.)?instagram\.com$", re.IGNORECASE)
 
 
 class SetupError(Exception):
@@ -134,15 +144,39 @@ def load_answers(path: Path) -> Dict[str, Any]:
     return answers
 
 
+def _url_parts(value: str) -> Tuple[Optional[str], str]:
+    """Split a URL-ish competitor entry into `(host, path)`.
+
+    Handles both `https://www.instagram.com/sproutapp/` and the
+    scheme-less `instagram.com/sproutapp` a founder is just as likely to
+    paste. Returns `(None, "")` when the entry has no path separator at
+    all, which is the bare-handle case.
+    """
+    if "://" in value:
+        parts = urlsplit(value)
+        return parts.netloc, parts.path
+    if "/" in value:
+        host, _, path = value.partition("/")
+        return host, path
+    return None, ""
+
+
 def normalize_handle(raw: Any) -> str:
     """Reduce one competitor answer to a bare lowercase Instagram handle.
 
-    Accepts `sproutapp`, `@SproutApp`, and any profile URL
-    (`https://www.instagram.com/SproutApp/reels/?hl=en`). Everything
-    after the host is cut back to the first path segment, a query string
-    or fragment is dropped, a leading `@` is stripped, and the result is
-    lowercased. Returns `""` for anything that leaves no handle behind,
-    which the caller drops.
+    Accepts a bare handle (`sproutapp`, `@SproutApp`) or any
+    instagram.com profile URL, with or without a scheme, a subdomain,
+    extra path segments, a query string, or a fragment
+    (`https://www.instagram.com/SproutApp/reels/?hl=en`). The first path
+    segment is the handle; a leading `@` is stripped and the result is
+    lowercased.
+
+    Returns `""` for a blank or non-string entry, which the caller
+    drops. Raises `SetupError` for anything else that is not an
+    Instagram handle: a URL on another host, or a handle carrying a
+    character Instagram does not allow, such as a space. Those are
+    typos, and scraping them would spend the founder's Apify credit on
+    an account that cannot exist.
     """
     if not isinstance(raw, str):
         return ""
@@ -150,16 +184,26 @@ def normalize_handle(raw: Any) -> str:
     if not value:
         return ""
 
-    marker_at = value.lower().find(_INSTAGRAM_MARKER)
-    if marker_at != -1:
-        value = value[marker_at + len(_INSTAGRAM_MARKER):]
-    for separator in ("?", "#"):
-        value = value.split(separator, 1)[0]
+    host, path = _url_parts(value)
+    if host is None:
+        candidate = value
+    else:
+        if not _INSTAGRAM_HOST_RE.match(host):
+            raise SetupError(
+                "{0!r} is not an Instagram account; a competitor is a handle "
+                "like sproutapp or a link like "
+                "https://www.instagram.com/sproutapp/".format(raw)
+            )
+        segments = [segment for segment in path.split("/") if segment]
+        candidate = segments[0] if segments else ""
 
-    segments = [segment for segment in value.split("/") if segment]
-    if not segments:
-        return ""
-    return segments[0].lstrip("@").strip().lower()
+    candidate = candidate.lstrip("@").strip()
+    if not _HANDLE_RE.match(candidate):
+        raise SetupError(
+            "{0!r} is not an Instagram handle; competitors use only letters, "
+            "numbers, dots, and underscores".format(raw)
+        )
+    return candidate.lower()
 
 
 def normalize_handles(raw_handles: Any) -> List[str]:
@@ -167,7 +211,9 @@ def normalize_handles(raw_handles: Any) -> List[str]:
 
     Order is the founder's, because the research summary and the run
     report list accounts in config order and a founder scanning that
-    table expects to see the order they typed.
+    table expects to see the order they typed. Raises `SetupError`,
+    naming the entry, on the first answer that is not an Instagram
+    handle or profile URL.
     """
     if not isinstance(raw_handles, list):
         return []
@@ -307,6 +353,33 @@ def render_product_md(
     return "\n\n".join(blocks).rstrip() + "\n", todo
 
 
+def _config_for(config_path: Path, handles: List[str], force: bool) -> Dict[str, Any]:
+    """Build the `config.json` to write: defaults, or the tuned file kept.
+
+    A founder who raised `apify_max_charge_usd`, dropped `briefs` to 2,
+    or moved `qa_pass_threshold` must not lose that because they re-ran
+    setup to change the competitor list. With `--force` over a
+    `config.json` that exists and parses as a JSON object, every key it
+    holds is kept, including keys ContentOS does not know about, and
+    only `competitors` is replaced. Anything else (no file yet, or a
+    file that is not a readable JSON object) falls back to
+    `store.DEFAULT_CONFIG` plus the handles.
+    """
+    if force and config_path.exists():
+        try:
+            existing = store.read_json(config_path)
+        except (ValueError, OSError):
+            existing = None
+        if isinstance(existing, dict):
+            config = copy.deepcopy(existing)
+            config["competitors"] = handles
+            return config
+
+    config = copy.deepcopy(store.DEFAULT_CONFIG)
+    config["competitors"] = handles
+    return config
+
+
 def run_setup(
     project: Path,
     answers: Dict[str, Any],
@@ -321,9 +394,11 @@ def run_setup(
     until every one of those has passed, so a refused setup leaves the
     project exactly as it found it.
 
-    `force` rewrites `product.md` and `config.json`. It never rewrites
-    `rules.md`: those lines are the founder's own corrections, and
-    re-running setup must not throw them away.
+    `force` rewrites `product.md`, and rewrites `config.json` keeping
+    every setting the founder had tuned and replacing only
+    `competitors` (see `_config_for`). It never rewrites `rules.md`:
+    those lines are the founder's own corrections, and re-running setup
+    must not throw them away.
 
     Returns `{project, product_md, config_json, rules_md, gitignore,
     competitors, todo_sections}`.
@@ -359,9 +434,7 @@ def run_setup(
     store.ensure_gitignore(project)
     product_path.write_text(product_text, encoding="utf-8")
 
-    config = copy.deepcopy(store.DEFAULT_CONFIG)
-    config["competitors"] = handles
-    store.write_json_atomic(config_path, config)
+    store.write_json_atomic(config_path, _config_for(config_path, handles, force))
 
     if not rules_path.exists():
         rules_path.write_text(RULES_COMMENT + "\n", encoding="utf-8")

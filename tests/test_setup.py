@@ -226,6 +226,123 @@ class SetupTests(NoNetworkTestCase):
             self.assertIn("## One-liner", product_path.read_text(encoding="utf-8"))
             self.assertIn("never say hustle", rules_path.read_text(encoding="utf-8"))
 
+    def test_setup_force_preserves_tuned_config_and_replaces_competitors(self) -> None:
+        # A founder who tuned their thresholds must not lose them because
+        # they re-ran setup to change the competitor list. `--force`
+        # rewrites product.md, keeps every existing config key, and
+        # replaces only `competitors`.
+        with temp_project() as project:
+            answers_file = _write_answers(project, FULL_ANSWERS)
+            code, _out, err = _main(
+                ["setup", "--project", str(project), "--answers-file", str(answers_file)]
+            )
+            self.assertEqual(code, 0, err)
+
+            config_path = store.contentos_dir(project) / "config.json"
+            tuned = json.loads(config_path.read_text(encoding="utf-8"))
+            tuned["apify_max_charge_usd"] = 12.5
+            tuned["briefs"] = 2
+            tuned["qa_pass_threshold"] = 10
+            tuned["reels_per_account"] = 45
+            tuned["my_own_note"] = "keep me"
+            config_path.write_text(json.dumps(tuned), encoding="utf-8")
+
+            new_answers = dict(FULL_ANSWERS, competitors=["@DailyWins", "ghostaccount"])
+            new_file = _write_answers(project, new_answers)
+            code, _out, err = _main(
+                [
+                    "setup",
+                    "--project",
+                    str(project),
+                    "--answers-file",
+                    str(new_file),
+                    "--force",
+                ]
+            )
+
+            self.assertEqual(code, 0, err)
+            after = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(after["competitors"], ["dailywins", "ghostaccount"])
+            self.assertEqual(after["apify_max_charge_usd"], 12.5)
+            self.assertEqual(after["briefs"], 2)
+            self.assertEqual(after["qa_pass_threshold"], 10)
+            self.assertEqual(after["reels_per_account"], 45)
+            self.assertEqual(after["my_own_note"], "keep me")
+
+            # product.md is rewritten with the new handles.
+            product = (store.contentos_dir(project) / "product.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(
+                _section(product, "Competitors"), "- dailywins\n- ghostaccount"
+            )
+
+        # An unreadable or missing config.json falls back to the defaults
+        # plus the new competitors, rather than refusing.
+        with temp_project() as project:
+            answers_file = _write_answers(project, FULL_ANSWERS)
+            code, _out, err = _main(
+                ["setup", "--project", str(project), "--answers-file", str(answers_file)]
+            )
+            self.assertEqual(code, 0, err)
+            config_path = store.contentos_dir(project) / "config.json"
+            config_path.write_text("{not json", encoding="utf-8")
+
+            code, _out, err = _main(
+                [
+                    "setup",
+                    "--project",
+                    str(project),
+                    "--answers-file",
+                    str(answers_file),
+                    "--force",
+                ]
+            )
+
+            self.assertEqual(code, 0, err)
+            expected = dict(store.DEFAULT_CONFIG, competitors=["sproutapp", "habitlab"])
+            self.assertEqual(
+                json.loads(config_path.read_text(encoding="utf-8")), expected
+            )
+
+    def test_setup_rejects_non_instagram_urls_and_handles_with_spaces(self) -> None:
+        # Anything that is not an instagram.com URL or a bare handle is a
+        # typo, not a competitor. Refuse it by name and write nothing,
+        # rather than scraping a handle the founder never meant.
+        bad_entries = [
+            "https://www.tiktok.com/@someone",
+            "Sprout App",
+            "https://example.com/sproutapp",
+            "sprout/app",
+            "sprout!app",
+        ]
+        for bad in bad_entries:
+            with self.subTest(competitor=bad):
+                with temp_project() as project:
+                    answers_file = _write_answers(
+                        project, dict(MINIMAL_ANSWERS, competitors=["sproutapp", bad])
+                    )
+
+                    code, out, err = _main(
+                        [
+                            "setup",
+                            "--project",
+                            str(project),
+                            "--answers-file",
+                            str(answers_file),
+                        ]
+                    )
+
+                    self.assertEqual(code, 2)
+                    self.assertEqual(out, "")
+                    self.assertIn(bad, err)
+                    self.assertFalse(
+                        (store.contentos_dir(project) / "product.md").exists()
+                    )
+                    self.assertFalse(
+                        (store.contentos_dir(project) / "config.json").exists()
+                    )
+
     def test_setup_normalizes_handles(self) -> None:
         answers = dict(
             MINIMAL_ANSWERS,

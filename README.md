@@ -108,15 +108,20 @@ Your state lives in your own project, never in the plugin:
 └── runs/<YYYYMMDD-HHMMSS>/
     ├── run.json  01-reels.json  01-profiles.json  02-outliers.json
     ├── videos/  frames/         # gitignored, they get large
+    ├── prompts/                 # gitignored, the exact prompt each subagent got
     ├── 03-analyses/  03-patterns.md  03-briefs.json  briefs.md
     ├── 04-scripts/<brief-id>.r<N>.md
     ├── 05-qa/<brief-id>.r<N>.json
     └── report.md
 ```
 
+`prompts/` is worth knowing about when an output surprises you. It holds the
+exact text each subagent was given, so you can read what it saw before you
+decide the model got it wrong.
+
 `setup` writes a `.contentos/.gitignore` that keeps your key file, the
-downloaded videos, the keyframes, and your setup answers out of version
-control.
+downloaded videos, the keyframes, the dispatch prompts, and your setup answers
+out of version control.
 
 ## Getting better output over time
 

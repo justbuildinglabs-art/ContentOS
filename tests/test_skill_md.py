@@ -200,6 +200,26 @@ class SkillBodyTests(NoNetworkTestCase):
         self.assertIn("--revision 1", body)
         self.assertIn("exit 7", prose)
 
+        # The re-dispatch appends the verify errors to the prompt file
+        # through the shell, so the prompt never enters this context.
+        self.assertIn("## Fix these problems", body)
+        self.assertIn('2> "$RUN_DIR/prompts/verify-', body)
+        self.assertIn("printf '\\n## Fix these problems\\n'", body)
+
+        # The RESULT line carries run_id and run_dir, and `<run_dir>`
+        # everywhere below means that absolute path.
+        self.assertIn("carries both `run_id` and `run_dir`", prose)
+        self.assertIn("`<run_dir>` below is that absolute", prose)
+
+        # `--run` takes `latest`, and a standalone stage never re-runs research.
+        self.assertIn("`--run` accepts a run id or the word `latest`", prose)
+        self.assertIn("Never start a new research run", prose)
+
+        # The mock shortcut is stated where the loops start, not after them.
+        mock_note = body.index("--run <run_id> --mock")
+        director_step = body.index("4. **Director loop")
+        self.assertLess(mock_note, director_step)
+
         # The failure table covers every non-zero exit code the CLI returns.
         for code in ("| 2 |", "| 3 |", "| 4 |", "| 5 |", "| 6 |", "| 7 |"):
             with self.subTest(exit_code=code):
@@ -266,6 +286,8 @@ class ReadmeTests(NoNetworkTestCase):
         self.assertIn(".contentos/", text)
         self.assertIn("rules.md", text)
         self.assertIn("references/examples/", text)
+        # The dispatch prompts land in the run directory and are gitignored.
+        self.assertIn("prompts/", text)
 
         # Privacy and credits.
         self.assertIn("stay on your machine", prose)
