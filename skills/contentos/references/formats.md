@@ -5,9 +5,12 @@ budget and skeleton. QA checks the script against the same numbers. One table, t
 section each.
 
 `word_budget` is the hard ceiling for the Beats table: the words in the spoken or VO column plus the words
-in the on-screen text column. It is about 2.5 spoken words per second of target length, which is the pace
-a person actually reads at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
-or minus 10 percent.
+in the on-screen text column.
+Bracketed markers count as zero words: `[PAUSE]`, `[EMPHASIS]`, and every `[NEED ...]` placeholder. The
+`[VISUAL CUE]` column is never counted.
+
+The number is about 2.5 spoken words per second of target length, which is the pace a person actually reads
+at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus or minus 10 percent.
 
 ## Format table
 

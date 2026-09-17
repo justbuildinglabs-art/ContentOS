@@ -22,11 +22,11 @@ On-screen text: Day 3 missed. No red.
 
 | t | [VISUAL CUE] | spoken / VO | on-screen text |
 | --- | --- | --- | --- |
-| 0:03 | screen recording, a rival app's grid of twelve habit tiles | Most habit apps open with a grid. Twelve habits, twelve ways to fail. | Twelve habits. Pick none. |
-| 0:10 | tap Add in Sprout, one text field, keyboard up, nothing else | Sprout asks one thing. What is the habit. No frequency, no reminders, no color codes. | One field. That's setup. |
-| 0:18 | home screen with a single card, the Add button greyed out | The Add button greys out. [EMPHASIS] No second habit until this one turns 14 days old. | Locked until day 14. |
+| 0:03 | screen recording, a rival app's grid of twelve habit tiles | Most habit apps open with a grid. Twelve habits, twelve ways to fail by Thursday. | Twelve habits. Pick none. |
+| 0:10 | tap Add in Sprout, one text field, keyboard up, nothing else | Sprout asks one thing. What is the habit. No frequency, no reminders, no color codes. | One field. That's the setup. |
+| 0:18 | home screen with a single card, the Add button greyed out | The Add button greys out. [EMPHASIS] No second habit until this one turns 14 days old. | Add locked until day 14. |
 | 0:26 | thumb taps a missed Tuesday, one leaf falls, counter holds | Here's the missed day. One leaf goes. The count holds at nine, and nothing turns red. | Missed Tuesday. Still day 9. |
-| 0:34 | four week view, one plant with a thin patch at week two | [NEED NUMBER] percent of people who stop counting streaks are still going in week six. | Week six: [NEED NUMBER]% |
+| 0:34 | four week view, one plant with a thin patch at week two | [NEED NUMBER] percent of people who stop counting streaks are still going in week six. | Week six: [NEED NUMBER] percent |
 
 ## Demo moment
 
@@ -54,9 +54,10 @@ It's annoying on day two. That is the entire product.
   low. No music under the first three seconds.
 - Shots: one continuous screen recording at 60fps, cut into five segments. The rival grid in segment one
   is a stand-in build, not a competitor's app, so nothing identifiable ships.
-- Text style: burned-in labels, four words or fewer, anchored top-left so they never cover the Add button.
+- Text style: burned-in labels, five words or fewer, anchored top-left so they never cover the Add button.
 - Read time: about 41 seconds at 2.5 words per second, counting the primary hook and the primary CTA.
-- Word count: 75 spoken words plus 21 on-screen words in the Beats table, 96 against a budget of 100.
+- Word count: 74 spoken words plus 22 on-screen words in the Beats table, 96 against a budget of 100.
+  Bracketed markers count as zero.
 - Beat five holds a placeholder. Without the real retention number, cut it and end on the missed day.
 
 ## What changed vs source
@@ -69,9 +70,4 @@ only thing in Sprout a competitor cannot copy in a week. The source's proof was 
 cannot use one because no testimonial is listed under Proof assets, so beat five carries a placeholder
 instead. All wording is ours.
 
-## Sources
-
-Format and markers paraphrased from "The 20-Agent Script System: How to Build an AI Writing Pipeline That
-Actually Produces Good Work" and voice rules from "How to Make Your Writing Not Sound Like AI", both by
-Ray Cfu. Sprout is an invented product used for teaching. A real script file stops at the section above;
-this footer exists because the file is a reference.
+<!-- Sources: paraphrased from "The 20-Agent Script System" and "How to Make Your Writing Not Sound Like AI" by Ray Cfu. Sprout is an invented product. -->

@@ -22,10 +22,10 @@ On-screen text: Zero is a quit message.
 
 | t | [VISUAL CUE] | spoken / VO | on-screen text |
 | --- | --- | --- | --- |
-| 0:03 | phone in hand, thumb scrolling past four half-dead habit apps | Every app I tried counted days. Miss one and it starts over at zero. | Day 1. Again. |
+| 0:03 | phone in hand, thumb scrolling past four half-dead habit apps | Every app I tried counted days. Miss one and it starts over at zero. | Back to day 1. Again. |
 | 0:09 | Sprout open, one card on an otherwise empty screen | Sprout holds one habit. [PAUSE] One. You can't add a second until this one sticks. | One habit. That's the whole app. |
 | 0:16 | thumb taps a missed Tuesday, the plant drops a single leaf | Miss a day and you lose a leaf, not the streak. [EMPHASIS] Nothing resets. | Missed Tuesday. Still day 9. |
-| 0:23 | four week view, one plant, a thin patch at week two | People who stop counting streaks keep going [NEED NUMBER] weeks longer. | [NEED NUMBER] weeks longer |
+| 0:23 | four week view, one plant, a thin patch at week two | People who stop counting streaks keep going [NEED NUMBER] weeks longer. That's the whole bet. | [NEED NUMBER] weeks longer on average |
 
 ## Demo moment
 
@@ -53,8 +53,9 @@ The first week feels too slow. That's deliberate.
   shoulder on the screen, with the face back in frame for the CTA.
 - Text style: four beat cards plus the hook card and the CTA card, six words or fewer each, bottom
   third, high contrast, readable with sound off.
-- Read time: about 31 seconds at 2.5 words per second, counting the primary hook and the primary CTA.
-- Word count: 54 spoken words plus 18 on-screen words in the Beats table, 72 against a budget of 75.
+- Read time: about 32 seconds at 2.5 words per second, counting the primary hook and the primary CTA.
+- Word count: 54 spoken words plus 20 on-screen words in the Beats table, 74 against a budget of 75.
+  Bracketed markers count as zero.
 - Beat four needs the founder's retention number before filming. If it never arrives, cut beat four and
   end on the leaf.
 
@@ -68,9 +69,4 @@ source used a gym habit, this one uses a morning routine because that is where S
 Every spoken line is new. The source's on-screen text ran in the center of frame, ours sits in the bottom
 third so the product card stays visible.
 
-## Sources
-
-Format and markers paraphrased from "The 20-Agent Script System: How to Build an AI Writing Pipeline That
-Actually Produces Good Work" and voice rules from "How to Make Your Writing Not Sound Like AI", both by
-Ray Cfu. Sprout is an invented product used for teaching. A real script file stops at the section above;
-this footer exists because the file is a reference.
+<!-- Sources: paraphrased from "The 20-Agent Script System" and "How to Make Your Writing Not Sound Like AI" by Ray Cfu. Sprout is an invented product. -->

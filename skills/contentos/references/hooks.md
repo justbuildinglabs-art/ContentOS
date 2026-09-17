@@ -10,12 +10,13 @@ actually does in its first seconds, not what the caption claims. When nothing fi
 describe the mechanism in `transferable_mechanism`. All examples below are invented for teaching.
 
 ### bold_claim
-A specific, surprising result or number said flat, so the viewer thinks "wait, really".
+A hard number or an unlikely result, stated with no wind-up, so the viewer stops to check whether
+it can be true.
 - "I cancelled six subscriptions in one sitting and got $214 back." (Loomi, budgeting)
 - "This fern went 40 days alone in an empty flat." (Fernback, plant care)
 
 ### pain_callout
-Names the exact frustration the viewer is feeling right now, in the viewer's own words.
+Says the viewer's current annoyance back to them, in the words they would use themselves.
 - "You've started the same morning routine four times this year." (Sprout, habits)
 - "Your laundry pile has its own chair." (Rinse, laundry pickup)
 
@@ -25,7 +26,7 @@ Attacks something the category takes for granted and promises a better way.
 - "Meal prep Sunday is a trap." (Marrow, meal planning)
 
 ### story_open
-Drops the viewer into the middle of a scene with no setup, raising a question they need answered.
+Starts inside a scene already running, so the viewer stays to find out how it got there.
 - "It's 11pm and I'm re-reading an invoice I sent in March." (Quartz, invoicing)
 - "The trail marker was gone. So was my signal." (Trailhead, hiking)
 
@@ -86,8 +87,8 @@ Rules for both hooks:
 Run this loop in your own head and ship only the final pair:
 - **Draft.** Write the hook fast, do not edit while writing.
 - **Diagnosis.** Be blunt with yourself. Is it specific or soft. Would a thumb stop or drift. Is the
-  emotional charge real or claimed. Does it sound like every other ad in this category. Does it match the
-  brand voice in `product.md`. Does it echo the source wording.
+  emotional charge real or claimed. Could a competitor run the same line tomorrow. Does it match the brand
+  voice in `product.md`. Does it echo the source wording.
 - **Redraft.** Fix the named weakness only. Two rounds is usually enough. Three is the cap.
 
 ## First three seconds

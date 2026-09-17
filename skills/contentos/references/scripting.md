@@ -26,7 +26,8 @@ Three rows minimum, four is the normal shape for a 30 second reel. One idea per 
 
 1. **Problem.** The status quo, in the viewer's language from the audience profile. No product yet.
 2. **Solution.** The product arrives as the obvious next move, not as an ad break.
-3. **Differentiator.** The one thing that is genuinely different. Not a feature list.
+3. **Differentiator.** The single thing a rival could not copy this quarter. One thing, never a list
+   of features.
 4. **Proof.** A number, a comparison, a result, or a demonstration. Skip this beat only when the target
    length cannot hold it, and say so in the production notes.
 
@@ -80,7 +81,7 @@ something the viewer cannot see, either shoot it or cut the line.
   profile in the same breath. If the objection is "another app I will delete", say something about that.
 - The open loop leaves a question that only the action resolves. Good for cold audiences.
 - Urgency only when it is real. No invented deadlines, no fake scarcity.
-- The CTA must feel like the end of the argument, not a different script stapled on.
+- The CTA must land as the last step of the argument, never as a sales pitch glued onto the end.
 
 ## Caption rules
 
@@ -96,14 +97,14 @@ These are the tells that make a script feel machine made. The QA `ai_tells` chec
 
 | Tell | Fix |
 | --- | --- |
-| Every sentence lands between 15 and 25 words | Vary length on purpose. Write a four word line. Then let one run long and double back the way a person does when they are working it out. This fix matters more than the rest combined. |
+| Nearly every sentence sits in the 15 to 25 word band | Vary length on purpose. Write a four word line. Then let one run long and double back the way a person does when they are working it out. This fix matters more than the rest combined. |
 | Every beat is the same size | Make them uneven. Let one beat be a single line. |
-| Throat-clearing openers like "in today's world" or "it is important to note" | Start on the actual point. Delete the runway. |
+| Throat-clearing openers, the "before we get into it" and "so let's talk about" family | Start on the actual point. Delete the runway. |
 | Stock vocabulary: delve, tapestry, leverage, seamless, robust, landscape, navigate, underscore, realm, testament, elevate, unlock, harness, foster, unleash, groundbreaking, game-changer | Say the plain word out loud and write that one instead. |
 | Em dashes | None. Use a comma or a period. |
 | Relentless positivity | One honest limitation is allowed and usually helps. Say the part that is slow, awkward, or not for everyone. |
 | Vague quantities: significantly, a wide range, numerous | A textured number, or `[NEED NUMBER]`. Odd and precise beats round and soft. |
-| Hedges: kind of, sort of, in a way, to be honest, basically | At most one hedge in the whole script. Zero is better. |
+| Hedges: basically, honestly, more or less, sort of, kind of | At most one hedge in the whole script. Zero is better. |
 | Formal register with no contractions | Use contractions everywhere speech would. Start a line with And, But, or Because when the emphasis needs it. |
 
 Read the spoken column out loud before you deliver. If you run out of breath, the line is too long. If you
@@ -116,8 +117,8 @@ the working notes.
 
 - **Draft.** Write the whole thing without editing. Editing while writing produces careful, dead lines.
 - **Diagnosis.** Name the weakest line and say why. Where does the energy dip. Where does it stop sounding
-  like content and start sounding like an ad. Is every line earning its place. Does the rhythm vary. Does
-  it sound like the voice in `product.md`.
+  like content and start sounding like an ad. Does each line still deserve the space it takes. Does the
+  rhythm vary. Does it sound like the voice in `product.md`.
 - **Redraft.** Fix what you named. Do not rewrite what was working.
 
 Two rounds is normal, three is the cap. Then count words against the format budget and cut to fit. Cut

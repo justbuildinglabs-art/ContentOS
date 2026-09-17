@@ -59,7 +59,7 @@ founder has not filled in the Brand voice section.
 Pass when sentence length varies, contractions appear where speech would use them, numbers are textured or
 placeheld, and none of the tells in `scripting.md` are present. Fail on any em dash, any word from the
 banned vocabulary list, any throat-clearing opener, more than one hedge, or a spoken column where more
-than four lines in five land between 15 and 25 words.
+than four lines in five sit inside the 15 to 25 word band.
 
 ## Scores
 
@@ -76,16 +76,16 @@ first sentence asks anyone to stay.
 category language that would fit any product in the niche.
 
 ### hook_emotional_charge
-10: an involuntary reaction, recognition or irritation or surprise. 7: intellectually interesting and
-emotionally flat. 4: no feeling at all, just information.
+10: an involuntary reaction, recognition or irritation or surprise. 7: it registers as information and
+nothing moves. 4: no reaction of any kind.
 
 ### hook_voice_match
 10: indistinguishable from the sample sentences in `product.md`. 7: generically professional, could be any
 brand. 4: wrong register, or it uses an off-limits word.
 
 ### hook_differentiation
-10: unlike anything else in this niche's feed, and clearly not the `avoid` angle. 7: could belong to a
-competitor. 4: it is the `avoid` angle.
+10: unlike anything else in this niche's feed, and clearly not the `avoid` angle. 7: a rival could run
+the same line tomorrow. 4: it is the `avoid` angle.
 
 ### body_argument_clarity
 10: after one watch the viewer could tell a friend why this product matters. 7: they get the gist and miss
@@ -104,16 +104,16 @@ without support. 4: mostly assertion, the product is described rather than shown
 be deleted and nothing would be lost.
 
 ### cta_action_clarity
-10: zero confusion about the next step. 7: the step is implied but not said. 4: the viewer has to work out
-what to do.
+10: the next step is unmistakable and takes one tap. 7: the step is implied but never said. 4: the viewer
+has to work out what to do.
 
 ### cta_friction
 10: names the number one objection and removes it in the same breath. 7: easy to act on, but the objection
 is ignored. 4: it adds friction, an account, a price surprise, or a form.
 
 ### cta_momentum
-10: the natural end of the argument the body was making. 7: a small gear change into selling. 4: a
-different script stapled on the end.
+10: the natural end of the argument the body was making. 7: a small gear change into selling. 4: it
+reads like the ending of a different video, glued on.
 
 ### cta_urgency
 10: a real reason to act today, drawn from `product.md`. 7: pleasant and entirely postponable. 4: invented
@@ -129,13 +129,14 @@ Put it in `filler_cut_list` with the line quoted and the reason. Filler gets cut
 - Anything that repeats a point already made.
 - Fifteen words doing the job of seven.
 - Habitual transitions that exist out of reflex, the "and that is not all" family.
-- Hedges: kind of, sort of, in a way, to be honest, basically. One survives at most.
+- Hedges: basically, honestly, more or less, sort of, kind of. One survives at most.
 
 ## Length rule (length_check)
 
 Count the words in the Beats table spoken or VO column plus the words in the on-screen text column.
-Include bracketed markers and placeholders as written. That is `word_count`. Compare it with the
-`word_budget` in the frontmatter, which must match the format's row in `formats.md`.
+Bracketed markers count as zero words: `[PAUSE]`, `[EMPHASIS]`, and every `[NEED ...]` placeholder. The
+`[VISUAL CUE]` column is never counted. That total is `word_count`. Compare it with the `word_budget` in
+the frontmatter, which must match the format's row in `formats.md`.
 
 Within plus or minus 10 percent sets `within_tolerance` true. Over the top of the range is a fail and
 forces a revision, with the cut list attached. Under the bottom of the range is also outside tolerance:
@@ -159,13 +160,13 @@ A second `revise` on the same brief sends it to a human. Say clearly what a huma
 
 ## One watch test (one_watch_test)
 
-Imagine one viewing at normal speed with the sound on, no replay. Write one or two sentences answering:
-what is the single thing the viewer remembers, and is it the right thing. The right thing is the
-differentiator, not a joke, a transition, or the music.
+Imagine one viewing at normal speed with the sound on, no replay. Write one or two sentences saying which
+single thing stays with the viewer, and whether that thing is the differentiator rather than a joke, a
+transition, or the music.
 
-Then check the three-part version: could they say what the product is, why it matters, and what to do
-next. If they could not, that is a structural problem in the body, not a wording problem. Return `revise`
-with a note that the beats need rebuilding rather than a line edit.
+Then run the three-part version. Could the viewer name the product, say why it beats what they use now,
+and repeat the next step. If any of the three is missing, the body has a structural problem, not a wording
+problem. Return `revise` and say the beats need rebuilding rather than a line edit.
 
 ## Spoken flow and cringe (spoken_flow_issues, cringe_flags)
 
