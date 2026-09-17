@@ -241,6 +241,63 @@ class DownloadSelectedTests(NoNetworkTestCase):
         self.assertIn("downloadedVideo", report.warnings[0])
         self.assertIn("apify/instagram-reel-scraper", report.warnings[0])
 
+    def test_unusable_video_url_fails_without_calling_the_downloader(self) -> None:
+        # A scrape can hand back a null or scheme-less videoUrl.
+        # urllib.request.Request raises ValueError on those, and an
+        # escaping exception would abort the run before 02-outliers.json
+        # is rewritten, leaving every reel "pending" on disk.
+        with temp_project() as project_dir:
+            run_dir = self._run_dir(project_dir)
+            reel_a = _reel("AAA001", videoUrl=None)
+            reel_c = _reel("CCC001")
+            downloader = _ScriptedDownloader(
+                {
+                    reel_a["displayUrl"]: "ok",
+                    reel_c["videoUrl"]: "ok",
+                    reel_c["displayUrl"]: "ok",
+                }
+            )
+            outliers_doc = _outliers_doc([reel_a], backfill=[reel_c])
+
+            report = video.download_selected(
+                run_dir, outliers_doc, _cfg(), False, downloader=downloader, log=lambda _m: None
+            )
+
+            written = store.read_json(run_dir / "02-outliers.json")
+
+        self.assertEqual(reel_a["video_status"], "failed")
+        self.assertNotIn(None, downloader.calls)
+        self.assertEqual(report.ok, ["CCC001"])
+        self.assertEqual(report.replaced_from_backfill, [{"failed": "AAA001", "promoted": "CCC001"}])
+        self.assertEqual([r["shortCode"] for r in written["selected"]], ["AAA001", "CCC001"])
+        self.assertEqual(written["selected"][0]["video_status"], "failed")
+
+    def test_scheme_less_and_raising_urls_become_failed(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = self._run_dir(project_dir)
+            # AAA001: a scheme-less videoUrl, plus a cover URL the
+            # downloader itself rejects by raising ValueError.
+            reel_a = _reel("AAA001", videoUrl="example.invalid/videos/AAA001.mp4")
+            reel_b = _reel("BBB001", displayUrl=None)
+
+            def _downloader(url, dest, max_bytes, **_kwargs):
+                if url == reel_a["displayUrl"]:
+                    raise ValueError("unknown url type")
+                Path(dest).parent.mkdir(parents=True, exist_ok=True)
+                Path(dest).write_bytes(b"fake-bytes")
+                return http.DownloadResult("ok", len(b"fake-bytes"), 200)
+
+            outliers_doc = _outliers_doc([reel_a, reel_b])
+
+            video.download_selected(
+                run_dir, outliers_doc, _cfg(), False, downloader=_downloader, log=lambda _m: None
+            )
+
+        self.assertEqual(reel_a["video_status"], "failed")
+        self.assertEqual(reel_a["cover_status"], "failed")
+        self.assertEqual(reel_b["video_status"], "ok")
+        self.assertEqual(reel_b["cover_status"], "failed")
+
     def test_mock_copies_fixture_video_and_cover(self) -> None:
         with temp_project() as project_dir:
             run_dir = self._run_dir(project_dir)

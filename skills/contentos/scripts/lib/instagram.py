@@ -124,10 +124,17 @@ def normalize_reel(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Normalize one raw Apify "reels" dataset item to the canonical Reel dict.
 
     Returns `None` for an item that carries an `error` key, has no
-    `shortCode`, has a `productType` other than `"clips"`, or has
+    `shortCode`, has a `productType` other than `"clips"`, has
     `isPinned` true -- pinned posts bias medians and the actor input
     already asks Apify to skip them (`skipPinnedPosts`), so any that
-    slip through are dropped here too.
+    slip through are dropped here too -- or has a missing or
+    unparseable `timestamp`.
+
+    A reel with no usable posting time cannot be placed in the lookback
+    window or in an account's baseline, so it is dropped exactly like a
+    reel with no `shortCode`. It is never an exception: one malformed
+    item out of a whole scrape must not abort the research run after
+    Apify has already been paid for it.
     """
     if "error" in item:
         return None
@@ -140,6 +147,11 @@ def normalize_reel(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     if item.get("isPinned"):
+        return None
+
+    try:
+        timestamp = parse_ts(item["timestamp"]).isoformat()
+    except (KeyError, AttributeError, ValueError, TypeError, OverflowError):
         return None
 
     plays, plays_source = pick_plays(item)
@@ -157,7 +169,7 @@ def normalize_reel(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "shortCode": short_code,
         "url": item.get("url") or f"https://www.instagram.com/reel/{short_code}/",
         "ownerUsername": item.get("ownerUsername"),
-        "timestamp": parse_ts(item["timestamp"]).isoformat(),
+        "timestamp": timestamp,
         "caption": item.get("caption") or "",
         "hashtags": item.get("hashtags") or [],
         "mentions": item.get("mentions") or [],

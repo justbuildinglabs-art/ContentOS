@@ -227,6 +227,39 @@ class NormalizeReelTests(NoNetworkTestCase):
         all_garbage = _clip_item(latestComments=["oops", 1, None, [1, 2]])
         self.assertEqual(instagram.normalize_reel(all_garbage)["latestComments"], [])
 
+    def test_drops_a_reel_whose_timestamp_is_missing_or_unparseable(self) -> None:
+        # A reel with no usable posting time cannot be placed in the
+        # lookback window or the baseline, so it is dropped the same way
+        # a reel without a shortCode is. It must never abort the run.
+        null_ts = _clip_item(shortCode="NULLTS", timestamp=None)
+        self.assertIsNone(instagram.normalize_reel(null_ts))
+
+        no_ts = _clip_item(shortCode="NOTS")
+        del no_ts["timestamp"]
+        self.assertIsNone(instagram.normalize_reel(no_ts))
+
+        junk_ts = _clip_item(shortCode="JUNKTS", timestamp="not a date")
+        self.assertIsNone(instagram.normalize_reel(junk_ts))
+
+        listy_ts = _clip_item(shortCode="LISTTS", timestamp=["2026-08-15T12:00:00Z"])
+        self.assertIsNone(instagram.normalize_reel(listy_ts))
+
+        huge_ts = _clip_item(shortCode="HUGETS", timestamp=10 ** 20)
+        self.assertIsNone(instagram.normalize_reel(huge_ts))
+
+    def test_dataset_still_normalizes_around_a_reel_with_a_bad_timestamp(self) -> None:
+        reels, _profiles, status = instagram.normalize_dataset(
+            [
+                _clip_item(shortCode="GOOD1", ownerUsername="someaccount"),
+                _clip_item(shortCode="BADTS", ownerUsername="someaccount", timestamp=None),
+            ],
+            [],
+            ["someaccount"],
+        )
+
+        self.assertEqual([reel["shortCode"] for reel in reels], ["GOOD1"])
+        self.assertEqual(status["someaccount"], "ok")
+
 
 class PickPlaysTests(NoNetworkTestCase):
     def test_plays_prefers_playcount_then_viewcount_then_none(self) -> None:

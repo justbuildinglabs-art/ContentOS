@@ -722,6 +722,28 @@ class DirectorPromptTests(NoNetworkTestCase):
         self.assertIn(f08_line, prompt)
         self.assertNotIn("f02.jpg", prompt)
 
+    def test_director_prompt_labels_frames_by_configured_frame_count(self) -> None:
+        # frame_times spreads its slots evenly across the reel, so the
+        # timestamp for f05 depends on how many frames were *asked for*,
+        # not on how many landed on disk. When the highest-numbered
+        # frames are the ones ffmpeg dropped, deriving the count from the
+        # files present would shift every label after the fixed points.
+        with temp_project() as project_dir:
+            run_dir = _write_run_dir(
+                project_dir, "AAA001", duration_s=20.0, frame_indices=[1, 2, 3, 4, 5, 6]
+            )
+            schema = director.load_schema("analysis")
+
+            prompt = director.build_director_prompt(
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "product.md", schema
+            )
+
+        frame_dir = run_dir / "frames" / "AAA001"
+        expected_times = frames.frame_times(20.0, 8)
+        f05_line = f"{(frame_dir / 'f05.jpg').resolve()} at {expected_times[4]}s"
+
+        self.assertIn(f05_line, prompt)
+
     def test_director_prompt_raises_keyerror_when_reel_not_selected(self) -> None:
         with temp_project() as project_dir:
             run_dir = _write_run_dir(project_dir, "AAA001")

@@ -43,6 +43,7 @@ _REFRESH_POLL_S = 5
 
 _STATUS_OK = "ok"
 _STATUS_TOO_LARGE = "too_large"
+_STATUS_FAILED = "failed"
 
 _WARN_OVER_HALF_FAILED = (
     "more than half of the selected reels failed to download; consider the "
@@ -102,6 +103,42 @@ def _mock_copy(src: Path, dest: Path) -> str:
     return _STATUS_OK
 
 
+def _usable_url(url: Any) -> bool:
+    """True when `url` is a string the downloader could actually fetch.
+
+    A scrape can hand back `None`, an empty string, or a scheme-less
+    host ("example.com/a.mp4") for `videoUrl`/`displayUrl`.
+    `urllib.request.Request` raises `ValueError` ("unknown url type")
+    on all of those, so they are screened out here rather than paid for
+    with an exception mid-run.
+    """
+    return isinstance(url, str) and url.lower().startswith(("http://", "https://"))
+
+
+def _download_status(
+    downloader: Callable[..., http.DownloadResult],
+    url: Any,
+    dest: Path,
+    max_bytes: int,
+) -> str:
+    """`downloader`'s status for `url`, or "failed" when it cannot be fetched.
+
+    An unusable URL never reaches `downloader` at all; a `ValueError` or
+    `TypeError` from a downloader that rejects the URL itself is mapped
+    to the same `failed` status. Either way the reel simply fails like
+    any other bad download -- it is promoted out of the way by the
+    backfill pool -- instead of aborting `download_selected` before
+    `02-outliers.json` is rewritten, which would leave every reel on
+    disk stuck at `pending`.
+    """
+    if not _usable_url(url):
+        return _STATUS_FAILED
+    try:
+        return downloader(url, dest, max_bytes).status
+    except (ValueError, TypeError):
+        return _STATUS_FAILED
+
+
 def _process_reel(
     run_dir: Path,
     reel: Dict[str, Any],
@@ -124,6 +161,11 @@ def _process_reel(
     when ffmpeg is missing. A cover's own status never influences
     `video_status` or backfill promotion; it is only recorded on the
     reel (`cover_status`) and logged when it is not "ok".
+
+    A missing or non-http(s) `videoUrl`/`displayUrl` is `failed`
+    without calling `downloader`, and a `ValueError`/`TypeError` out of
+    `downloader` is mapped to `failed` too (`_download_status`), so one
+    malformed URL costs one reel rather than the whole run.
     """
     shortcode = reel["shortCode"]
     duration_s = reel["duration_s"]
@@ -136,14 +178,16 @@ def _process_reel(
         video_status = _mock_copy(Path(fixtures_dir) / "sample.mp4", dest)
     else:
         max_bytes = cfg["max_video_mb"] * 1024 * 1024
-        video_status = downloader(reel["videoUrl"], dest, max_bytes).status
+        video_status = _download_status(downloader, reel.get("videoUrl"), dest, max_bytes)
     reel["video_status"] = video_status
 
     cover_dest = cover_path(run_dir, shortcode)
     if mock:
         cover_status = _mock_copy(Path(fixtures_dir) / "sample_cover.jpg", cover_dest)
     else:
-        cover_status = downloader(reel["displayUrl"], cover_dest, COVER_MAX_BYTES).status
+        cover_status = _download_status(
+            downloader, reel.get("displayUrl"), cover_dest, COVER_MAX_BYTES
+        )
     reel["cover_status"] = cover_status
     if cover_status != _STATUS_OK:
         log(f"{shortcode}: cover download {cover_status}")

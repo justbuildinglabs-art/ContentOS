@@ -388,17 +388,35 @@ def _frame_index(path: Path) -> Optional[int]:
     return int(match.group(1)) if match else None
 
 
+def _frames_per_reel(run_dir: Path) -> Optional[int]:
+    """`frames_per_reel` from the run's own config snapshot, or None.
+
+    `run.json` records the config the run was started with (`store.init_run`),
+    so this is the number of frames Stage 1 actually asked `frame_times`
+    for. Any unreadable, malformed, or non-integer snapshot returns None
+    and leaves the caller to fall back, since a wrong count is worse than
+    no count.
+    """
+    try:
+        value = store.read_json(Path(run_dir) / "run.json")["config"]["frames_per_reel"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
 def _frame_listing(run_dir: Path, shortcode: str, duration_s: Optional[float]) -> Tuple[List[str], bool]:
     """Lines describing this reel's keyframes, and whether it is cover-only.
 
     The normal case lists every `frames/<shortcode>/f*.jpg` file, sorted,
-    each with a timestamp from `frame_times(duration_s, max_index)` --
-    reusing the same function `lib/frames.py` cut the frames with, so the
-    reported timestamps match what Stage 1 actually extracted at. When no
-    `f*.jpg` files exist (ffmpeg was not available -- design spec,
-    "frames_status: cover_only"), this falls back to the single cover
-    image and reports `cover_only=True`, so the caller can flag the
-    analysis's confidence accordingly.
+    each with a timestamp from `frame_times(duration_s, frames_per_reel)`
+    -- reusing the same function `lib/frames.py` cut the frames with, and
+    the same count, so the reported timestamps match what Stage 1
+    actually extracted at. When no `f*.jpg` files exist (ffmpeg was not
+    available -- design spec, "frames_status: cover_only"), this falls
+    back to the single cover image and reports `cover_only=True`, so the
+    caller can flag the analysis's confidence accordingly.
 
     Each file is labeled by its *own* parsed index (`fNN.jpg` -> `NN`),
     looked up as `times[NN - 1]`, never by its position in the sorted
@@ -406,17 +424,24 @@ def _frame_listing(run_dir: Path, shortcode: str, duration_s: Optional[float]) -
     fails and moves on to the next one, so a real run can leave a gap in
     the numbering (`f01, f03, f04, ...`, no `f02`); pairing by list
     position would then silently mislabel every file after the gap with
-    the timestamp meant for its missing neighbor. `max_index` -- the
-    highest `NN` actually present, not the file *count* -- is what is
-    asked of `frame_times`, so a later, higher-numbered survivor still
-    gets the timestamp `frame_times` would have given it had every frame
-    up to it succeeded. `frame_times` can still return fewer entries than
-    `max_index` (its own contract: an unknown `duration_s` caps the
-    result at the four fixed early points); a file whose index falls
-    past the end of that list -- or that does not parse as `fNN` at all
-    -- is still listed, just without a timestamp, rather than silently
-    dropped -- hiding a real keyframe from the director would be worse
-    than one missing number.
+    the timestamp meant for its missing neighbor.
+
+    The count asked of `frame_times` is the run's own `frames_per_reel`,
+    read from the `run.json` config snapshot, because `frame_times`
+    spreads its slots evenly over the reel: the same `fNN` gets a
+    different timestamp depending on how many frames were *requested*.
+    Deriving the count from the files on disk would therefore mislabel
+    every frame past the fixed early points whenever the highest-numbered
+    frames are the ones ffmpeg dropped. Only when the snapshot is
+    unreadable does this fall back to the highest `NN` present.
+
+    `frame_times` can still return fewer entries than the highest index
+    present (its own contract: an unknown `duration_s` caps the result at
+    the four fixed early points); a file whose index falls past the end
+    of that list -- or that does not parse as `fNN` at all -- is still
+    listed, just without a timestamp, rather than silently dropped --
+    hiding a real keyframe from the director would be worse than one
+    missing number.
     """
     frame_dir = Path(run_dir) / "frames" / shortcode
     frame_paths = sorted(frame_dir.glob("f*.jpg"))
@@ -424,7 +449,8 @@ def _frame_listing(run_dir: Path, shortcode: str, duration_s: Optional[float]) -
         indices = [_frame_index(path) for path in frame_paths]
         known_indices = [index for index in indices if index is not None]
         max_index = max(known_indices) if known_indices else len(frame_paths)
-        times = frames_lib.frame_times(duration_s, max_index)
+        n_frames = _frames_per_reel(run_dir)
+        times = frames_lib.frame_times(duration_s, n_frames if n_frames else max_index)
 
         lines = []
         for path, index in zip(frame_paths, indices):
