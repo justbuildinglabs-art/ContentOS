@@ -1,0 +1,41 @@
+{
+  "brief_title": "Trending sound remix that turns a habit hack into a reveal",
+  "hook_spoken": "I did not expect this habit hack to blow up.",
+  "hook_on_screen_text": "I did NOT expect this to blow up",
+  "hook_type": "story_open",
+  "hook_seconds": 3.0,
+  "emotion_lead": "desire",
+  "format": "trend_remix",
+  "structure": [
+    {
+      "frame": 1,
+      "beat": "Creator reacts on camera while the trending sound sets the beat"
+    },
+    {
+      "frame": 4,
+      "beat": "Cuts to the habit hack itself, timed to the drop in the sound"
+    },
+    {
+      "frame": 6,
+      "beat": "Shows the app screen that makes the hack repeatable"
+    },
+    {
+      "frame": 8,
+      "beat": "Ends on the result with a link in bio card"
+    }
+  ],
+  "audio": "trending_sound",
+  "cta": "Link in bio",
+  "product_or_topic_shown": "A habit app, shown for a few seconds inside a trend format",
+  "why_it_worked": "The trending sound bought the first two seconds and the hack paid them back. The comments ask for the link and ask whether it works long term, so the format sold the product and left one objection open.",
+  "transferable_mechanism": "borrow a trending sound for reach, then spend the middle of the video on one concrete hack the product enables",
+  "adaptation_for_product": "keep the trend timing but make the hack the five second Sprout check in, and answer the long term objection on screen",
+  "avoid": "Copying the sound with a generic aesthetic montage and no hack at all",
+  "score_scalable": 9,
+  "score_convertible": 8,
+  "score_product_fit": 9,
+  "risk_flags": [
+    "copyrighted_media"
+  ],
+  "confidence": "high"
+}

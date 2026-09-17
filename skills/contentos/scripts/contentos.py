@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from lib import apify, codes, env, frames, research, store
+from lib import apify, codes, direct, env, frames, research, store
 
 SUBCOMMANDS = [
     "diagnose",
@@ -157,12 +157,99 @@ def _frames_handler(args: argparse.Namespace) -> int:
     return codes.EXIT_OK
 
 
+def references_dir() -> Path:
+    """Return the skills/contentos/references directory the prompts cite."""
+    return skill_root() / "references"
+
+
+def _direct_prompt_handler(args: argparse.Namespace) -> int:
+    """Print the `content-director` dispatch prompt for one selected reel.
+
+    Every refusal (`direct.DirectError`) carries its own exit code: 2
+    for an unresolvable run, a reel that is not selected, a reel with
+    no keyframes, or a missing `product.md`. The prompt itself goes to
+    stdout for the skill to hand to the subagent.
+    """
+    project_dir = args.project.resolve()
+    try:
+        prompt = direct.run_direct_prompt(
+            project_dir, args.run, args.shortcode, references_dir()
+        )
+    except direct.DirectError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    print(prompt)
+    return codes.EXIT_OK
+
+
+def _synth_prompt_handler(args: argparse.Namespace) -> int:
+    """Print the one set-level synthesis dispatch prompt for `03-patterns.md`."""
+    project_dir = args.project.resolve()
+    try:
+        prompt = direct.run_synth_prompt(project_dir, args.run, references_dir())
+    except direct.DirectError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    print(prompt)
+    return codes.EXIT_OK
+
+
+def _verify_handler(args: argparse.Namespace) -> int:
+    """Verify one stage's output file, printing `ok <path>` or its problems.
+
+    `direct` and `synth` are Stage 2's own checks (`lib/direct.py`);
+    `write` and `qa` are still stubs and report themselves as not
+    implemented, exactly like any other unimplemented subcommand.
+    """
+    if args.stage not in ("direct", "synth"):
+        print(f"verify {args.stage}: not implemented", file=sys.stderr)
+        return codes.EXIT_STUB
+
+    project_dir = args.project.resolve()
+    try:
+        if args.stage == "direct":
+            path = direct.verify_direct(project_dir, args.run, args.shortcode)
+        else:
+            path = direct.verify_synth(project_dir, args.run)
+    except direct.DirectError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    print(f"ok {path}")
+    return codes.EXIT_OK
+
+
+def _rank_handler(args: argparse.Namespace) -> int:
+    """Rank one run's analyses into briefs and print the JSON summary.
+
+    `--mock` seeds the fixture analyses and patterns first, so a mock
+    run reaches `briefs.md` with no subagent dispatched. A run with no
+    valid analysis exits 2, as does a bad config or an unresolvable
+    run.
+    """
+    project_dir = args.project.resolve()
+    try:
+        cfg = store.load_config(project_dir)
+        result = direct.run_rank(project_dir, args.run, cfg, mock=args.mock)
+    except direct.DirectError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    except store.ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    print(json.dumps(result))
+    return codes.EXIT_OK
+
+
 HANDLERS: Dict[str, Callable[[argparse.Namespace], int]] = {
     name: _stub_handler(name) for name in SUBCOMMANDS
 }
 HANDLERS["diagnose"] = _diagnose_handler
 HANDLERS["research"] = _research_handler
 HANDLERS["frames"] = _frames_handler
+HANDLERS["direct-prompt"] = _direct_prompt_handler
+HANDLERS["synth-prompt"] = _synth_prompt_handler
+HANDLERS["rank"] = _rank_handler
+HANDLERS["verify"] = _verify_handler
 
 
 def is_stub(name: str) -> bool:
@@ -190,6 +277,15 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "frames":
             sub.add_argument("--run", required=True)
             sub.add_argument("--refresh-expired", action="store_true")
+        if name in ("direct-prompt", "synth-prompt", "rank", "verify"):
+            sub.add_argument("--run", required=True)
+        if name == "direct-prompt":
+            sub.add_argument("--shortcode", required=True)
+        if name == "verify":
+            sub.add_argument("--stage", required=True, choices=["direct", "synth", "write", "qa"])
+            sub.add_argument("--shortcode", default=None)
+            sub.add_argument("--brief", default=None)
+            sub.add_argument("--revision", type=int, default=None)
 
     return parser
 

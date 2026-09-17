@@ -1,0 +1,41 @@
+{
+  "brief_title": "Creator explains why one habit trick beat their whole feed",
+  "hook_spoken": "This habit trick got two million views and here is why.",
+  "hook_on_screen_text": "2M views. Here is why.",
+  "hook_type": "bold_claim",
+  "hook_seconds": 2.0,
+  "emotion_lead": "curiosity",
+  "format": "talking_head",
+  "structure": [
+    {
+      "frame": 1,
+      "beat": "Creator states the view count and promises the reason behind it"
+    },
+    {
+      "frame": 3,
+      "beat": "Names the mistake most people make with habit streaks"
+    },
+    {
+      "frame": 5,
+      "beat": "Holds up the phone and walks through the fix inside the app"
+    },
+    {
+      "frame": 8,
+      "beat": "Closes by telling viewers to follow for the next breakdown"
+    }
+  ],
+  "audio": "original_dialogue",
+  "cta": "Follow for the next breakdown",
+  "product_or_topic_shown": "A habit tracking app, held up to the camera mid explanation",
+  "why_it_worked": "The claim is specific and checkable, so viewers stay for the reason rather than the advice. Comments ask what the app is and whether it is on Android, which is buying intent, not curiosity about the tip.",
+  "transferable_mechanism": "open with a checkable number about your own result, then spend the video explaining the cause",
+  "adaptation_for_product": "use a real Sprout retention number instead of a view count and explain the day four drop off that the streak screen fixes",
+  "avoid": "The talking head who says consistency is key without ever showing a screen",
+  "score_scalable": 7,
+  "score_convertible": 8,
+  "score_product_fit": 7,
+  "risk_flags": [
+    "none"
+  ],
+  "confidence": "medium"
+}

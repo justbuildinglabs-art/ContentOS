@@ -1,0 +1,37 @@
+{
+  "brief_title": "Rate my board slideshow that invites the comment section in",
+  "hook_spoken": null,
+  "hook_on_screen_text": "Rate my daily wins board",
+  "hook_type": "question",
+  "hook_seconds": 1.0,
+  "emotion_lead": "recognition",
+  "format": "slideshow_text",
+  "structure": [
+    {
+      "frame": 1,
+      "beat": "Static board on screen with the rate my board question over it"
+    },
+    {
+      "frame": 3,
+      "beat": "Text cards walk through three wins from the week"
+    },
+    {
+      "frame": 6,
+      "beat": "Last card asks for a score out of ten"
+    }
+  ],
+  "audio": "unknown",
+  "cta": "Rate it out of ten in the comments",
+  "product_or_topic_shown": "A wins board layout, shown as still cards",
+  "why_it_worked": "Asking for a rating gives every viewer a one word comment to leave, and the board is specific enough that people compare it to their own. The reel earns comments without asking anyone to buy anything.",
+  "transferable_mechanism": "show your own setup and ask viewers to score it, so the comment is easier to leave than to skip",
+  "adaptation_for_product": "show a real Sprout habit list as the board and ask viewers to rate the habits, not the app",
+  "avoid": "The rate my setup post with a stock photo board nobody actually uses",
+  "score_scalable": 7,
+  "score_convertible": 6,
+  "score_product_fit": 6,
+  "risk_flags": [
+    "none"
+  ],
+  "confidence": "medium"
+}
