@@ -392,21 +392,42 @@ class VerifyDirectTests(NoNetworkTestCase):
             self.assertEqual(out, "")
             self.assertIn("--shortcode", err)
 
-    def test_verify_write_and_qa_stages_are_still_stubs(self) -> None:
+    def test_verify_write_and_qa_stages_are_wired(self) -> None:
+        # Task 16 implements these stages for real (lib/agents.py). A
+        # brief that was ranked but has no script and no QA file yet
+        # still gets a real, non-stub answer from each: verify --stage
+        # write reads 04-scripts/<id>.r<N>.md directly and reports the
+        # missing file itself (exit 7 -- design spec, "Verification":
+        # "verify --stage write --brief B01 (exit 7 until a script
+        # exists)"). verify --stage qa first has to pick a revision to
+        # check when none is given, and with no script written at all
+        # there is none to pick, so that one is a usage error (exit 2)
+        # naming the brief rather than a path.
         with temp_project() as project:
             _write_project(project)
-            _mock_research(project)
+            run_dir = _mock_research(project)
+            code, _out, _err = _main(
+                ["rank", "--project", str(project), "--run", "latest", "--mock"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
 
-            for stage in ("write", "qa"):
-                with self.subTest(stage=stage):
-                    code, out, err = _main(
-                        ["verify", "--project", str(project), "--run", "latest",
-                         "--stage", stage, "--brief", "B01"]
-                    )
+            code, out, err = _main(
+                ["verify", "--project", str(project), "--run", "latest",
+                 "--stage", "write", "--brief", "B01"]
+            )
+            self.assertEqual(code, codes.EXIT_VERIFY)
+            self.assertEqual(out, "")
+            self.assertNotIn("not implemented", err)
+            self.assertIn(str((run_dir / "04-scripts" / "B01.r0.md").resolve()), err)
 
-                    self.assertEqual(code, codes.EXIT_STUB)
-                    self.assertEqual(out, "")
-                    self.assertIn(f"verify {stage}: not implemented", err)
+            code, out, err = _main(
+                ["verify", "--project", str(project), "--run", "latest",
+                 "--stage", "qa", "--brief", "B01"]
+            )
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertEqual(out, "")
+            self.assertNotIn("not implemented", err)
+            self.assertIn("B01", err)
 
 
 class VerifySynthTests(NoNetworkTestCase):
