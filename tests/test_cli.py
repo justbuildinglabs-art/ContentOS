@@ -32,21 +32,31 @@ class CliTests(NoNetworkTestCase):
         self.assertEqual(out.strip(), plugin["version"])
 
     def test_every_subcommand_is_registered_and_stubs_exit_1(self) -> None:
-        # This adapts as later tasks wire up real handlers: every name is
-        # still expected to be a recognized subcommand (never exit 2), but
-        # only the ones still marked as stubs are expected to exit 1 with
-        # the not-implemented message.
+        # Registration proof: `--help` exits 0 with usage text for every
+        # subcommand argparse actually knows about. Running a subcommand
+        # bare and checking its code is never 2 stopped being a sound proof
+        # of registration once a real handler could raise its own usage
+        # error (e.g. `research` without a config legitimately exits 2) --
+        # that no longer distinguishes "argparse doesn't know this
+        # subcommand" from "argparse knows it, ran it, and the handler
+        # failed for its own reason". `--help` never reaches the handler,
+        # so it proves registration without that ambiguity. Only
+        # subcommands still marked as stubs are run bare here, to confirm
+        # they still report themselves not implemented; non-stub
+        # subcommands are never run bare in this test -- that is each
+        # handler's own test module's job.
         with temp_project() as project_dir:
             for name in contentos.SUBCOMMANDS:
                 with self.subTest(subcommand=name):
-                    code, _out, err = run_cli([name, "--project", str(project_dir)])
+                    code, out, _err = run_cli([name, "--help"])
 
-                    self.assertNotEqual(code, 2)
+                    self.assertEqual(code, 0)
+                    self.assertIn("usage:", out)
+
                     if contentos.is_stub(name):
+                        code, _out, err = run_cli([name, "--project", str(project_dir)])
                         self.assertEqual(code, 1)
                         self.assertIn(f"{name}: not implemented", err)
-                    else:
-                        self.assertNotIn("not implemented", err)
 
     def test_no_network_helper_blocks_urlopen(self) -> None:
         with self.assertRaises(AssertionError):
