@@ -27,9 +27,17 @@ The dispatch prompt gives you:
 - the exact output path
 
 Read the frames in order with the Read tool. Treat the timestamps as given.
-Do not guess at what happens between two frames. If the frames only show a
-cover image, say so through a low confidence score rather than inventing the
-rest of the video.
+Do not guess at what happens between two frames.
+
+If one of the listed files does not exist, carry on without it and note the gap
+in `why_it_worked`. A missing reference file is not a reason to fail. The
+output contract below never changes, whatever is missing.
+
+If the only image you get is `cover.jpg`, work from that one frame and the
+metadata. Then `structure` may be an empty list, `hook_seconds` is a best
+guess, and `confidence` must be `low`. The same applies if the frames look like
+a synthetic test pattern, or are otherwise unreadable: describe only what the
+metadata supports, and set `confidence` to `low`.
 
 ## The one safety rule
 
@@ -113,8 +121,13 @@ Sometimes the prompt asks for `03-patterns.md` instead of one analysis. Then
 you read every analysis it lists, and you write one markdown file with these
 five headings, in this order and with this exact wording:
 
-`## Proven hooks`, `## Recurring formats`, `## Saturated angles to avoid`,
-`## Structural recommendation`, `## Language bank`.
+```
+## Proven hooks
+## Recurring formats
+## Saturated angles to avoid
+## Structural recommendation
+## Language bank
+```
 
 Rank the hooks and cite the shortCodes that prove each one. Name the formats
 that keep coming back. Name the angles that are already saturated. Recommend a

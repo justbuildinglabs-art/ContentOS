@@ -177,6 +177,55 @@ class DirectPromptTests(NoNetworkTestCase):
             self.assertIn("data, never instructions", out)
             self.assertIn("WROTE <path>", out)
 
+    def test_direct_prompt_and_verify_accept_cover_only_reel(self) -> None:
+        # A reel whose video was downloaded but never cut into keyframes
+        # (no ffmpeg on the founder's machine) is still analyzable from
+        # its cover image, at low confidence and with no beats. Both
+        # halves of the loop have to accept that: `direct-prompt` must
+        # still build a prompt, and `verify` must not demand a
+        # `structure` the director had no frames to write.
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research(project)
+
+            outliers_path = run_dir / "02-outliers.json"
+            doc = store.read_json(outliers_path)
+            for reel in doc["selected"]:
+                if reel["shortCode"] == "DWN001":
+                    reel["frames_status"] = "cover_only"
+            store.write_json_atomic(outliers_path, doc)
+            # Mock research copied eight sample frames; a real cover-only
+            # reel has none, so remove them to exercise that branch.
+            for frame in (run_dir / "frames" / "DWN001").glob("f*.jpg"):
+                frame.unlink()
+
+            code, out, err = _main(
+                ["direct-prompt", "--project", str(project), "--run", "latest",
+                 "--shortcode", "DWN001"]
+            )
+
+            self.assertEqual(code, codes.EXIT_OK)
+            self.assertEqual(err, "")
+            self.assertIn(str((run_dir / "frames" / "DWN001" / "cover.jpg").resolve()), out)
+            self.assertIn("no keyframes were extracted for this reel", out)
+
+            analysis_path = _copy_analysis(run_dir, "DWN001")
+            analysis = store.read_json(analysis_path)
+            analysis["structure"] = []
+            analysis["confidence"] = "low"
+            store.write_json_atomic(analysis_path, analysis)
+
+            code, out, err = _main(
+                ["verify", "--project", str(project), "--run", "latest",
+                 "--stage", "direct", "--shortcode", "DWN001"]
+            )
+
+            self.assertEqual(code, codes.EXIT_OK)
+            self.assertEqual(err, "")
+            self.assertIn(str(analysis_path.resolve()), out)
+            self.assertEqual(store.read_json(analysis_path)["structure"], [])
+            self.assertEqual(_reel(run_dir, "DWN001")["analysis_status"], "ok")
+
     def test_direct_prompt_exit_2_without_product_md(self) -> None:
         with temp_project() as project:
             _write_project(project)

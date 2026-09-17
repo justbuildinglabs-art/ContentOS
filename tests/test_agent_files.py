@@ -22,6 +22,15 @@ from tests.helpers import NoNetworkTestCase, REPO_ROOT
 AGENTS_DIR = REPO_ROOT / "agents"
 DIRECTOR_AGENT = AGENTS_DIR / "content-director.md"
 
+# The canonical description, pinned in full so it cannot drift. It says
+# both of the director's jobs, because one subagent definition serves
+# both the per-reel dispatch and the set-level synthesis dispatch.
+DIRECTOR_DESCRIPTION = (
+    "Analyzes one competitor Instagram Reel from keyframes and metadata and writes a "
+    "ContentOS analysis JSON, or synthesizes patterns across analyses. "
+    "Dispatched by /contentos; not for direct use."
+)
+
 
 def _split_frontmatter(text: str) -> Tuple[Dict[str, str], str]:
     """Split an agent file into its `key: value` frontmatter and its body.
@@ -70,7 +79,7 @@ class ContentDirectorAgentTests(NoNetworkTestCase):
         self.assertEqual(fields["tools"], "Read, Write")
         self.assertEqual(fields["maxTurns"], "20")
         self.assertNotIn("model", fields)
-        self.assertTrue(fields["description"].strip())
+        self.assertEqual(fields["description"], DIRECTOR_DESCRIPTION)
 
         # The output contract and the synthesis mode.
         self.assertIn("WROTE", body)

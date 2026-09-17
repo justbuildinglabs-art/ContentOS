@@ -118,7 +118,7 @@ def _read_outliers(run_dir: Path) -> Dict[str, Any]:
         )
     try:
         doc = store.read_json(outliers_path)
-    except (json.JSONDecodeError, OSError) as exc:
+    except (ValueError, OSError) as exc:
         raise DirectError(f"{outliers_path}: cannot read: {exc}", codes.EXIT_USAGE) from exc
     if not isinstance(doc, dict):
         raise DirectError(f"{outliers_path}: expected a JSON object", codes.EXIT_USAGE)
@@ -160,7 +160,7 @@ def _frames_status(run_dir: Path, shortcode: str) -> Optional[str]:
         return None
     try:
         doc = store.read_json(outliers_path)
-    except (json.JSONDecodeError, OSError):
+    except (ValueError, OSError):
         return None
     if not isinstance(doc, dict):
         return None
@@ -184,7 +184,7 @@ def _record_analysis_status(run_dir: Path, shortcode: str, status: str) -> None:
         return
     try:
         doc = store.read_json(outliers_path)
-    except (json.JSONDecodeError, OSError):
+    except (ValueError, OSError):
         return
     if not isinstance(doc, dict):
         return
@@ -267,17 +267,21 @@ def run_synth_prompt(project: Path, run_ref: str, references_dir: Path) -> str:
 def _read_analysis(path: Path) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """Read one analysis file; return `(object or None, problems)`.
 
-    A missing file, unparseable JSON, and a top-level value that is not
-    an object are each one problem line and no object, so the caller
+    A missing file, unreadable content, and a top-level value that is
+    not an object are each one problem line and no object, so the caller
     reports them and stops rather than coercing `None` into an analysis
-    full of empty strings.
+    full of empty strings. `ValueError` covers both ways the content can
+    be unreadable: `json.JSONDecodeError` for bad JSON and
+    `UnicodeDecodeError` for bytes that are not UTF-8 at all (a
+    subagent that wrote an image, say). Both subclass `ValueError`, so
+    one clause catches them without naming either.
     """
     if not path.exists():
         return None, [f"{path}: no analysis file was written"]
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        return None, [f"{path}: invalid JSON: {exc}"]
+    except (ValueError, OSError) as exc:
+        return None, [f"{path}: cannot read as JSON: {exc}"]
     if not isinstance(raw, dict):
         return None, [f"{path}: expected a JSON object at the top level"]
     return raw, []
