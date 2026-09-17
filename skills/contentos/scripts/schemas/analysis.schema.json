@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "brief_title": { "type": "string" },
+    "hook_spoken": { "type": ["string", "null"] },
+    "hook_on_screen_text": { "type": ["string", "null"] },
+    "hook_type": {
+      "type": "string",
+      "enum": [
+        "bold_claim", "pain_callout", "contrarian", "story_open", "question",
+        "curiosity_gap", "pov", "before_after", "challenge", "other"
+      ]
+    },
+    "hook_seconds": { "type": "number", "minimum": 0, "maximum": 10 },
+    "emotion_lead": {
+      "type": "string",
+      "enum": [
+        "curiosity", "frustration", "desire", "fear", "awe", "anger", "hope", "humor", "recognition"
+      ]
+    },
+    "format": {
+      "type": "string",
+      "enum": [
+        "talking_head", "screen_demo", "voiceover_broll", "skit", "slideshow_text",
+        "ugc_review", "tutorial", "trend_remix", "stitch", "other"
+      ]
+    },
+    "structure": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "frame": { "type": "integer" },
+          "beat": { "type": "string" }
+        },
+        "required": ["frame", "beat"]
+      }
+    },
+    "audio": {
+      "type": "string",
+      "enum": ["voiceover", "original_dialogue", "trending_sound", "music_only", "unknown"]
+    },
+    "cta": { "type": ["string", "null"] },
+    "product_or_topic_shown": { "type": "string" },
+    "why_it_worked": { "type": "string" },
+    "transferable_mechanism": { "type": "string" },
+    "adaptation_for_product": { "type": "string" },
+    "avoid": { "type": "string" },
+    "score_scalable": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "score_convertible": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "score_product_fit": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "copyrighted_media", "fake_testimonial_risk", "medical_claim", "financial_claim",
+          "minors", "brand_ip", "none"
+        ]
+      }
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    }
+  },
+  "required": [
+    "brief_title", "hook_spoken", "hook_on_screen_text", "hook_type", "hook_seconds",
+    "emotion_lead", "format", "structure", "audio", "cta", "product_or_topic_shown",
+    "why_it_worked", "transferable_mechanism", "adaptation_for_product", "avoid",
+    "score_scalable", "score_convertible", "score_product_fit", "risk_flags", "confidence"
+  ]
+}
