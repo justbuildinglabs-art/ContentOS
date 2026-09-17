@@ -556,7 +556,7 @@ class ResearchCliTests(NoNetworkTestCase):
             set(payload),
             {
                 "run_id", "run_dir", "mode", "status", "accounts", "reels_total",
-                "selected", "backfill", "excluded", "videos", "warnings",
+                "selected", "backfill", "excluded", "videos", "frames", "warnings",
             },
         )
         self.assertEqual(payload["mode"], "mock")

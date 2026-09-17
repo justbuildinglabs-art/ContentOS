@@ -5,13 +5,15 @@ reviewed for this pipeline: `lib/apify.py` (REST client, cost estimate,
 `FixtureTransport`/`HttpTransport`), `lib/instagram.py`
 (`normalize_dataset`), `lib/outliers.py` (`compute_baselines`,
 `score_reel`, `select_outliers`), `lib/video.py` (`download_selected`,
-spec step 7 -- video + cover downloads with backfill), and
-`lib/store.py` (run directory bookkeeping). See the design spec's
-"Stage 1 -- research" section for the full step-by-step flow this
-module drives and "Config defaults" for the config keys read here.
-Keyframes (spec step 8) are Task 12; `no_download`, when true, skips
-`download_selected` so every `selected`/`backfill` reel's
-`video_status` stays `"pending"` and the `videos` summary is `None`.
+spec step 7 -- video + cover downloads with backfill), `lib/frames.py`
+(`frames_for_selected`, spec step 8 -- keyframes for the
+content-director subagent), and `lib/store.py` (run directory
+bookkeeping). See the design spec's "Stage 1 -- research" section for
+the full step-by-step flow this module drives and "Config defaults"
+for the config keys read here. `no_download`, when true, skips both
+`download_selected` and `frames_for_selected`, so every
+`selected`/`backfill` reel's `video_status`/`frames_status` stay
+`"pending"` and the `videos`/`frames` summaries are both `None`.
 
 `contentos.py`'s `research` subcommand is the only caller; it loads
 config with `store.load_config`, resolves keys with `env.resolve_keys`,
@@ -28,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from lib import apify, instagram, outliers, store, video
+from lib import apify, frames, instagram, outliers, store, video
 from lib.env import Keys
 from lib.http import HTTPError
 
@@ -49,7 +51,8 @@ STATUS_PARTIAL = "partial"
 STATUS_FAILED = "failed"
 
 # video_status / frames_status placeholder every selected/backfill reel
-# carries until Tasks 11-12 download it and cut keyframes.
+# carries until download_selected / frames_for_selected run below (both
+# skipped, leaving this in place, when --no-download is set).
 PENDING = "pending"
 
 
@@ -329,14 +332,15 @@ def run_research(
     now: Optional[datetime] = None,
     no_download: bool = False,
 ) -> Dict[str, Any]:
-    """Run Stage 1 end to end (minus keyframes) and return the RESULT summary.
+    """Run Stage 1 end to end, including keyframes, and return the RESULT summary.
 
-    `no_download`, when true, skips `video.download_selected` entirely:
-    every `selected`/`backfill` reel's `video_status` stays `"pending"`
-    (as `_pending` first wrote it) and the returned/recorded `videos`
-    summary is `None`. Raises a `ResearchError` subclass for every
-    condition the CLI maps to a non-zero exit code (cost cap,
-    confirmation, missing key, upstream failure).
+    `no_download`, when true, skips `video.download_selected` and
+    `frames.frames_for_selected` entirely: every `selected`/`backfill`
+    reel's `video_status`/`frames_status` stay `"pending"` (as
+    `_pending` first wrote them) and the returned/recorded `videos`/
+    `frames` summaries are both `None`. Raises a `ResearchError`
+    subclass for every condition the CLI maps to a non-zero exit code
+    (cost cap, confirmation, missing key, upstream failure).
     `store.ConfigError`/`store.RunNotFound` propagate unchanged, for the
     CLI to map to exit 2.
     """
@@ -419,8 +423,10 @@ def run_research(
     # freshest. `download_selected` rewrites 02-outliers.json itself
     # (per-reel video_status/cover_status, and any backfill promotions),
     # so nothing further here touches that file. --no-download leaves
-    # every reel exactly as `_pending` wrote it above.
+    # every reel exactly as `_pending` wrote it above, and also skips
+    # step 8 below -- there is no video yet for ffmpeg to read.
     videos_summary: Optional[Dict[str, int]] = None
+    frames_summary: Optional[Dict[str, int]] = None
     if not no_download:
         video_report = video.download_selected(
             run_dir, outliers_doc, cfg, mock, fixtures_dir=FIXTURES_DIR, log=log
@@ -431,6 +437,17 @@ def run_research(
             "promoted": len(video_report.replaced_from_backfill),
         }
         warnings = warnings + video_report.warnings
+
+        # Step 8: keyframes for whatever download_selected just landed on
+        # disk (including any reel `too_large`/failed/etc -- frames.py
+        # itself decides `no_video` for those). `frames_for_selected`
+        # rewrites 02-outliers.json again, same reasoning as step 7.
+        frame_statuses = frames.frames_for_selected(
+            run_dir, outliers_doc, cfg, mock=mock, fixtures_dir=FIXTURES_DIR, log=log
+        )
+        frames_summary = {"ok": 0, "cover_only": 0, "failed": 0, "no_video": 0}
+        for frame_status in frame_statuses.values():
+            frames_summary[frame_status] = frames_summary.get(frame_status, 0) + 1
 
     status = STATUS_PARTIAL if run_warnings else STATUS_OK
     finished_at = datetime.now(timezone.utc).isoformat()
@@ -446,6 +463,7 @@ def run_research(
                 "backfill": len(selection.backfill),
                 "excluded": len(selection.excluded),
                 "videos": videos_summary,
+                "frames": frames_summary,
             }
         },
         costs={"apify": {"estimate_usd": estimate.total_usd, "max_items": estimate.max_items}},
@@ -465,6 +483,7 @@ def run_research(
         "backfill": len(selection.backfill),
         "excluded": len(selection.excluded),
         "videos": videos_summary,
+        "frames": frames_summary,
         "warnings": updated.get("warnings", warnings),
     }
     print("RESULT " + json.dumps(result))

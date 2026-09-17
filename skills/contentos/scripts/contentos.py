@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from lib import apify, codes, env, research, store
+from lib import apify, codes, env, frames, research, store
 
 SUBCOMMANDS = [
     "diagnose",
@@ -126,11 +126,43 @@ def _research_handler(args: argparse.Namespace) -> int:
     return codes.EXIT_OK
 
 
+def _frames_handler(args: argparse.Namespace) -> int:
+    """Cut keyframes for one run's selected reels, or re-run to fill gaps.
+
+    `--refresh-expired` first re-scrapes and re-downloads any `expired`
+    video before extracting (real mode only; `--mock` never touches
+    the network at all). Prints the JSON frame-status summary
+    `frames.run_frames` returns and exits 0. An unresolvable `--run`
+    (`store.RunNotFound`) or a run with no `02-outliers.json` yet
+    (`frames.OutliersMissing`) both exit 2, message on stderr --
+    matching every other subcommand's usage-error contract.
+    """
+    project_dir = args.project.resolve()
+    try:
+        cfg = store.load_config(project_dir)
+        keys = env.resolve_keys(project_dir)
+        result = frames.run_frames(
+            project_dir,
+            args.run,
+            cfg,
+            keys,
+            mock=args.mock,
+            refresh_expired=args.refresh_expired,
+            fixtures_dir=research.FIXTURES_DIR,
+        )
+    except (store.ConfigError, store.RunNotFound, frames.OutliersMissing) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    print(json.dumps(result))
+    return codes.EXIT_OK
+
+
 HANDLERS: Dict[str, Callable[[argparse.Namespace], int]] = {
     name: _stub_handler(name) for name in SUBCOMMANDS
 }
 HANDLERS["diagnose"] = _diagnose_handler
 HANDLERS["research"] = _research_handler
+HANDLERS["frames"] = _frames_handler
 
 
 def is_stub(name: str) -> bool:
@@ -155,6 +187,9 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--estimate-only", action="store_true")
             sub.add_argument("--no-download", action="store_true")
             sub.add_argument("--resume", default=None)
+        if name == "frames":
+            sub.add_argument("--run", required=True)
+            sub.add_argument("--refresh-expired", action="store_true")
 
     return parser
 
