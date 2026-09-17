@@ -85,6 +85,22 @@ class MissingKey(ResearchError):
         super().__init__(message, 4, None)
 
 
+class NothingToResume(ResearchError):
+    """`--resume` named a run with no recorded Apify runs to re-poll (exit 2).
+
+    `init_run` seeds `run.json`'s `apify_runs` as `{}`; it is only filled
+    in (both entries at once, see `_start_runs`) after the initial POSTs
+    succeed. A run whose very first attempt failed before that point --
+    or whose `run.json` was hand-edited -- has nothing for `--resume` to
+    re-poll; this is a usage error, not an upstream failure, since no
+    network call has been attempted yet.
+    """
+
+    def __init__(self, run_id: str) -> None:
+        message = f"{run_id}: no recorded Apify runs to resume; start a new research run"
+        super().__init__(message, 2, None)
+
+
 class UpstreamFailure(ResearchError):
     """An Apify run or dataset fetch failed (exit 5)."""
 
@@ -340,6 +356,8 @@ def run_research(
         run_dir = store.resolve_run(project, resume)
         run_data = store.read_json(run_dir / "run.json")
         apify_runs = run_data.get("apify_runs") or {}
+        if "reels" not in apify_runs or "details" not in apify_runs:
+            raise NothingToResume(run_dir.name)
         reels_run = _run_ref_from_record(apify_runs["reels"])
         details_run = _run_ref_from_record(apify_runs["details"])
         mode = run_data.get("mode", mode)

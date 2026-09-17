@@ -12,16 +12,19 @@ is also a second line of defense.
 from __future__ import annotations
 
 import json
+import os
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from unittest import mock
 
 from tests.helpers import NoNetworkTestCase, run_cli, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
+import contentos  # noqa: E402
 from lib import apify, codes, store  # noqa: E402
 from lib import research  # noqa: E402
 from lib.env import Keys  # noqa: E402
@@ -404,6 +407,46 @@ class UpstreamFailureTests(NoNetworkTestCase):
         self.assertEqual(run_doc["stages"]["research"]["status"], "partial")
         self.assertTrue(reels_written)
         self.assertTrue(outliers_written)
+
+
+class ResumeValidationTests(NoNetworkTestCase):
+    def test_resume_without_recorded_runs_exits_2(self) -> None:
+        # A run whose apify_runs is still exactly init_run's seed ({}) --
+        # e.g. the initial POST never got far enough to record either run
+        # -- has nothing for --resume to re-poll. Goes through
+        # contentos.main() (not run_research directly) so this also
+        # proves the real CLI handler prints the message to stderr and
+        # returns exit 2, rather than letting the KeyError this guards
+        # against turn into an unhandled traceback.
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acct1"]})
+            cfg = store.load_config(project_dir)
+            run_dir = store.init_run(project_dir, cfg, "mock")
+            self.assertEqual(store.read_json(run_dir / "run.json")["apify_runs"], {})
+
+            transport = _ScriptedTransport([])
+            stdout_buffer = StringIO()
+            stderr_buffer = StringIO()
+
+            with mock.patch.dict(os.environ, NO_GLOBAL_ENV, clear=True):
+                with mock.patch("lib.research._default_transport", return_value=transport):
+                    with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                        exit_code = contentos.main(
+                            [
+                                "research", "--mock", "--yes",
+                                "--resume", run_dir.name,
+                                "--project", str(project_dir),
+                            ]
+                        )
+
+            reels_written = (run_dir / "01-reels.json").exists()
+
+        self.assertEqual(exit_code, codes.EXIT_USAGE)
+        self.assertIn(run_dir.name, stderr_buffer.getvalue())
+        self.assertIn("no recorded Apify runs to resume", stderr_buffer.getvalue())
+        self.assertEqual(stdout_buffer.getvalue(), "")
+        self.assertEqual(transport.calls, [])
+        self.assertFalse(reels_written)
 
 
 class ResearchGateTests(NoNetworkTestCase):
