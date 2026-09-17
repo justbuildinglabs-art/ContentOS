@@ -58,6 +58,11 @@ _GITIGNORE_LINES = (
 
 _RUN_MODES = ("live", "mock")
 
+# init_run collision suffixing: new_run_id has one-second resolution, so a
+# second call in the same second tries "<id>-2", "<id>-3", ... up to this
+# many total run dirs for one base id before giving up.
+_MAX_RUN_ID_SUFFIX = 99
+
 # run.json fields that update_run merges one level deep instead of
 # replacing outright.
 _MERGE_KEYS = ("stages", "costs", "apify_runs")
@@ -69,6 +74,10 @@ class ConfigError(Exception):
 
 class RunNotFound(Exception):
     """Raised when a run reference does not resolve to an existing run dir."""
+
+
+class RunExists(Exception):
+    """Raised when every collision suffix for a run id is already taken."""
 
 
 def contentos_dir(project: Path) -> Path:
@@ -92,7 +101,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
     valid_competitors = (
         isinstance(competitors, list)
         and bool(competitors)
-        and all(isinstance(item, str) and item for item in competitors)
+        and all(isinstance(item, str) and item.strip() for item in competitors)
     )
     if not valid_competitors:
         raise ConfigError("competitors must be a non-empty list of non-empty strings")
@@ -201,13 +210,31 @@ def init_run(project: Path, config: Dict[str, Any], mode: str) -> Path:
     `mode` must be "live" or "mock", else ValueError. `config` is stored
     as a deep-copied snapshot, so later changes to the caller's dict
     never leak into the run's recorded config (or vice versa).
+
+    `new_run_id()` has one-second resolution, so a second call in the
+    same second would otherwise collide on the same directory and
+    silently overwrite the first run's `run.json`. When `runs/<id>`
+    already exists, this tries `<id>-2`, `<id>-3`, ... up to
+    `<id>-{_MAX_RUN_ID_SUFFIX}` until it finds a free name (each
+    suffixed id still sorts lexically after the bare id and before the
+    next second's bare id, so `resolve_run(project, "latest")` keeps
+    working). Raises RunExists if every suffix is already taken too.
     """
     if mode not in _RUN_MODES:
         raise ValueError(f'mode must be "live" or "mock", got {mode!r}')
 
-    run_id = new_run_id()
+    base_run_id = new_run_id()
+    run_id = base_run_id
     target_dir = run_dir(project, run_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    suffix = 2
+    while target_dir.exists():
+        if suffix > _MAX_RUN_ID_SUFFIX:
+            raise RunExists(base_run_id)
+        run_id = f"{base_run_id}-{suffix}"
+        target_dir = run_dir(project, run_id)
+        suffix += 1
+
+    target_dir.mkdir(parents=True)
 
     run_data = {
         "run_id": run_id,

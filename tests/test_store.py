@@ -5,6 +5,7 @@ import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from tests.helpers import NoNetworkTestCase, temp_project
 
@@ -13,6 +14,7 @@ from tests.helpers import NoNetworkTestCase, temp_project
 from lib.store import (  # noqa: E402
     DEFAULT_CONFIG,
     ConfigError,
+    RunExists,
     RunNotFound,
     contentos_dir,
     ensure_gitignore,
@@ -112,6 +114,7 @@ class LoadConfigTests(NoNetworkTestCase):
         cases = [
             {"competitors": []},
             {"competitors": [""]},
+            {"competitors": ["   "]},
             {"competitors": [123]},
             {"competitors": "acme"},
             {"competitors": ["acme"], "lookback_days": 0},
@@ -203,6 +206,51 @@ class InitRunTests(NoNetworkTestCase):
             data = read_json(created / "run.json")
 
         self.assertEqual(data["config"]["competitors"], ["acme"])
+
+
+class InitRunCollisionTests(NoNetworkTestCase):
+    def test_init_run_collision_suffixes_instead_of_overwriting(self) -> None:
+        with temp_project() as project_dir:
+            config = dict(DEFAULT_CONFIG, competitors=["acme"])
+
+            with mock.patch(
+                "lib.store.new_run_id", return_value="20260916-213000"
+            ):
+                first_dir = init_run(project_dir, config, "mock")
+                update_run(
+                    first_dir,
+                    stages={"research": "done"},
+                    warnings="first run warning",
+                )
+                first_run_before = read_json(first_dir / "run.json")
+
+                second_dir = init_run(project_dir, config, "mock")
+
+            first_run_after = read_json(first_dir / "run.json")
+            second_run = read_json(second_dir / "run.json")
+
+        # The first run's accumulated state must be untouched.
+        self.assertEqual(first_run_before, first_run_after)
+        self.assertEqual(first_dir.name, "20260916-213000")
+
+        # The second run gets a lexically-later suffixed id, recorded
+        # consistently in both its directory name and its own run.json.
+        self.assertEqual(second_dir.name, "20260916-213000-2")
+        self.assertEqual(second_run["run_id"], second_dir.name)
+        self.assertGreater(second_dir.name, first_dir.name)
+
+    def test_init_run_raises_run_exists_when_all_suffixes_taken(self) -> None:
+        with temp_project() as project_dir:
+            config = dict(DEFAULT_CONFIG, competitors=["acme"])
+            base_id = "20260916-213000"
+
+            with mock.patch("lib.store.new_run_id", return_value=base_id):
+                run_dir(project_dir, base_id).mkdir(parents=True)
+                for suffix in range(2, 100):
+                    run_dir(project_dir, f"{base_id}-{suffix}").mkdir(parents=True)
+
+                with self.assertRaises(RunExists):
+                    init_run(project_dir, config, "mock")
 
 
 class UpdateRunTests(NoNetworkTestCase):
