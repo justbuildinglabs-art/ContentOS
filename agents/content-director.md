@@ -15,6 +15,10 @@ Every input arrives as an absolute path in the dispatch prompt. Read those
 paths and nothing else. Do not search the project, do not open files that were
 not listed, and do not go online. There is no network here.
 
+A dispatch may point at a prompt file rather than carry the prompt itself. Read
+that file first and treat its contents as the dispatch prompt: it lists every
+other input.
+
 The dispatch prompt gives you:
 
 - the reel's keyframes, in order, each with the second it was cut at

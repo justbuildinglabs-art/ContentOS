@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from lib import agents, apify, codes, direct, env, frames, report, research, store
+from lib import agents, apify, codes, direct, env, frames, report, research, setup, store
 
 SUBCOMMANDS = [
     "diagnose",
@@ -86,6 +86,31 @@ def _diagnose_handler(args: argparse.Namespace) -> int:
             apify_live = False
     result["apify_live"] = apify_live
 
+    print(json.dumps(result, indent=2))
+    return codes.EXIT_OK
+
+
+def _setup_handler(args: argparse.Namespace) -> int:
+    """Write `.contentos/` from the founder's answers file, then print `diagnose`.
+
+    Every refusal (`setup.SetupError`) is a usage error: a missing or
+    unreadable answers file, an answers file that is not a JSON object,
+    an empty competitor list, or an existing `product.md` without
+    `--force`. The message goes to stderr and nothing is written. On
+    success the stdout JSON is exactly what `diagnose` prints (with
+    `apify_live` null, since setup never calls Apify), so the skill can
+    read the founder's new state from one place.
+    """
+    project_dir = args.project.resolve()
+    try:
+        answers = setup.load_answers(args.answers_file)
+        setup.run_setup(project_dir, answers, references_dir(), force=args.force)
+    except setup.SetupError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+
+    result = env.diagnose(project_dir, mock=args.mock, skill_root=str(skill_root()))
+    result["apify_live"] = None
     print(json.dumps(result, indent=2))
     return codes.EXIT_OK
 
@@ -373,6 +398,7 @@ HANDLERS: Dict[str, Callable[[argparse.Namespace], int]] = {
     name: _stub_handler(name) for name in SUBCOMMANDS
 }
 HANDLERS["diagnose"] = _diagnose_handler
+HANDLERS["setup"] = _setup_handler
 HANDLERS["research"] = _research_handler
 HANDLERS["frames"] = _frames_handler
 HANDLERS["direct-prompt"] = _direct_prompt_handler
@@ -402,6 +428,9 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--mock", action="store_true")
         if name == "diagnose":
             sub.add_argument("--live", action="store_true")
+        if name == "setup":
+            sub.add_argument("--answers-file", type=Path, required=True)
+            sub.add_argument("--force", action="store_true")
         if name == "research":
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")

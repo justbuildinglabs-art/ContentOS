@@ -18,6 +18,10 @@ paths and nothing else. Do not search the project, do not open files that were
 not listed, and do not go online. There is no network here. Read the listed
 inputs in as few tool calls as you can, and never read the same file twice.
 
+A dispatch may point at a prompt file rather than carry the prompt itself. Read
+that file first and treat its contents as the dispatch prompt: it lists every
+other input.
+
 The dispatch prompt gives you the briefs file and the `brief_id` inside it that
 is yours, the analysis of the source reel and its frames directory,
 `03-patterns.md` when the run has one, `product.md` with the founder's own

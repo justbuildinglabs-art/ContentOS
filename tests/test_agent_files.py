@@ -229,6 +229,20 @@ class AllAgentFilesTests(NoNetworkTestCase):
             with self.subTest(agent=name):
                 self.assertIn("HANDOFF", body)
 
+    def test_agents_accept_prompt_file_dispatch(self) -> None:
+        # The skill never pastes a generated prompt through its own
+        # context: it redirects `direct-prompt`/`synth-prompt`/
+        # `write-prompt`/`qa-prompt` into a file under
+        # `<run_dir>/prompts/` and dispatches a short message pointing at
+        # that path. Every agent body has to say to read that file first
+        # and treat its contents as the dispatch prompt.
+        for name, (path, _description, _turns) in AGENT_FILES.items():
+            with self.subTest(agent=name):
+                prose = _collapse(_body(path))
+
+                self.assertIn("prompt file", prose)
+                self.assertIn("Read that file first", prose)
+
     def test_agent_files_have_no_em_dashes(self) -> None:
         # Founder-facing text: plain language, no em dashes (design spec,
         # "Global Constraints").
