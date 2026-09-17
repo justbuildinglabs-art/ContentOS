@@ -67,14 +67,21 @@ def _global_config_dir(environ: Mapping[str, str]) -> Optional[Path]:
     `CONTENTOS_CONFIG_DIR` overrides the default `~/.config/contentos`
     location when present in `environ`; an explicit empty string means
     clean mode (used by tests so they never touch a real home directory).
-    Only when the key is absent do we fall back to `environ["HOME"]`.
+    When the key is absent, fall back to `environ["HOME"]` -- but a
+    missing (or empty) HOME means "no global config file" too, the same
+    as CONTENTOS_CONFIG_DIR="". resolve_keys must never raise just
+    because of the environment's shape, so this never falls back to
+    Path.home().
     """
     if "CONTENTOS_CONFIG_DIR" in environ:
         override = environ["CONTENTOS_CONFIG_DIR"]
         if override == "":
             return None
         return Path(override)
-    return Path(environ["HOME"]) / ".config" / "contentos"
+    home = environ.get("HOME")
+    if not home:
+        return None
+    return Path(home) / ".config" / "contentos"
 
 
 def resolve_keys(project_dir: Path, environ: Mapping[str, str] = os.environ) -> Keys:

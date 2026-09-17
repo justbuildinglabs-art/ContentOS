@@ -14,7 +14,9 @@ from tests.helpers import NoNetworkTestCase, run_cli, temp_project
 from lib.env import (  # noqa: E402
     KEY_NAME,
     PLUGIN_OPTION_NAME,
+    Keys,
     check_file_permissions,
+    diagnose,
     load_env_file,
     resolve_keys,
 )
@@ -197,6 +199,20 @@ class ConfigDirTests(NoNetworkTestCase):
             self.assertIsNone(keys.apify)
             self.assertIsNone(keys.source)
             self.assertEqual(keys.warnings, [])
+
+    def test_missing_home_skips_global_file(self) -> None:
+        # A missing HOME with no CONTENTOS_CONFIG_DIR override means "no
+        # global config file" -- exactly like CONTENTOS_CONFIG_DIR="" --
+        # rather than raising or falling back to Path.home().
+        with temp_project() as project_dir:
+            environ: dict = {}
+
+            keys = resolve_keys(project_dir, environ)
+            self.assertEqual(keys, Keys(apify=None, source=None, warnings=[]))
+
+            result = diagnose(project_dir, environ=environ)
+
+        self.assertFalse(result["apify"])
 
 
 class DiagnoseCliTests(NoNetworkTestCase):
