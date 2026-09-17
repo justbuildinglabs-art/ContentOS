@@ -39,7 +39,7 @@ from tests.helpers import NoNetworkTestCase, REPO_ROOT, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
-from lib import director, research, store  # noqa: E402
+from lib import director, frames, research, store  # noqa: E402
 from lib.env import Keys  # noqa: E402
 
 FIXTURES_DIR = REPO_ROOT / "fixtures"
@@ -138,15 +138,20 @@ def _write_run_dir(
     followers: Optional[float] = 12000,
     cover_only: bool = False,
     n_frames: int = 8,
+    frame_indices: Optional[List[int]] = None,
     **reel_extra: Any,
 ) -> Path:
     """Build a run dir by hand: just enough for build_director_prompt/rank_briefs.
 
     Writes `02-outliers.json` (one `selected` reel), `01-profiles.json`
     (one profile, keyed by lowercase `owner`, unless `followers` is None),
-    and either `n_frames` placeholder `fNN.jpg` files plus `cover.jpg`
-    (the normal case) or just `cover.jpg` (`cover_only=True`, mirroring
-    `lib/frames.py`'s `cover_only` `frames_status`).
+    and either placeholder `fNN.jpg` files plus `cover.jpg` (the normal
+    case) or just `cover.jpg` (`cover_only=True`, mirroring
+    `lib/frames.py`'s `cover_only` `frames_status`). The frame files
+    written are `1..n_frames` by default, or exactly `frame_indices` when
+    given -- e.g. `[1, 3, 4]` to simulate a mid-sequence extraction
+    failure (`lib/frames.py`'s `extract_frames` skips a failed timestamp
+    and moves on, so a real run can leave a gap in the numbering).
     """
     run_dir = store.init_run(project_dir, _cfg(), "mock")
     reel = _scored_reel(shortcode, ownerUsername=owner, **reel_extra)
@@ -168,7 +173,8 @@ def _write_run_dir(
     frame_dir.mkdir(parents=True, exist_ok=True)
     (frame_dir / "cover.jpg").write_bytes(b"cover-bytes")
     if not cover_only:
-        for i in range(1, n_frames + 1):
+        indices = frame_indices if frame_indices is not None else range(1, n_frames + 1)
+        for i in indices:
             (frame_dir / f"f{i:02d}.jpg").write_bytes(b"frame-bytes")
 
     return run_dir
@@ -689,6 +695,32 @@ class DirectorPromptTests(NoNetworkTestCase):
         for i in range(1, 9):
             self.assertIn(str((frame_dir / f"f{i:02d}.jpg").resolve()), prompt)
         self.assertIn("timestamp unknown", prompt)
+
+    def test_director_prompt_keeps_frame_timestamps_when_a_frame_is_missing(self) -> None:
+        # extract_frames (lib/frames.py) skips a timestamp whose ffmpeg call
+        # fails and moves on to the next one, so a real run can land
+        # f01, f03, f04, ... on disk with no f02. Pairing timestamps to
+        # files by list position (rather than each file's own parsed
+        # index) would mislabel every file after the gap with the
+        # timestamp meant for its missing neighbor.
+        with temp_project() as project_dir:
+            run_dir = _write_run_dir(
+                project_dir, "AAA001", duration_s=20.0, frame_indices=[1, 3, 4, 5, 6, 7, 8]
+            )
+            schema = director.load_schema("analysis")
+
+            prompt = director.build_director_prompt(
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "product.md", schema
+            )
+
+        frame_dir = run_dir / "frames" / "AAA001"
+        expected_times = frames.frame_times(20.0, 8)
+        f03_line = f"{(frame_dir / 'f03.jpg').resolve()} at {expected_times[2]}s"
+        f08_line = f"{(frame_dir / 'f08.jpg').resolve()} at {expected_times[7]}s"
+
+        self.assertIn(f03_line, prompt)
+        self.assertIn(f08_line, prompt)
+        self.assertNotIn("f02.jpg", prompt)
 
     def test_director_prompt_raises_keyerror_when_reel_not_selected(self) -> None:
         with temp_project() as project_dir:

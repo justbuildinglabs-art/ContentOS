@@ -42,6 +42,7 @@ or any file this module was not explicitly told to read.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -374,11 +375,24 @@ def _reel_followers(run_dir: Path, reel: Dict[str, Any]) -> Optional[float]:
     return profile.get("followers") if profile else None
 
 
+def _frame_index(path: Path) -> Optional[int]:
+    """Parse the `NN` out of an `fNN.jpg` filename, or None if it does not match.
+
+    `extract_frames` (`lib/frames.py`) always names a frame `f{index:02d}.jpg`
+    for the `index`-th (1-based) entry of the `times` list it was called
+    with, so this is the inverse of that naming -- the file's own position
+    in the *requested* sequence, independent of which other files in that
+    sequence happen to exist on disk.
+    """
+    match = re.fullmatch(r"f(\d+)", path.stem)
+    return int(match.group(1)) if match else None
+
+
 def _frame_listing(run_dir: Path, shortcode: str, duration_s: Optional[float]) -> Tuple[List[str], bool]:
     """Lines describing this reel's keyframes, and whether it is cover-only.
 
     The normal case lists every `frames/<shortcode>/f*.jpg` file, sorted,
-    each with a timestamp from `frame_times(duration_s, <frame count>)` --
+    each with a timestamp from `frame_times(duration_s, max_index)` --
     reusing the same function `lib/frames.py` cut the frames with, so the
     reported timestamps match what Stage 1 actually extracted at. When no
     `f*.jpg` files exist (ffmpeg was not available -- design spec,
@@ -386,21 +400,36 @@ def _frame_listing(run_dir: Path, shortcode: str, duration_s: Optional[float]) -
     image and reports `cover_only=True`, so the caller can flag the
     analysis's confidence accordingly.
 
-    `frame_times` can return fewer timestamps than the frame count it was
-    asked for (its own contract: an unknown `duration_s` caps the result
-    at the four fixed early points, however many files actually exist).
-    A frame past the end of that list is still listed, just without a
-    timestamp, rather than silently dropped -- hiding a real keyframe
-    from the director would be worse than one missing number.
+    Each file is labeled by its *own* parsed index (`fNN.jpg` -> `NN`),
+    looked up as `times[NN - 1]`, never by its position in the sorted
+    file listing. `extract_frames` skips a timestamp whose ffmpeg call
+    fails and moves on to the next one, so a real run can leave a gap in
+    the numbering (`f01, f03, f04, ...`, no `f02`); pairing by list
+    position would then silently mislabel every file after the gap with
+    the timestamp meant for its missing neighbor. `max_index` -- the
+    highest `NN` actually present, not the file *count* -- is what is
+    asked of `frame_times`, so a later, higher-numbered survivor still
+    gets the timestamp `frame_times` would have given it had every frame
+    up to it succeeded. `frame_times` can still return fewer entries than
+    `max_index` (its own contract: an unknown `duration_s` caps the
+    result at the four fixed early points); a file whose index falls
+    past the end of that list -- or that does not parse as `fNN` at all
+    -- is still listed, just without a timestamp, rather than silently
+    dropped -- hiding a real keyframe from the director would be worse
+    than one missing number.
     """
     frame_dir = Path(run_dir) / "frames" / shortcode
     frame_paths = sorted(frame_dir.glob("f*.jpg"))
     if frame_paths:
-        timestamps = frames_lib.frame_times(duration_s, len(frame_paths))
+        indices = [_frame_index(path) for path in frame_paths]
+        known_indices = [index for index in indices if index is not None]
+        max_index = max(known_indices) if known_indices else len(frame_paths)
+        times = frames_lib.frame_times(duration_s, max_index)
+
         lines = []
-        for index, path in enumerate(frame_paths):
-            if index < len(timestamps):
-                lines.append(f"- {path.resolve()} at {timestamps[index]}s")
+        for path, index in zip(frame_paths, indices):
+            if index is not None and 1 <= index <= len(times):
+                lines.append(f"- {path.resolve()} at {times[index - 1]}s")
             else:
                 lines.append(f"- {path.resolve()} (timestamp unknown)")
         return lines, False
