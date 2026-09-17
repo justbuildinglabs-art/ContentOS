@@ -10,6 +10,15 @@ spec's "Stage 1 -- research" steps 4-6 for the formulas pinned down
 here; Task 10's `research` command is the only caller, and
 `viral_proof` here is also what stage 1's score feeds into brief
 ranking later (never recomputed by a subagent).
+
+By design, only `plays` is trusted as a reach signal for selection: an
+account with no plays-bearing reels at all still gets a `Baseline`
+(`compute_baselines`'s likes fallback, `metric="likes"`) and its reels
+still get a real `outlier_ratio`/`viral_proof` off that likes baseline
+(`score_reel`), so the research summary can flag the account -- but
+every one of its reels has `plays is None` by construction, so
+`select_outliers` always excludes them with reason `no_plays`. A
+likes-baseline reel is reported on, never `selected` or `backfill`ed.
 """
 from __future__ import annotations
 
@@ -256,6 +265,13 @@ def select_outliers(reels: List[Dict[str, Any]], cfg: Dict[str, Any], now: datet
     what remains become `selected`, the next `backfill_pool` become
     `backfill`; anything ranked past that is simply not listed anywhere
     (`outlier_threshold` is not a filter here -- only ranking/display).
+
+    `no_plays` also catches every reel scored against a likes-fallback
+    Baseline: such a reel has `plays is None` by construction (that is
+    exactly why its account fell back to likes), so it is always
+    excluded here -- by design, never `selected` or `backfill`ed --
+    even though `score_reel` gave it a real `outlier_ratio`/
+    `viral_proof` for reporting. See the module docstring.
     """
     cutoff = now - timedelta(days=cfg["lookback_days"])
 

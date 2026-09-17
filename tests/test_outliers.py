@@ -465,6 +465,66 @@ class SelectOutliersTests(NoNetworkTestCase):
 
         self.assertEqual([r["shortCode"] for r in selection.selected], ["Z", "A", "B", "C"])
 
+    def test_likes_baseline_reels_are_never_selected(self) -> None:
+        # Controller ruling (Task 9 review, round 1): plays are the only
+        # reach signal this pipeline trusts for selection. An account with
+        # no plays-bearing reels at all still gets a likes-fallback
+        # Baseline and a real outlier_ratio/viral_proof per reel (for the
+        # research summary), but every one of its reels has plays=None by
+        # construction, so select_outliers must always exclude them as
+        # no_plays -- never selected, never backfilled.
+        reels = [
+            _reel(
+                shortCode="LK1",
+                ownerUsername="likes_acct",
+                plays=None,
+                plays_source=None,
+                likes=100,
+            ),
+            _reel(
+                shortCode="LK2",
+                ownerUsername="likes_acct",
+                plays=None,
+                plays_source=None,
+                likes=120,
+            ),
+            # A strong likes outlier -- would clearly win selection on
+            # outlier_ratio alone if select_outliers didn't hard-exclude it.
+            _reel(
+                shortCode="LK3",
+                ownerUsername="likes_acct",
+                plays=None,
+                plays_source=None,
+                likes=900,
+            ),
+        ]
+
+        baselines = outliers.compute_baselines(reels, min_n=8)
+        baseline = baselines["likes_acct"]
+        self.assertEqual(baseline.metric, "likes")
+        self.assertEqual(baseline.confidence, "low")
+
+        cfg = _cfg(
+            lookback_days=90, min_plays=0, max_per_account=10, top_k_videos=10, backfill_pool=10
+        )
+        scored = [outliers.score_reel(reel, baseline, None, cfg) for reel in reels]
+
+        outlier = next(reel for reel in scored if reel["shortCode"] == "LK3")
+        self.assertIsNotNone(outlier["outlier_ratio"])
+        self.assertGreater(outlier["outlier_ratio"], 1.0)
+        self.assertGreater(outlier["viral_proof"], 0.0)
+
+        selection = outliers.select_outliers(scored, cfg, NOW)
+
+        reasons = {item["shortCode"]: item["reason"] for item in selection.excluded}
+        for reel in scored:
+            self.assertEqual(reasons.get(reel["shortCode"]), "no_plays")
+
+        selected_and_backfill = {r["shortCode"] for r in selection.selected} | {
+            r["shortCode"] for r in selection.backfill
+        }
+        self.assertEqual(selected_and_backfill, set())
+
 
 class FixtureOutlierTests(NoNetworkTestCase):
     def test_fixture_outliers_selected(self) -> None:
