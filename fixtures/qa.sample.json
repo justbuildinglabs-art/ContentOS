@@ -1,0 +1,48 @@
+{
+  "brief_id": "B01",
+  "revision": 0,
+  "verdict": "pass",
+  "checks": {
+    "hook_first_3s": "pass",
+    "hook_matches_brief": "pass",
+    "demo_present": "pass",
+    "consistent_with_product": "pass",
+    "no_fabricated_claims": "pass",
+    "no_fake_testimonial": "pass",
+    "no_restricted_claims": "pass",
+    "not_a_clone": "pass",
+    "cta_present": "pass",
+    "brand_voice": "na",
+    "ai_tells": "pass"
+  },
+  "scores": {
+    "hook_scroll_stop": 9,
+    "hook_specificity": 8,
+    "hook_emotional_charge": 8,
+    "hook_voice_match": 8,
+    "hook_differentiation": 9,
+    "body_argument_clarity": 9,
+    "body_emotional_arc": 8,
+    "body_proof_density": 8,
+    "body_pacing": 9,
+    "cta_action_clarity": 9,
+    "cta_friction": 8,
+    "cta_momentum": 8,
+    "cta_urgency": 8
+  },
+  "length_check": {
+    "word_count": 103,
+    "word_budget": 100,
+    "within_tolerance": true
+  },
+  "filler_cut_list": [],
+  "placeholders": ["[NEED NUMBER]"],
+  "strongest_line": "Every habit app buries the one number you actually want to see.",
+  "weakest_lines": [],
+  "one_watch_test": "A viewer walks away remembering that the number shows up the moment they check in, which is the differentiator the brief named, not a joke, a transition, or the music.",
+  "spoken_flow_issues": [],
+  "cringe_flags": [],
+  "issues": [],
+  "summary": "The hook keeps the number reveal mechanism and swaps in the Sprout streak screen as the brief asked. The body stays inside the word budget and every claim traces to product.md except the one placeholder, which is listed rather than invented.",
+  "confidence": 9
+}

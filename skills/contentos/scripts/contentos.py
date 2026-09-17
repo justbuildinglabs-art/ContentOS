@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from lib import apify, codes, direct, env, frames, research, store
+from lib import agents, apify, codes, direct, env, frames, report, research, store
 
 SUBCOMMANDS = [
     "diagnose",
@@ -194,27 +194,156 @@ def _synth_prompt_handler(args: argparse.Namespace) -> int:
     return codes.EXIT_OK
 
 
+def _verify_write(project_dir: Path, args: argparse.Namespace) -> int:
+    """`verify --stage write`: check one script file, print `ok ...` or its problems."""
+    if not args.brief:
+        print("verify --stage write needs --brief", file=sys.stderr)
+        return codes.EXIT_USAGE
+    run_dir = store.resolve_run(project_dir, args.run)
+    cfg = store.load_config(project_dir)
+    revision = args.revision if args.revision is not None else 0
+    path = agents.script_path(run_dir, args.brief, revision)
+    check = agents.verify_script(path, references_dir(), cfg["length_tolerance"])
+    for warning in check.warnings:
+        print(warning, file=sys.stderr)
+    if check.errors:
+        print("\n".join(check.errors), file=sys.stderr)
+        return codes.EXIT_VERIFY
+    print(
+        f"ok {path.resolve()} words={check.word_count} "
+        f"read_time_s={check.read_time_s} placeholders={len(check.placeholders)}"
+    )
+    return codes.EXIT_OK
+
+
+def _verify_qa(project_dir: Path, args: argparse.Namespace) -> int:
+    """`verify --stage qa`: check one QA JSON file, print `ok ...` or its problems."""
+    if not args.brief:
+        print("verify --stage qa needs --brief", file=sys.stderr)
+        return codes.EXIT_USAGE
+    run_dir = store.resolve_run(project_dir, args.run)
+    cfg = store.load_config(project_dir)
+    revision = args.revision
+    if revision is None:
+        revision = agents.default_qa_revision(run_dir, args.brief)
+    path = agents.qa_path(run_dir, args.brief, revision)
+    problems = agents.verify_qa(path, cfg["qa_pass_threshold"])
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return codes.EXIT_VERIFY
+    verdict = store.read_json(path).get("verdict")
+    print(f"ok {path.resolve()} verdict={verdict}")
+    return codes.EXIT_OK
+
+
 def _verify_handler(args: argparse.Namespace) -> int:
-    """Verify one stage's output file, printing `ok <path>` or its problems.
+    """Verify one stage's output file, printing `ok <path> ...` or its problems.
 
     `direct` and `synth` are Stage 2's own checks (`lib/direct.py`);
-    `write` and `qa` are still stubs and report themselves as not
-    implemented, exactly like any other unimplemented subcommand.
+    `write` and `qa` are Stage 3/4's (`lib/agents.py`).
     """
-    if args.stage not in ("direct", "synth"):
-        print(f"verify {args.stage}: not implemented", file=sys.stderr)
-        return codes.EXIT_STUB
-
     project_dir = args.project.resolve()
     try:
         if args.stage == "direct":
             path = direct.verify_direct(project_dir, args.run, args.shortcode)
-        else:
+            print(f"ok {path}")
+            return codes.EXIT_OK
+        if args.stage == "synth":
             path = direct.verify_synth(project_dir, args.run)
+            print(f"ok {path}")
+            return codes.EXIT_OK
+        if args.stage == "write":
+            return _verify_write(project_dir, args)
+        return _verify_qa(project_dir, args)
     except direct.DirectError as exc:
         print(str(exc), file=sys.stderr)
         return exc.exit_code
-    print(f"ok {path}")
+    except agents.AgentsError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    except (store.RunNotFound, store.ConfigError) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+
+
+def _write_prompt_handler(args: argparse.Namespace) -> int:
+    """Print the `script-writer` dispatch prompt for one brief.
+
+    Every refusal (`agents.AgentsError`) carries its own exit code: 2
+    for an unresolvable run, a brief not in `03-briefs.json`, or a
+    missing `product.md`.
+    """
+    project_dir = args.project.resolve()
+    try:
+        run_dir = store.resolve_run(project_dir, args.run)
+        cfg = store.load_config(project_dir)
+        prompt = agents.write_prompt(
+            project_dir,
+            run_dir,
+            args.brief,
+            revision=args.revision if args.revision is not None else 0,
+            references_dir=references_dir(),
+            cfg=cfg,
+        )
+    except (store.RunNotFound, store.ConfigError) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    except agents.AgentsError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    print(prompt)
+    return codes.EXIT_OK
+
+
+def _qa_prompt_handler(args: argparse.Namespace) -> int:
+    """Print the `qa-reviewer` dispatch prompt for one brief's script.
+
+    `--revision` defaults to the highest revision with a written
+    script -- the one QA has not reviewed yet.
+    """
+    project_dir = args.project.resolve()
+    try:
+        run_dir = store.resolve_run(project_dir, args.run)
+        cfg = store.load_config(project_dir)
+        revision = args.revision
+        if revision is None:
+            revision = agents.default_qa_revision(run_dir, args.brief)
+        prompt = agents.qa_prompt(
+            project_dir, run_dir, args.brief, revision, references_dir=references_dir(), cfg=cfg
+        )
+    except (store.RunNotFound, store.ConfigError) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    except agents.AgentsError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    print(prompt)
+    return codes.EXIT_OK
+
+
+def _report_handler(args: argparse.Namespace) -> int:
+    """Render this run's `report.md`, write it, and print its path."""
+    project_dir = args.project.resolve()
+    try:
+        run_dir = store.resolve_run(project_dir, args.run)
+    except store.RunNotFound as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    report_path = run_dir / "report.md"
+    report_path.write_text(report.render_report(run_dir), encoding="utf-8")
+    print(report_path.resolve())
+    return codes.EXIT_OK
+
+
+def _status_handler(args: argparse.Namespace) -> int:
+    """Print this run's machine-readable state as JSON."""
+    project_dir = args.project.resolve()
+    try:
+        run_dir = store.resolve_run(project_dir, args.run)
+    except store.RunNotFound as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    print(json.dumps(report.status(run_dir), indent=2))
     return codes.EXIT_OK
 
 
@@ -250,6 +379,10 @@ HANDLERS["direct-prompt"] = _direct_prompt_handler
 HANDLERS["synth-prompt"] = _synth_prompt_handler
 HANDLERS["rank"] = _rank_handler
 HANDLERS["verify"] = _verify_handler
+HANDLERS["write-prompt"] = _write_prompt_handler
+HANDLERS["qa-prompt"] = _qa_prompt_handler
+HANDLERS["report"] = _report_handler
+HANDLERS["status"] = _status_handler
 
 
 def is_stub(name: str) -> bool:
@@ -277,10 +410,16 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "frames":
             sub.add_argument("--run", required=True)
             sub.add_argument("--refresh-expired", action="store_true")
-        if name in ("direct-prompt", "synth-prompt", "rank", "verify"):
+        if name in (
+            "direct-prompt", "synth-prompt", "rank", "verify",
+            "write-prompt", "qa-prompt", "report", "status",
+        ):
             sub.add_argument("--run", required=True)
         if name == "direct-prompt":
             sub.add_argument("--shortcode", required=True)
+        if name in ("write-prompt", "qa-prompt"):
+            sub.add_argument("--brief", required=True)
+            sub.add_argument("--revision", type=int, default=None)
         if name == "verify":
             sub.add_argument("--stage", required=True, choices=["direct", "synth", "write", "qa"])
             sub.add_argument("--shortcode", default=None)
