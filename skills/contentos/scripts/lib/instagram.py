@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 # account_status values normalize_dataset assigns each handle, in the
 # order they are checked.
@@ -20,6 +21,38 @@ STATUS_ERROR = "error"
 STATUS_PRIVATE = "private"
 STATUS_EMPTY = "empty"
 STATUS_OK = "ok"
+
+
+def _to_number(value: Any) -> Optional[float]:
+    """Coerce a raw Apify numeric field to a number, tolerating strings.
+
+    Real dataset items are already numeric, but a defensively-written
+    normalizer should not crash the whole item over one malformed
+    field. Accepts int/float as-is (excluding `bool`, which is
+    technically an `int` subclass but never a legitimate count) and
+    numeric strings (surrounding whitespace stripped; tried as `int`
+    first so a whole count like `"500"` stays an int, then as `float`
+    for e.g. `"20.5"`). Anything else -- `None`, a non-numeric string, a
+    list, ... -- becomes `None`, so that one field degrades to
+    "missing" rather than raising.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            pass
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
 
 
 def pick_plays(item: Dict[str, Any]) -> Tuple[Optional[int], Optional[str]]:
@@ -31,11 +64,11 @@ def pick_plays(item: Dict[str, Any]) -> Tuple[Optional[int], Optional[str]]:
     number, so the reel is excluded from medians and ranking (Task 9)
     rather than scored as zero.
     """
-    play_count = item.get("videoPlayCount")
+    play_count = _to_number(item.get("videoPlayCount"))
     if play_count is not None and play_count > 0:
         return play_count, "videoPlayCount"
 
-    view_count = item.get("videoViewCount")
+    view_count = _to_number(item.get("videoViewCount"))
     if view_count is not None and view_count > 0:
         return view_count, "videoViewCount"
 
@@ -69,14 +102,21 @@ def _latest_comments(item: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     Missing fields on any one comment become `None` rather than being
     dropped, so `latestComments` is always a list of same-shaped dicts.
+    A `latestComments` value that is not a list becomes `[]`, and any
+    entry within it that is not itself a dict is skipped, rather than
+    raising `AttributeError` on `.get`.
     """
+    raw = item.get("latestComments")
+    if not isinstance(raw, list):
+        return []
     return [
         {
             "ownerUsername": comment.get("ownerUsername"),
             "text": comment.get("text"),
             "likesCount": comment.get("likesCount"),
         }
-        for comment in item.get("latestComments") or []
+        for comment in raw
+        if isinstance(comment, dict)
     ]
 
 
@@ -104,10 +144,13 @@ def normalize_reel(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     plays, plays_source = pick_plays(item)
 
-    likes_raw = item.get("likesCount")
+    likes_raw = _to_number(item.get("likesCount"))
     likes = likes_raw if likes_raw is not None and likes_raw >= 0 else None
 
-    duration_raw = item.get("videoDuration")
+    comments_raw = _to_number(item.get("commentsCount"))
+    comments = comments_raw if comments_raw is not None else 0
+
+    duration_raw = _to_number(item.get("videoDuration"))
     duration_s = float(duration_raw) if duration_raw is not None else None
 
     return {
@@ -121,7 +164,7 @@ def normalize_reel(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "plays": plays,
         "plays_source": plays_source,
         "likes": likes,
-        "comments": item.get("commentsCount") or 0,
+        "comments": comments,
         "duration_s": duration_s,
         "videoUrl": item.get("videoUrl"),
         "displayUrl": item.get("displayUrl"),
@@ -146,8 +189,8 @@ def normalize_profile(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     return {
         "username": username,
-        "followers": item.get("followersCount"),
-        "posts": item.get("postsCount"),
+        "followers": _to_number(item.get("followersCount")),
+        "posts": _to_number(item.get("postsCount")),
         "verified": bool(item.get("verified")),
         "private": bool(item.get("private")),
         "url": item.get("url") or f"https://www.instagram.com/{username}/",
@@ -179,14 +222,35 @@ def _is_not_found_error(error_text: Any) -> bool:
     return "not found" in text or "404" in text
 
 
+def _handle_from_input_url(input_url: str) -> str:
+    """Extract the handle an error item's `inputUrl` names.
+
+    `inputUrl` is the URL Apify was given as input, e.g.
+    `https://www.instagram.com/sproutapp/` -- the handle is its last
+    non-empty path segment (trailing slashes ignored), with any leading
+    `@` stripped (some inputs use the `@handle` form). Returns `""` when
+    the URL has no path segments at all.
+    """
+    segments = [segment for segment in urlsplit(input_url).path.split("/") if segment]
+    if not segments:
+        return ""
+    return segments[-1].lstrip("@")
+
+
 def _find_error_item(
     error_items: List[Dict[str, Any]], handle: str
 ) -> Optional[Dict[str, Any]]:
-    """Return the first error item whose `inputUrl` names `handle`, if any."""
+    """Return the first error item whose `inputUrl` names exactly `handle`, if any.
+
+    Matches on the whole last path segment of `inputUrl`
+    (case-insensitively), not a substring -- otherwise an error item for
+    `sproutapp2` would also misattribute to the unrelated, healthy
+    handle `sproutapp`.
+    """
     handle_lower = handle.lower()
     for item in error_items:
-        input_url = str(item.get("inputUrl") or "").lower()
-        if handle_lower in input_url:
+        input_url = str(item.get("inputUrl") or "")
+        if _handle_from_input_url(input_url).lower() == handle_lower:
             return item
     return None
 

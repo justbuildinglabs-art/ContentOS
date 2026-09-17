@@ -200,6 +200,33 @@ class NormalizeReelTests(NoNetworkTestCase):
         valid = _clip_item(shortCode="OK1")
         self.assertIsNotNone(instagram.normalize_reel(valid))
 
+    def test_latest_comments_skips_non_dict_entries(self) -> None:
+        item = _clip_item(
+            latestComments=[
+                {"ownerUsername": "keepme", "text": "hi", "likesCount": 2},
+                "a bare string comment",
+                None,
+                42,
+                ["nested", "list"],
+            ]
+        )
+
+        result = instagram.normalize_reel(item)
+
+        self.assertEqual(
+            result["latestComments"],
+            [{"ownerUsername": "keepme", "text": "hi", "likesCount": 2}],
+        )
+
+        non_list = _clip_item(latestComments="not a list at all")
+        self.assertEqual(instagram.normalize_reel(non_list)["latestComments"], [])
+
+        numberish = _clip_item(latestComments=12345)
+        self.assertEqual(instagram.normalize_reel(numberish)["latestComments"], [])
+
+        all_garbage = _clip_item(latestComments=["oops", 1, None, [1, 2]])
+        self.assertEqual(instagram.normalize_reel(all_garbage)["latestComments"], [])
+
 
 class PickPlaysTests(NoNetworkTestCase):
     def test_plays_prefers_playcount_then_viewcount_then_none(self) -> None:
@@ -220,6 +247,64 @@ class PickPlaysTests(NoNetworkTestCase):
             instagram.pick_plays({"videoPlayCount": -5, "videoViewCount": -10}),
             (None, None),
         )
+
+
+class NumericCoercionTests(NoNetworkTestCase):
+    def test_numeric_strings_are_coerced_and_garbage_becomes_missing(self) -> None:
+        # pick_plays: numeric strings behave like the equivalent numbers.
+        self.assertEqual(
+            instagram.pick_plays({"videoPlayCount": "500", "videoViewCount": "900"}),
+            (500, "videoPlayCount"),
+        )
+        self.assertEqual(
+            instagram.pick_plays({"videoPlayCount": "not a number", "videoViewCount": "900"}),
+            (900, "videoViewCount"),
+        )
+        self.assertEqual(
+            instagram.pick_plays({"videoPlayCount": "not a number", "videoViewCount": "nope"}),
+            (None, None),
+        )
+        self.assertEqual(
+            instagram.pick_plays({"videoPlayCount": "  250  "}), (250, "videoPlayCount")
+        )
+
+        # normalize_reel: likes/comments/duration all route through the same
+        # coercion, so a malformed field degrades to "missing" rather than
+        # raising and aborting the whole item.
+        item = _clip_item(
+            videoPlayCount="250",
+            videoViewCount="10",
+            likesCount="100",
+            commentsCount=None,
+            videoDuration="twenty",
+        )
+        result = instagram.normalize_reel(item)
+        self.assertEqual(result["plays"], 250)
+        self.assertEqual(result["plays_source"], "videoPlayCount")
+        self.assertEqual(result["likes"], 100)
+        self.assertEqual(result["comments"], 0)
+        self.assertIsNone(result["duration_s"])
+
+        garbage_likes = _clip_item(likesCount="not a number")
+        self.assertIsNone(instagram.normalize_reel(garbage_likes)["likes"])
+
+        garbage_comments = _clip_item(commentsCount="not a number")
+        self.assertEqual(instagram.normalize_reel(garbage_comments)["comments"], 0)
+
+        # normalize_profile: followers/posts route through the same helper.
+        profile = instagram.normalize_profile(
+            {
+                "username": "acct",
+                "followersCount": "12000",
+                "postsCount": "not a number",
+                "private": False,
+            }
+        )
+        self.assertEqual(profile["followers"], 12000)
+        self.assertIsNone(profile["posts"])
+
+        # A bool is never mistaken for a legitimate numeric count.
+        self.assertEqual(instagram.pick_plays({"videoPlayCount": True}), (None, None))
 
 
 class ParseTsTests(NoNetworkTestCase):
@@ -393,6 +478,44 @@ class NormalizeDatasetTests(NoNetworkTestCase):
         self.assertIn("acct_ok", profiles)
         self.assertIn("acct_private", profiles)
         self.assertTrue(profiles["acct_private"]["private"])
+
+    def test_error_item_matches_exact_handle_not_prefix(self) -> None:
+        # A valid reel for "sproutapp" plus an error item whose inputUrl
+        # names the unrelated handle "sproutapp2" must not bleed the error
+        # onto "sproutapp" just because one handle is a string-prefix of
+        # the other's inputUrl.
+        reel_items = [
+            _clip_item(shortCode="SP1", ownerUsername="sproutapp"),
+            {
+                "error": "Profile not found",
+                "inputUrl": "https://www.instagram.com/sproutapp2/",
+            },
+        ]
+
+        reels, _profiles, account_status = instagram.normalize_dataset(
+            reel_items, [], ["sproutapp", "sproutapp2"]
+        )
+
+        self.assertEqual(account_status["sproutapp"], "ok")
+        self.assertEqual(account_status["sproutapp2"], "not_found")
+        self.assertEqual([r["shortCode"] for r in reels], ["SP1"])
+
+        # Same story the other way around: a prefix handle's error must
+        # not attribute to a longer handle that merely starts with it.
+        reel_items_reverse = [
+            _clip_item(shortCode="HL1", ownerUsername="habitlabpro"),
+            {
+                "error": "Profile not found",
+                "inputUrl": "https://www.instagram.com/habitlab/",
+            },
+        ]
+
+        _reels2, _profiles2, account_status2 = instagram.normalize_dataset(
+            reel_items_reverse, [], ["habitlab", "habitlabpro"]
+        )
+
+        self.assertEqual(account_status2["habitlab"], "not_found")
+        self.assertEqual(account_status2["habitlabpro"], "ok")
 
 
 class FixtureTests(NoNetworkTestCase):
