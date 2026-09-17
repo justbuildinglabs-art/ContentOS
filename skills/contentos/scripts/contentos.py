@@ -11,9 +11,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
-from lib import codes, env
+from lib import apify, codes, env
 
 SUBCOMMANDS = [
     "diagnose",
@@ -61,13 +61,31 @@ def _stub_handler(name: str) -> Callable[[argparse.Namespace], int]:
 
 
 def _diagnose_handler(args: argparse.Namespace) -> int:
-    """Run the founder-facing pre-flight check and print its JSON report."""
+    """Run the founder-facing pre-flight check and print its JSON report.
+
+    `--live` additionally validates the resolved key against Apify at
+    zero cost (`GET /users/me`, via `apify.check_token`). Without the
+    flag `apify_live` is always `null`; with it, `false` when no key
+    resolved at all so a live check is never attempted with nothing to
+    check. Either way this always exits 0 -- diagnose reports, it never
+    fails.
+    """
     project_dir = args.project.resolve()
     result = env.diagnose(
         project_dir,
         mock=args.mock,
         skill_root=str(skill_root()),
     )
+
+    apify_live: Optional[bool] = None
+    if args.live:
+        keys = env.resolve_keys(project_dir)
+        if keys.apify:
+            apify_live = apify.check_token(keys.apify, apify.HttpTransport())
+        else:
+            apify_live = False
+    result["apify_live"] = apify_live
+
     print(json.dumps(result, indent=2))
     return codes.EXIT_OK
 
@@ -93,6 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
         sub = subparsers.add_parser(name)
         sub.add_argument("--project", type=Path, default=Path.cwd())
         sub.add_argument("--mock", action="store_true")
+        if name == "diagnose":
+            sub.add_argument("--live", action="store_true")
 
     return parser
 
