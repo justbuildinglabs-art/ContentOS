@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List
 
-from lib import codes
+from lib import codes, env
 
 SUBCOMMANDS = [
     "diagnose",
@@ -59,9 +59,22 @@ def _stub_handler(name: str) -> Callable[[argparse.Namespace], int]:
     return handler
 
 
+def _diagnose_handler(args: argparse.Namespace) -> int:
+    """Run the founder-facing pre-flight check and print its JSON report."""
+    project_dir = args.project.resolve()
+    result = env.diagnose(
+        project_dir,
+        mock=args.mock,
+        skill_root=str(skill_root()),
+    )
+    print(json.dumps(result, indent=2))
+    return codes.EXIT_OK
+
+
 HANDLERS: Dict[str, Callable[[argparse.Namespace], int]] = {
     name: _stub_handler(name) for name in SUBCOMMANDS
 }
+HANDLERS["diagnose"] = _diagnose_handler
 
 
 def build_parser() -> argparse.ArgumentParser:
