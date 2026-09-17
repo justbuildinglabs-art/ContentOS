@@ -1,0 +1,18 @@
+{
+  "name": "contentos",
+  "version": "0.1.0",
+  "description": "Competitor research to vetted Reel scripts: a four-stage Instagram Reels content pipeline for app founders.",
+  "author": {
+    "name": "Just Building Labs"
+  },
+  "keywords": ["instagram", "reels", "content", "ugc", "scripts", "apify"],
+  "userConfig": {
+    "APIFY_API_TOKEN": {
+      "type": "string",
+      "title": "Apify API token",
+      "description": "Used by /contentos research to scrape Instagram Reels. Get one at apify.com.",
+      "sensitive": true,
+      "required": false
+    }
+  }
+}
