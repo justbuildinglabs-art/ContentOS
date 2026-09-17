@@ -233,11 +233,40 @@ class InitRunCollisionTests(NoNetworkTestCase):
         self.assertEqual(first_run_before, first_run_after)
         self.assertEqual(first_dir.name, "20260916-213000")
 
-        # The second run gets a lexically-later suffixed id, recorded
-        # consistently in both its directory name and its own run.json.
-        self.assertEqual(second_dir.name, "20260916-213000-2")
+        # The second run gets a lexically-later, zero-padded suffixed id,
+        # recorded consistently in both its directory name and its own
+        # run.json.
+        self.assertEqual(second_dir.name, "20260916-213000-02")
         self.assertEqual(second_run["run_id"], second_dir.name)
         self.assertGreater(second_dir.name, first_dir.name)
+
+    def test_init_run_collision_suffixes_keep_latest_ordering(self) -> None:
+        # Regression test: unpadded suffixes ("-2", "-9", "-10", ...)
+        # sort lexically out of numeric order once there are 10+
+        # collisions ("-9" > "-10" as strings), which made
+        # resolve_run(..., "latest") silently return a stale run.
+        with temp_project() as project_dir:
+            config = dict(DEFAULT_CONFIG, competitors=["acme"])
+            base_id = "20260916-213000"
+
+            with mock.patch("lib.store.new_run_id", return_value=base_id):
+                # 1 base run, then 11 forced collisions (suffixes
+                # -02..-12), then one more call under test (suffix -13):
+                # this crosses the single-digit -> double-digit boundary
+                # ("-09" -> "-10") that broke unpadded suffixes.
+                created = [init_run(project_dir, config, "mock") for _ in range(13)]
+
+            newest = created[-1]
+            self.assertEqual(newest.name, f"{base_id}-13")
+
+            latest = resolve_run(project_dir, "latest")
+
+        self.assertEqual(latest, newest)
+
+        # Zero-padding means lexical order now matches creation
+        # (numeric) order for every suffix in this range.
+        names = [created_dir.name for created_dir in created]
+        self.assertEqual(sorted(names), names)
 
     def test_init_run_raises_run_exists_when_all_suffixes_taken(self) -> None:
         with temp_project() as project_dir:
@@ -247,7 +276,9 @@ class InitRunCollisionTests(NoNetworkTestCase):
             with mock.patch("lib.store.new_run_id", return_value=base_id):
                 run_dir(project_dir, base_id).mkdir(parents=True)
                 for suffix in range(2, 100):
-                    run_dir(project_dir, f"{base_id}-{suffix}").mkdir(parents=True)
+                    run_dir(project_dir, f"{base_id}-{suffix:02d}").mkdir(
+                        parents=True
+                    )
 
                 with self.assertRaises(RunExists):
                     init_run(project_dir, config, "mock")
