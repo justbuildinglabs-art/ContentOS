@@ -56,6 +56,7 @@ def _stub_handler(name: str) -> Callable[[argparse.Namespace], int]:
         print(f"{name}: not implemented", file=sys.stderr)
         return codes.EXIT_STUB
 
+    handler.is_stub = True
     return handler
 
 
@@ -75,6 +76,11 @@ HANDLERS: Dict[str, Callable[[argparse.Namespace], int]] = {
     name: _stub_handler(name) for name in SUBCOMMANDS
 }
 HANDLERS["diagnose"] = _diagnose_handler
+
+
+def is_stub(name: str) -> bool:
+    """Return whether HANDLERS[name] is still the not-implemented stub."""
+    return getattr(HANDLERS[name], "is_stub", False)
 
 
 def build_parser() -> argparse.ArgumentParser:

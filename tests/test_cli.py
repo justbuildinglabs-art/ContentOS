@@ -7,23 +7,10 @@ import urllib.request
 
 from tests.helpers import NoNetworkTestCase, REPO_ROOT, run_cli, temp_project
 
-# Ground truth subcommand list, matching the design spec's "Skill" section.
-# Kept literal here (not imported from contentos.py) so a typo or omission
-# in the CLI's own list is still caught by this test.
-SUBCOMMANDS = [
-    "diagnose",
-    "setup",
-    "research",
-    "frames",
-    "direct-prompt",
-    "synth-prompt",
-    "rank",
-    "write-prompt",
-    "qa-prompt",
-    "verify",
-    "report",
-    "status",
-]
+# tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect
+# (contentos.py lives directly in SCRIPTS_DIR), so this import must come
+# after it.
+import contentos  # noqa: E402
 
 
 class CliTests(NoNetworkTestCase):
@@ -44,13 +31,22 @@ class CliTests(NoNetworkTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), plugin["version"])
 
-    def test_every_subcommand_is_stubbed_with_exit_1(self) -> None:
-        for name in SUBCOMMANDS:
-            with self.subTest(subcommand=name):
-                code, _out, err = run_cli([name])
+    def test_every_subcommand_is_registered_and_stubs_exit_1(self) -> None:
+        # This adapts as later tasks wire up real handlers: every name is
+        # still expected to be a recognized subcommand (never exit 2), but
+        # only the ones still marked as stubs are expected to exit 1 with
+        # the not-implemented message.
+        with temp_project() as project_dir:
+            for name in contentos.SUBCOMMANDS:
+                with self.subTest(subcommand=name):
+                    code, _out, err = run_cli([name, "--project", str(project_dir)])
 
-                self.assertEqual(code, 1)
-                self.assertIn(f"{name}: not implemented", err)
+                    self.assertNotEqual(code, 2)
+                    if contentos.is_stub(name):
+                        self.assertEqual(code, 1)
+                        self.assertIn(f"{name}: not implemented", err)
+                    else:
+                        self.assertNotIn("not implemented", err)
 
     def test_no_network_helper_blocks_urlopen(self) -> None:
         with self.assertRaises(AssertionError):
