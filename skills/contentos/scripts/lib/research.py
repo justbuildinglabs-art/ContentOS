@@ -4,11 +4,14 @@
 reviewed for this pipeline: `lib/apify.py` (REST client, cost estimate,
 `FixtureTransport`/`HttpTransport`), `lib/instagram.py`
 (`normalize_dataset`), `lib/outliers.py` (`compute_baselines`,
-`score_reel`, `select_outliers`), and `lib/store.py` (run directory
-bookkeeping). See the design spec's "Stage 1 -- research" section for the
-full step-by-step flow this module drives and "Config defaults" for the
-config keys read here. Downloads and keyframes (spec steps 7-8) are
-Tasks 11-12; `no_download` is accepted here and ignored until Task 11.
+`score_reel`, `select_outliers`), `lib/video.py` (`download_selected`,
+spec step 7 -- video + cover downloads with backfill), and
+`lib/store.py` (run directory bookkeeping). See the design spec's
+"Stage 1 -- research" section for the full step-by-step flow this
+module drives and "Config defaults" for the config keys read here.
+Keyframes (spec step 8) are Task 12; `no_download`, when true, skips
+`download_selected` so every `selected`/`backfill` reel's
+`video_status` stays `"pending"` and the `videos` summary is `None`.
 
 `contentos.py`'s `research` subcommand is the only caller; it loads
 config with `store.load_config`, resolves keys with `env.resolve_keys`,
@@ -25,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from lib import apify, instagram, outliers, store
+from lib import apify, instagram, outliers, store, video
 from lib.env import Keys
 from lib.http import HTTPError
 
@@ -326,13 +329,16 @@ def run_research(
     now: Optional[datetime] = None,
     no_download: bool = False,
 ) -> Dict[str, Any]:
-    """Run Stage 1 end to end (minus downloads/keyframes) and return the RESULT summary.
+    """Run Stage 1 end to end (minus keyframes) and return the RESULT summary.
 
-    `no_download` is accepted and ignored; Task 11 gives it meaning.
-    Raises a `ResearchError` subclass for every condition the CLI maps to
-    a non-zero exit code (cost cap, confirmation, missing key, upstream
-    failure). `store.ConfigError`/`store.RunNotFound` propagate
-    unchanged, for the CLI to map to exit 2.
+    `no_download`, when true, skips `video.download_selected` entirely:
+    every `selected`/`backfill` reel's `video_status` stays `"pending"`
+    (as `_pending` first wrote it) and the returned/recorded `videos`
+    summary is `None`. Raises a `ResearchError` subclass for every
+    condition the CLI maps to a non-zero exit code (cost cap,
+    confirmation, missing key, upstream failure).
+    `store.ConfigError`/`store.RunNotFound` propagate unchanged, for the
+    CLI to map to exit 2.
     """
     if log is None:
         log = _default_log
@@ -400,16 +406,31 @@ def run_research(
 
     store.write_json_atomic(run_dir / "01-reels.json", scored)
     store.write_json_atomic(run_dir / "01-profiles.json", profiles)
-    store.write_json_atomic(
-        run_dir / "02-outliers.json",
-        {
-            "selected": [_pending(reel) for reel in selection.selected],
-            "backfill": [_pending(reel) for reel in selection.backfill],
-            "excluded": selection.excluded,
-            "account_status": account_status,
-            "baselines": _baselines_payload(accounts, baselines),
-        },
-    )
+    outliers_doc = {
+        "selected": [_pending(reel) for reel in selection.selected],
+        "backfill": [_pending(reel) for reel in selection.backfill],
+        "excluded": selection.excluded,
+        "account_status": account_status,
+        "baselines": _baselines_payload(accounts, baselines),
+    }
+    store.write_json_atomic(run_dir / "02-outliers.json", outliers_doc)
+
+    # Step 7: download videos + covers immediately, while CDN URLs are
+    # freshest. `download_selected` rewrites 02-outliers.json itself
+    # (per-reel video_status/cover_status, and any backfill promotions),
+    # so nothing further here touches that file. --no-download leaves
+    # every reel exactly as `_pending` wrote it above.
+    videos_summary: Optional[Dict[str, int]] = None
+    if not no_download:
+        video_report = video.download_selected(
+            run_dir, outliers_doc, cfg, mock, fixtures_dir=FIXTURES_DIR, log=log
+        )
+        videos_summary = {
+            "ok": len(video_report.ok),
+            "failed": len(video_report.skipped),
+            "promoted": len(video_report.replaced_from_backfill),
+        }
+        warnings = warnings + video_report.warnings
 
     status = STATUS_PARTIAL if run_warnings else STATUS_OK
     finished_at = datetime.now(timezone.utc).isoformat()
@@ -424,6 +445,7 @@ def run_research(
                 "selected": len(selection.selected),
                 "backfill": len(selection.backfill),
                 "excluded": len(selection.excluded),
+                "videos": videos_summary,
             }
         },
         costs={"apify": {"estimate_usd": estimate.total_usd, "max_items": estimate.max_items}},
@@ -442,6 +464,7 @@ def run_research(
         "selected": len(selection.selected),
         "backfill": len(selection.backfill),
         "excluded": len(selection.excluded),
+        "videos": videos_summary,
         "warnings": updated.get("warnings", warnings),
     }
     print("RESULT " + json.dumps(result))

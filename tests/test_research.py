@@ -102,6 +102,13 @@ class MockResearchTests(NoNetworkTestCase):
             _write_config(project_dir, {"competitors": FIXTURE_HANDLES})
             cfg = store.load_config(project_dir)
 
+            # This test is about the shape of 01-reels/01-profiles/
+            # 02-outliers/run.json that steps 1-6 produce, not about
+            # downloads (step 7, Task 11) -- no_download=True keeps every
+            # reel's video_status "pending" as asserted below. See
+            # tests/test_video.py for download_selected's own coverage,
+            # including test_research_mock_downloads_by_default_and_
+            # no_download_skips for this same CLI wiring with downloads on.
             result, stdout_text, _logs = _run_research_capturing(
                 project=project_dir,
                 cfg=cfg,
@@ -110,6 +117,7 @@ class MockResearchTests(NoNetworkTestCase):
                 yes=True,
                 estimate_only=False,
                 resume=None,
+                no_download=True,
             )
 
             run_dir = Path(result["run_dir"])
@@ -548,7 +556,7 @@ class ResearchCliTests(NoNetworkTestCase):
             set(payload),
             {
                 "run_id", "run_dir", "mode", "status", "accounts", "reels_total",
-                "selected", "backfill", "excluded", "warnings",
+                "selected", "backfill", "excluded", "videos", "warnings",
             },
         )
         self.assertEqual(payload["mode"], "mock")
