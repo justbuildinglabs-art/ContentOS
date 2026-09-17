@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from lib import apify, codes, env
+from lib import apify, codes, env, research, store
 
 SUBCOMMANDS = [
     "diagnose",
@@ -90,10 +90,47 @@ def _diagnose_handler(args: argparse.Namespace) -> int:
     return codes.EXIT_OK
 
 
+def _research_handler(args: argparse.Namespace) -> int:
+    """Run Stage 1 research end to end and print its per-account summary + RESULT line.
+
+    Loads config and resolves keys, then delegates to
+    `research.run_research`. Every `research.ResearchError` subclass maps
+    to its own `exit_code`: its `payload` (the cost estimate), when
+    present, is printed to stdout as indented JSON; the message always
+    goes to stderr. `store.ConfigError` (bad/missing config) and
+    `store.RunNotFound` (an unresolvable `--resume` id) both map to
+    EXIT_USAGE, message on stderr.
+    """
+    project_dir = args.project.resolve()
+    try:
+        cfg = store.load_config(project_dir)
+        keys = env.resolve_keys(project_dir)
+        research.run_research(
+            project_dir,
+            cfg,
+            keys,
+            mock=args.mock,
+            yes=args.yes,
+            estimate_only=args.estimate_only,
+            resume=args.resume,
+            no_download=args.no_download,
+        )
+    except research.ResearchError as exc:
+        if exc.payload is not None:
+            print(json.dumps(exc.payload, indent=2))
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    except (store.ConfigError, store.RunNotFound) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    return codes.EXIT_OK
+
+
 HANDLERS: Dict[str, Callable[[argparse.Namespace], int]] = {
     name: _stub_handler(name) for name in SUBCOMMANDS
 }
 HANDLERS["diagnose"] = _diagnose_handler
+HANDLERS["research"] = _research_handler
 
 
 def is_stub(name: str) -> bool:
@@ -113,6 +150,11 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--mock", action="store_true")
         if name == "diagnose":
             sub.add_argument("--live", action="store_true")
+        if name == "research":
+            sub.add_argument("--yes", action="store_true")
+            sub.add_argument("--estimate-only", action="store_true")
+            sub.add_argument("--no-download", action="store_true")
+            sub.add_argument("--resume", default=None)
 
     return parser
 
