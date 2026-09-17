@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import unittest
 import urllib.error
 from contextlib import redirect_stdout
@@ -336,6 +337,11 @@ class CheckTokenTests(NoNetworkTestCase):
 
     def test_check_token_false_on_url_error(self) -> None:
         transport = ScriptedApifyTransport([urllib.error.URLError("unreachable")])
+
+        self.assertFalse(apify.check_token("tok", transport))
+
+    def test_check_token_returns_false_on_socket_timeout(self) -> None:
+        transport = ScriptedApifyTransport([socket.timeout()])
 
         self.assertFalse(apify.check_token("tok", transport))
 

@@ -13,7 +13,6 @@ the only other caller here, via `check_token`.
 from __future__ import annotations
 
 import time
-import urllib.error
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Protocol
 
@@ -326,8 +325,13 @@ def check_token(token: str, transport: Transport) -> bool:
     """Validate `token` at zero cost via `GET /users/me`.
 
     Never raises: any `http.HTTPError` (e.g. an expired/invalid token)
-    or `urllib.error.URLError` (e.g. no network) is treated as an
-    invalid or unreachable token and reported as `False`.
+    or `OSError` is treated as an invalid or unreachable token and
+    reported as `False`. `OSError` is the catch-all on purpose --
+    `urllib.error.URLError` and `socket.timeout`/`TimeoutError` are
+    both `OSError` subclasses, so a DNS failure, a refused connection,
+    and a real socket timeout all collapse into the same `False`
+    without needing to name each one. A bare `Exception` that isn't one
+    of these is a genuine programming error and is left to propagate.
     """
     try:
         transport.request_json(
@@ -335,6 +339,6 @@ def check_token(token: str, transport: Transport) -> bool:
             f"{API_BASE}/users/me",
             headers={"Authorization": f"Bearer {token}"},
         )
-    except (http.HTTPError, urllib.error.URLError):
+    except (http.HTTPError, OSError):
         return False
     return True
