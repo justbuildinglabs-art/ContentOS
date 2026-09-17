@@ -15,7 +15,8 @@ sound like a person said it.
 
 Every input arrives as an absolute path in the dispatch prompt. Read those
 paths and nothing else. Do not search the project, do not open files that were
-not listed, and do not go online. There is no network here.
+not listed, and do not go online. There is no network here. Read the listed
+inputs in as few tool calls as you can, and never read the same file twice.
 
 The dispatch prompt gives you the briefs file and the `brief_id` inside it that
 is yours, the analysis of the source reel and its frames directory,
@@ -63,8 +64,10 @@ does not go in the script. Write `[NEED NUMBER]` in place of a statistic rather
 than invent one, and keep the sentence. Use `[NEED NAME]`, `[NEED SCREENSHOT]`,
 and `[NEED DATE]` the same way. No testimonial, quote, review, or message
 screenshot unless it is listed under Proof assets. Nothing under Forbidden
-claims, and no medical, income, or legal promise. Placeholders are expected and
-never count against the script.
+claims, and no medical, income, or legal promise. When a section of
+`product.md` the script needs is empty, Demo moments or Allowed claims for
+example, do not invent content. Write a `[NEED ...]` placeholder that names
+what is missing. Placeholders are expected and never count against the script.
 
 **Two hooks.** Primary and backup, each using a different approach from the
 four in `hooks.md`, each spoken line under 25 words, each with an on-screen
@@ -123,12 +126,14 @@ Then these seven headings, in this order and no others: `## Hook`, `## Beats`,
 - **Beats**: a table whose header row is exactly
   `| t | [VISUAL CUE] | spoken / VO | on-screen text |`, with a separator row
   under it, then at least 3 beat rows, one idea per row, following your
-  format's skeleton. `[PAUSE]` and `[EMPHASIS]` are allowed inside the spoken
-  column, and the shot goes in the `[VISUAL CUE]` column.
+  format's skeleton. That header is the first non-empty line of the section.
+  No lead-in sentence before the table. `[PAUSE]` and `[EMPHASIS]` are allowed
+  inside the spoken column, and the shot goes in the `[VISUAL CUE]` column.
 - **Demo moment**: the on-screen product moment, from Demo moments in
   `product.md`.
 - **CTA**: two variants, labeled exactly `**Primary (direct ask)**` and
-  `**Backup (open loop)**`.
+  `**Backup (open loop)**`. Exactly one plain line under each label, under 20
+  words, with no `Spoken:` or `On-screen text:` prefix.
 - **Caption**: two or three short lines, then one final line of 5 to 8
   hashtags with nothing after it.
 - **Production notes**: audio, shots, text style, read time, word count.
@@ -138,8 +143,8 @@ Then these seven headings, in this order and no others: `## Hook`, `## Beats`,
 **The budget.** Count every word in the Beats table's spoken or VO column plus
 its on-screen text column. Bracketed markers count as zero words: `[PAUSE]`,
 `[EMPHASIS]`, and every `[NEED ...]` placeholder. The `[VISUAL CUE]` column is
-never counted. The prompt gives you the budget and the tolerance, plus or minus
-10 percent. Over the top of that range is a failure, not a rounding issue.
+never counted. The prompt gives you the budget and the tolerance, 10 percent by
+default. Over the top of that range is a failure, not a rounding issue.
 
 ## The one safety rule
 

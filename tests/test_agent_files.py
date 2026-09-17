@@ -22,6 +22,7 @@ Constraints").
 """
 from __future__ import annotations
 
+import re
 import unittest
 from typing import Dict, Tuple
 
@@ -69,11 +70,20 @@ AGENT_FILES: Dict[str, Tuple[object, str, str]] = {
     "qa-reviewer": (QA_AGENT, QA_DESCRIPTION, "12"),
 }
 
-# The two Hook labels `write_prompt` demands, quoted exactly as the
-# prompt writes them. `lib.agents` has no constant for these, because
-# `verify_script` matches them with a regex; the literal wording lives
-# in both the prompt and the agent body, so the test pins the string.
-HOOK_LABELS = ["**Primary (approach: <name>)**", "**Backup (approach: <name>)**"]
+# The verdict rules, pinned by the phrase that carries each one rather
+# than by the verdict words themselves: "reject" and "revise" appear in
+# any body that mentions them at all, so asserting the bare words proves
+# nothing about the rules the reviewer has to apply.
+QA_VERDICT_PHRASES = [
+    "`reject` when `no_fabricated_claims`",
+    "a single line carries the whole problem",
+    "`revise` when any other check failed",
+    "below the threshold",
+    "`pass` when nothing above applies",
+    "never fail a check",
+]
+
+BACKTICKED_RE = re.compile(r"`([^`]+)`")
 
 
 def _split_frontmatter(text: str) -> Tuple[Dict[str, str], str]:
@@ -234,15 +244,28 @@ class WriterAndQaAgentTests(NoNetworkTestCase):
         writer_body = _body(WRITER_AGENT)
 
         self.assertIn(agents_lib.BEATS_HEADER, writer_body)
-        for label in HOOK_LABELS:
-            with self.subTest(hook_label=label):
-                self.assertIn(label, writer_body)
+        for key in agents_lib.REQUIRED_FRONTMATTER_KEYS:
+            with self.subTest(frontmatter_key=key):
+                self.assertIn(key, writer_body)
+        for section in agents_lib.CONTRACT_SECTIONS:
+            with self.subTest(section=section):
+                self.assertIn("## " + section, writer_body)
         for label in agents_lib.CTA_LABELS:
             with self.subTest(cta_label=label):
                 self.assertIn(label, writer_body)
         self.assertIn("WROTE", writer_body)
 
+        # The Hook labels go through the pattern `verify_script` matches
+        # them with, not a copy of the wording: every backticked span in
+        # the body is offered to that pattern, and the two roles it needs
+        # must both come back. Rename a group there and this fails.
+        quoted = BACKTICKED_RE.findall(writer_body)
+        matches = [agents_lib._HOOK_LABEL_RE.match(span) for span in quoted]
+        roles = {match.group(1) for match in matches if match}
+        self.assertEqual(roles, {"Primary", "Backup"})
+
         qa_body = _body(QA_AGENT)
+        qa_prose = _collapse(qa_body)
         qa_schema = director.load_schema("qa")
 
         for check in qa_schema["properties"]["checks"]["properties"]:
@@ -251,9 +274,9 @@ class WriterAndQaAgentTests(NoNetworkTestCase):
         for score in qa_schema["properties"]["scores"]["properties"]:
             with self.subTest(score=score):
                 self.assertIn(score, qa_body)
-        for verdict in ("reject", "revise", "pass"):
-            with self.subTest(verdict=verdict):
-                self.assertIn(verdict, qa_body)
+        for phrase in QA_VERDICT_PHRASES:
+            with self.subTest(verdict_phrase=phrase):
+                self.assertIn(phrase, qa_prose)
 
 
 if __name__ == "__main__":

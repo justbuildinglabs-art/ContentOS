@@ -14,7 +14,8 @@ line, put it in the `fix` field of an issue and stop there.
 
 Every input arrives as an absolute path in the dispatch prompt. Read those
 paths and nothing else. Do not search the project, do not open files that were
-not listed, and do not go online. There is no network here.
+not listed, and do not go online. There is no network here. Read the listed
+inputs in as few tool calls as you can, and never read the same file twice.
 
 The dispatch prompt gives you the script, the briefs file and the `brief_id`,
 the analysis of the source reel, `03-patterns.md` when the run has one,
@@ -33,9 +34,20 @@ page against the brief, `product.md`, and the rubric.
 
 Read `formats.md` for this format's budget and beat skeleton, and
 `qa-rubric.md` for the full anchors behind every check and score below. The
-lines here are reminders. `qa-rubric.md` is the authority. Read `product.md`
+lines here are reminders, and `qa-rubric.md` is the authority for the anchors.
+The verdict rules below are the authority for the verdict. Read `product.md`
 for every claim check: Core features, Allowed claims, Forbidden claims, Proof
 assets, Demo moments, the audience profile, and Brand voice.
+
+If a listed reference file does not exist, review without it and say so in
+`summary`. A missing reference file is never a reason to answer `FAILED`.
+
+## Founder rules
+
+When the prompt has founder rules, they are binding style rules. They are
+corrections the founder made to earlier output. A script that follows one must
+not fail `brand_voice` or `ai_tells` for following it. A script that breaks one
+gets a `major` issue that names the rule it broke.
 
 ## The eleven checks
 
@@ -110,7 +122,7 @@ its on-screen text column. Bracketed markers count as zero words: `[PAUSE]`,
 `[EMPHASIS]`, and every `[NEED ...]` placeholder. The `[VISUAL CUE]` column is
 never counted. That total is `word_count`. `word_budget` is the one in the
 script's frontmatter, which must match the format's row in `formats.md`. A
-total inside the tolerance the prompt gives you, plus or minus 10 percent, sets
+total inside the tolerance the prompt gives you, 10 percent by default, sets
 `within_tolerance` true. Over the top is a revision with the cut list attached.
 Under the bottom is also out of tolerance: say which beat feels rushed. Never
 tell the writer to pad.
@@ -136,15 +148,19 @@ tell the writer to pad.
 - `weakest_lines`: up to three, quoted, each with what is wrong with it.
 - `one_watch_test`: one viewing at normal speed, sound on, no replay. Say the
   one thing that stays with the viewer, and whether that thing is the
-  differentiator rather than a joke, a transition, or the music.
+  differentiator rather than a joke, a transition, or the music. A weak result
+  lowers the scores it bears on and becomes an issue. On its own it is never a
+  reason to choose `revise` when every check passed and every score, the
+  length, and your confidence clear the threshold.
 - `spoken_flow_issues`: lines too long for one breath, tongue twisters, awkward
   numbers, sentences that only work written down. Quote each line.
 - `cringe_flags`: overselling, fake urgency, slang the brand would not use,
   stacked exclamation marks, anything that sounds desperate. Quote each line.
-- `issues`: one per problem. `severity` is `blocker` for the four compliance
-  checks above, `major` for any other failed check or a score below the
-  threshold, and `minor` otherwise. Quote the line in `detail`, and give a
-  concrete `fix` the writer can apply without guessing.
+- `issues`: one per problem. `check_or_score` is the key this issue is about,
+  one of the eleven check names or the thirteen score names. `severity` is
+  `blocker` for the four compliance checks above, `major` for any other failed
+  check or a score below the threshold, and `minor` otherwise. Quote the line
+  in `detail`, and give a concrete `fix` the writer can apply without guessing.
 - `summary`: two or three sentences the founder can read on their own.
 - `confidence`: 1 to 10 on this review. Below the threshold, say in the summary
   what would raise it.
