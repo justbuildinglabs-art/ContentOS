@@ -1,9 +1,22 @@
 """ContentOS CLI entry point.
 
-Every subcommand is registered in HANDLERS, keyed by subcommand name. This
-task ships each one as a stub that reports itself as not implemented; later
-tasks replace one HANDLERS entry at a time with the real implementation, so
-the dispatch mechanism itself never has to change.
+The deterministic half of the four-stage pipeline (design spec, "Stage
+1" through "Stage 4"): `diagnose`, `setup`, `research`, `frames`,
+`direct-prompt`, `synth-prompt`, `rank`, `write-prompt`, `qa-prompt`,
+`verify`, `report`, `status`, `sync-plugin-key`. The SKILL.md
+orchestrator dispatches the `contentos:content-director`,
+`contentos:script-writer`, and `contentos:qa-reviewer` subagents around
+these commands; nothing here calls a model.
+
+Every subcommand is registered in HANDLERS, keyed by subcommand name.
+Invoke one with `python3 contentos.py <subcommand> --project <dir>
+[--mock] ...`; `--project` defaults to the current directory. Exit
+codes are the shared constants in `lib/codes.py`: 0 ok, 1 subcommand
+not implemented (none are, today; `is_stub` and `_stub_handler` stay in
+place for a subcommand a future task adds ahead of its real handler),
+2 usage, 3 confirmation required, 4 missing key, 5 upstream failure,
+6 cost cap, 7 verification failed (see the design spec's "Global
+Constraints" for what each one means for the caller).
 """
 from __future__ import annotations
 
