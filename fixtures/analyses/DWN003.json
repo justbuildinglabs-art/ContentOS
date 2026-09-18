@@ -1,0 +1,37 @@
+{
+  "brief_title": "Checklist voiceover that names the day four quit",
+  "hook_spoken": "I quit every checklist by day four until this one.",
+  "hook_on_screen_text": "The checklist that made me consistent",
+  "hook_type": "pain_callout",
+  "hook_seconds": 2.5,
+  "emotion_lead": "frustration",
+  "format": "voiceover_broll",
+  "structure": [
+    {
+      "frame": 1,
+      "beat": "Voiceover names the day four quit over b roll of a crossed out list"
+    },
+    {
+      "frame": 4,
+      "beat": "Shows the shorter checklist that replaced it"
+    },
+    {
+      "frame": 7,
+      "beat": "Ends on a saved streak and a save this line"
+    }
+  ],
+  "audio": "voiceover",
+  "cta": "Save this for tomorrow morning",
+  "topic_shown": "A paper checklist, with a habit app visible in one shot",
+  "why_it_worked": "the first line names the exact moment people give up, so the viewer feels caught, and the b roll is cheap enough to reshoot every week",
+  "transferable_mechanism": "quit moment call out",
+  "adaptation": "say the day four line in the creator's own voice and show their own shorter list replacing the long one",
+  "avoid": "The vague consistency is a muscle voiceover with no moment and no number in it",
+  "score_scalable": 8,
+  "score_convertible": 6,
+  "score_fit": 7,
+  "risk_flags": [
+    "none"
+  ],
+  "confidence": "low"
+}

@@ -1,0 +1,69 @@
+{
+  "creator_name": "Dana Cole, a productivity creator who posts habit and planning tips",
+  "one_liner": "Dana turns a messy to-do list into a system you actually stick with.",
+  "pillars": [
+    "One habit at a time",
+    "Weekly planning resets",
+    "Notion and paper systems compared",
+    "Focus tricks that survive a bad week"
+  ],
+  "target_user": "people who have deleted four productivity apps in the last year and still want a system",
+  "frustration": "I set up a perfect system on Sunday and it falls apart by Wednesday",
+  "objection": "another productivity hack I will abandon in a week",
+  "offer": "a free weekly planning email with one prompt and one template",
+  "offer_objection": "another newsletter that just piles up unread",
+  "payoff_moments": [
+    "The week view filling in from a blank page to a done list",
+    "A habit streak that survives a missed day instead of resetting to zero",
+    "The email prompt turning into a finished plan on screen"
+  ],
+  "allowed_claims": [
+    "Setting up the weekly plan takes under 10 minutes.",
+    "The email has gone out every Sunday for the last year.",
+    "Over 4000 people get the weekly email."
+  ],
+  "forbidden_claims": [
+    "No income or productivity guarantees.",
+    "No claim that this system works for everyone.",
+    "No mental health or medical claims."
+  ],
+  "proof_assets": [
+    "The email open-rate screenshot from this month.",
+    "Comments asking for the template after a video."
+  ],
+  "voice_on": ["dry", "direct", "warm"],
+  "voice_off": ["peppy", "clinical", "salesy"],
+  "off_limits_words": [
+    "hustle",
+    "grind",
+    "unlock",
+    "supercharge",
+    "effortless",
+    "game changer",
+    "journey",
+    "10x",
+    "transform",
+    "crush it"
+  ],
+  "cta": "Join the free weekly planning email, link in bio.",
+  "hashtag_seeds": [
+    "#productivity",
+    "#productivitytips",
+    "#planwithme",
+    "#habittracker",
+    "#weeklyplanning",
+    "#notion",
+    "#focus",
+    "#timemanagement",
+    "#productivityhacks",
+    "#getitdone"
+  ],
+  "competitors": [
+    "sproutapp",
+    "habitlab",
+    "ghostaccount"
+  ],
+  "format_accounts": [
+    "dailywins"
+  ]
+}

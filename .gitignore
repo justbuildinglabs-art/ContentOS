@@ -1,4 +1,4 @@
-# founder state never belongs in the plugin repo
+# creator state never belongs in the plugin repo
 .contentos/
 # downloaded media
 *.mp4

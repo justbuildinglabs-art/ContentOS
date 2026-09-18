@@ -1,0 +1,38 @@
+[
+  {
+    "username": "sproutapp",
+    "followersCount": 12000,
+    "followsCount": 340,
+    "postsCount": 210,
+    "verified": false,
+    "private": false,
+    "biography": "Tiny habits, big changes."
+  },
+  {
+    "username": "habitlab",
+    "followersCount": 180000,
+    "followsCount": 512,
+    "postsCount": 640,
+    "verified": true,
+    "private": false,
+    "biography": "The science of sticking with it."
+  },
+  {
+    "username": "dailywins",
+    "followersCount": 950000,
+    "followsCount": 89,
+    "postsCount": 1120,
+    "verified": true,
+    "private": false,
+    "biography": "Celebrate the small stuff. Daily."
+  },
+  {
+    "username": "privatepeople",
+    "followersCount": 3000,
+    "followsCount": 210,
+    "postsCount": 45,
+    "verified": false,
+    "private": true,
+    "biography": ""
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "description": "Copy the Apify API token from /plugin to where the ContentOS scripts can read it.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/contentos/scripts/contentos.py\" sync-plugin-key",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

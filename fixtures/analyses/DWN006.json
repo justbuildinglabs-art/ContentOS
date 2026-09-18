@@ -1,0 +1,41 @@
+{
+  "brief_title": "Win streak reveal that lets the screen do the talking",
+  "hook_spoken": null,
+  "hook_on_screen_text": "We were NOT ready for this one",
+  "hook_type": "curiosity_gap",
+  "hook_seconds": 1.5,
+  "emotion_lead": "awe",
+  "format": "screen_demo",
+  "structure": [
+    {
+      "frame": 1,
+      "beat": "Cold open on the app with one line of text that promises a reveal"
+    },
+    {
+      "frame": 3,
+      "beat": "Scroll the wins board so the viewer sees real entries, not a mockup"
+    },
+    {
+      "frame": 5,
+      "beat": "The streak counter flips over and the number fills the screen"
+    },
+    {
+      "frame": 7,
+      "beat": "End card asks for a comment to get the link"
+    }
+  ],
+  "audio": "music_only",
+  "cta": "Comment WIN and I will send the link",
+  "topic_shown": "A daily wins tracker app, recorded on a phone screen",
+  "why_it_worked": "the first line promises a payoff and the screen recording pays it off before anyone can scroll away, and the top comments ask what app this is",
+  "transferable_mechanism": "number reveal",
+  "adaptation": "swap the wins board for this creator's own planning screen and reveal a real weekly number right after a check in",
+  "avoid": "The generic five habit apps you need listicle that every account in this niche already posts",
+  "score_scalable": 8,
+  "score_convertible": 9,
+  "score_fit": 8,
+  "risk_flags": [
+    "none"
+  ],
+  "confidence": "high"
+}
