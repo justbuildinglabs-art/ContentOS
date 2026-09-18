@@ -2,10 +2,12 @@
 
 Task 2 wrote the four guide-derived files (`hooks.md`, `formats.md`,
 `scripting.md`, `qa-rubric.md`) and the two example scripts under
-`examples/`. Task 15 adds the remaining three (`stages.md`, `scoring.md`,
-`product-template.md`) plus this test module, which checks every
-reference file against the schemas and enums it must stay in sync with,
-rather than pinning any file's prose word for word.
+`examples/`. Task 15 added the remaining three (`stages.md`,
+`scoring.md`, and the profile template) plus this test module, which
+checks every reference file against the schemas and enums it must stay
+in sync with, rather than pinning any file's prose word for word. Task 6
+rewrote the prose and the examples for the creator pivot, so the checks
+here also guard against the old app-founder vocabulary coming back.
 
 See the design spec's "Reference files" section for what each file must
 contain, and
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import re
 import unittest
+from pathlib import Path
 from typing import Dict, List
 
 from tests.helpers import NoNetworkTestCase, REPO_ROOT
@@ -63,37 +66,38 @@ CREATOR_TEMPLATE_SECTIONS = [
     "Format accounts",
 ]
 
-# product.md section names that read as genuine section citations: each is
-# two words, so a bare generic word like "Product" or "CTA" used in
-# ordinary prose elsewhere in these files cannot false-positive the check
-# below.
-CREATOR_SECTION_CITATION_CANDIDATES = [
-    "Audience profile",
-    "Core features",
-    "Demo moments",
-    "Allowed claims",
-    "Forbidden claims",
-    "Proof assets",
-    "Brand voice",
-    "Hashtag seeds",
-]
+# Section names the creator pivot dropped from the profile template.
+# They stay in the candidate list below so the citation check keeps real
+# signal: a reference file that still points a subagent at "Core
+# features" or "Demo moments" is naming a heading `creator.md` does not
+# have, and must fail rather than go unnoticed.
+DROPPED_SECTION_NAMES = ["Product facts", "Core features", "Demo moments"]
 
-# Stopgap (task 3, controller ruling): hooks.md, scripting.md,
-# qa-rubric.md, and content-director.md still cite the old product.md
-# section names below the creator pivot dropped (Product -> Creator,
-# and Core features / Demo moments have no creator-template.md
-# equivalent). Task 6 rewrites those citing files for the creator
-# sections and removes this allowance.
-_DROPPED_SECTION_CITATION_ALLOWANCE = {"Product", "Core features", "Demo moments"}
-
-# The subagent prompts and reference files that read product.md directly
+# The subagent prompts and reference files that read creator.md directly
 # (design spec, "Reference files" and "Stage 2 -- direct").
-PRODUCT_SECTION_CITING_FILES = [
+CREATOR_SECTION_CITING_FILES = [
     REFERENCES_DIR / "hooks.md",
     REFERENCES_DIR / "scripting.md",
     REFERENCES_DIR / "qa-rubric.md",
     AGENTS_DIR / "content-director.md",
 ]
+
+# Every string that must not survive the creator pivot anywhere under
+# references/: the old schema keys, the old script section and profile
+# file names, and the word "founder" itself (checked case-insensitively,
+# which also covers the old `## Founder rules` prompt heading).
+PRODUCT_LEFTOVER_STRINGS = [
+    "product_fit",
+    "demo_present",
+    "consistent_with_product",
+    "Demo moment",
+    "product.md",
+    "product-template",
+    "adaptation_for_product",
+    "product_or_topic_shown",
+    "Founder rules",
+]
+PRODUCT_LEFTOVER_STRINGS_CASE_INSENSITIVE = ["founder"]
 
 HEADING2_RE = re.compile(r"^## (.+)$", re.MULTILINE)
 HEADING3_RE = re.compile(r"^### (.+)$", re.MULTILINE)
@@ -155,6 +159,22 @@ def _parse_format_table(text: str) -> Dict[str, Dict[str, str]]:
     """Parse the single table under `## Format table`, keyed by `format`."""
     section = _section_text(text, "## Format table")
     return {row["format"]: row for row in _parse_markdown_table(section)}
+
+
+def _citation_candidates(template_headings: List[str]) -> List[str]:
+    """The heading names distinctive enough to read as a section citation.
+
+    Only multi-word headings from `creator-template.md` qualify: a bare
+    "Creator", "Pillars", or "CTA" turns up in ordinary prose all over
+    these files and would match every one of them. The dropped names are
+    appended so a stale citation still trips the check.
+    """
+    return [name for name in template_headings if " " in name] + DROPPED_SECTION_NAMES
+
+
+def _reference_paths() -> List[Path]:
+    """Every markdown file under `references/`, examples included."""
+    return sorted(REFERENCES_DIR.rglob("*.md"))
 
 
 class ReferenceFilesExistTests(NoNetworkTestCase):
@@ -234,35 +254,45 @@ class CreatorTemplateTests(NoNetworkTestCase):
         self.assertEqual(headings, CREATOR_TEMPLATE_SECTIONS + ["Sources"])
 
 
-class ProductSectionCitationTests(NoNetworkTestCase):
-    def test_references_cite_only_existing_product_sections(self) -> None:
-        # Stopgap (task 3, controller ruling): read creator-template.md,
-        # not the deleted product-template.md, so this test does not
-        # error out on a missing file. See
-        # _DROPPED_SECTION_CITATION_ALLOWANCE above for the sections this
-        # still lets through even though they are no longer headings here.
-        template_headings = set(
-            _headings(
-                (REFERENCES_DIR / "creator-template.md").read_text(encoding="utf-8"),
-                HEADING2_RE,
-            )
+class CreatorSectionCitationTests(NoNetworkTestCase):
+    def test_references_cite_only_existing_creator_sections(self) -> None:
+        template_headings = _headings(
+            (REFERENCES_DIR / "creator-template.md").read_text(encoding="utf-8"),
+            HEADING2_RE,
         )
+        candidates = _citation_candidates(template_headings)
 
         cited = set()
-        for path in PRODUCT_SECTION_CITING_FILES:
+        for path in CREATOR_SECTION_CITING_FILES:
             text = path.read_text(encoding="utf-8")
-            for name in CREATOR_SECTION_CITATION_CANDIDATES:
+            for name in candidates:
                 if name in text:
                     cited.add(name)
 
         # A real check needs real signal: if nothing was ever cited, the
         # loop above is silently vacuous and this test would prove nothing.
-        self.assertTrue(cited, "expected at least one product.md section citation")
+        self.assertTrue(cited, "expected at least one creator.md section citation")
         for name in sorted(cited):
             with self.subTest(section=name):
-                self.assertIn(
-                    name, template_headings | _DROPPED_SECTION_CITATION_ALLOWANCE
-                )
+                self.assertIn(name, set(template_headings))
+
+
+class ProductLeftoverTests(NoNetworkTestCase):
+    def test_reference_files_have_no_product_leftovers(self) -> None:
+        paths = _reference_paths()
+        self.assertTrue(paths, "expected markdown files under references/")
+        for path in paths:
+            text = path.read_text(encoding="utf-8")
+            lowered = text.lower()
+            name = str(path.relative_to(REFERENCES_DIR))
+            for banned in PRODUCT_LEFTOVER_STRINGS:
+                with self.subTest(file=name, banned=banned):
+                    self.assertNotIn(banned, text, f"{name} still contains {banned!r}")
+            for banned in PRODUCT_LEFTOVER_STRINGS_CASE_INSENSITIVE:
+                with self.subTest(file=name, banned=banned):
+                    self.assertNotIn(
+                        banned, lowered, f"{name} still contains {banned!r}"
+                    )
 
 
 class ScoringMdTests(NoNetworkTestCase):
@@ -282,6 +312,27 @@ class ScoringMdTests(NoNetworkTestCase):
         for ratio, viral_proof in expected.items():
             with self.subTest(outlier_ratio=ratio):
                 self.assertEqual(table[ratio], viral_proof)
+
+    def test_scoring_md_defines_score_fit_and_score_convertible_with_anchors(self) -> None:
+        text = (REFERENCES_DIR / "scoring.md").read_text(encoding="utf-8")
+        headings = set(_headings(text, HEADING3_RE))
+
+        # The design spec's "Reference files" table: scoring.md carries
+        # 10/7/4 anchors for all three director-judged scores.
+        for key in ("score_convertible", "score_scalable", "score_fit"):
+            with self.subTest(score=key):
+                self.assertIn(key, headings)
+                section = _section_text(text, f"### {key}")
+                for anchor in ("10:", "7:", "4:"):
+                    self.assertIn(
+                        anchor, section, f"{key} is missing its {anchor} anchor"
+                    )
+
+        # score_fit reads differently for a niche reel and a format reel
+        # (design spec, "Stage 2 -- direct"), so its section must say so.
+        fit_section = _section_text(text, "### score_fit")
+        self.assertIn("niche", fit_section)
+        self.assertIn("format", fit_section)
 
 
 if __name__ == "__main__":
