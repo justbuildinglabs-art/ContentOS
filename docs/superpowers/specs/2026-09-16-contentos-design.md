@@ -147,7 +147,7 @@ Contract: one file, frontmatter `brief_id, format, target_length_s, word_budget,
 - `## Hook`: primary and backup, each labeled with its approach (two different approaches), spoken line under 25 words plus on-screen text; the mechanism must match the brief, the wording must not copy the source.
 - `## Beats`: table `t | [VISUAL CUE] | spoken / VO | on-screen text`, ≥ 3 rows, following the format skeleton (problem → solution → differentiator → proof where length allows); `[EMPHASIS]` and `[PAUSE]` markers allowed in the spoken column.
 - `## Payoff`: the on-screen moment that delivers what the hook promised, taken from Payoff moments in `creator.md`; when the profile promotes something, this is where it appears.
-- `## CTA`: primary (direct ask; answers the offer's objection when there is an offer, else the audience's top objection; without an offer it is a follow, comment, save, or share ask) and backup (open loop), each under 20 words, urgency only if genuine.
+- `## CTA`: primary and backup, each under 20 words, urgency only if genuine. The primary is a direct ask: with an offer, it asks for the offer and answers the offer's objection; without an offer, it asks for a follow, comment, save, or share and answers the audience's top objection. The backup is an open loop.
 - `## Caption`: caption plus 5–8 hashtags.
 - `## Production notes`: audio choice, shot list, text style, estimated read time.
 - `## What changed vs source`: the 10–20% adaptation and what was kept.
