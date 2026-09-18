@@ -95,7 +95,7 @@ _OUTPUT_CONTRACT_LINE = (
 class AgentsError(Exception):
     """A Stage 3/4 failure, carrying the exit code `contentos.py` returns.
 
-    `exit_code` is 2 for a usage problem (no such brief, no product.md,
+    `exit_code` is 2 for a usage problem (no such brief, no creator.md,
     no script written yet at the revision a qa-prompt or verify call
     asks for). Verification failures do not raise here: `verify_script`
     and `verify_qa` return their problems as data, and it is the CLI
@@ -222,12 +222,12 @@ def _load_brief(briefs_path: Path, brief_id: str) -> Dict[str, Any]:
     raise AgentsError(f"{brief_id}: not in {briefs_path}", codes.EXIT_USAGE)
 
 
-def _product_md(project: Path) -> Path:
-    """`<project>/.contentos/product.md`, or an AgentsError (exit 2) when missing."""
-    product_md = store.contentos_dir(Path(project)) / "product.md"
-    if not product_md.exists():
-        raise AgentsError(f"{product_md}: no product.md; run: /contentos setup", codes.EXIT_USAGE)
-    return product_md
+def _creator_md(project: Path) -> Path:
+    """`<project>/.contentos/creator.md`, or an AgentsError (exit 2) when missing."""
+    creator_md = store.contentos_dir(Path(project)) / "creator.md"
+    if not creator_md.exists():
+        raise AgentsError(f"{creator_md}: no creator.md; run: /contentos setup", codes.EXIT_USAGE)
+    return creator_md
 
 
 # ---------------------------------------------------------------------------
@@ -262,10 +262,10 @@ def write_prompt(
     """The `write-prompt --run <id> --brief <id> [--revision N]` dispatch prompt.
 
     Refuses with `AgentsError` (exit 2) when the brief is not in
-    `03-briefs.json` or the founder has no `product.md`. Sections, in
+    `03-briefs.json` or the founder has no `creator.md`. Sections, in
     order: a HANDOFF block, `## Inputs` (absolute paths to the brief,
     the analysis, the frames directory, `03-patterns.md` when it
-    exists, `product.md`, and the reference files, including the gold
+    exists, `creator.md`, and the reference files, including the gold
     example for this format when there is one -- the founder's own
     `<project>/.contentos/examples/<format>.md` first, else the
     plugin's `examples/<format>.md`), `## Founder rules` (only when
@@ -284,7 +284,7 @@ def write_prompt(
 
     briefs_path = run_dir / "03-briefs.json"
     brief = _load_brief(briefs_path, brief_id)
-    product_md = _product_md(project)
+    creator_md = _creator_md(project)
 
     fmt = brief.get("format")
     target_length_s, word_budget = word_budget_for(fmt, references_dir)
@@ -304,7 +304,7 @@ def write_prompt(
     lines.append(f"Frames directory: {Path(brief['frames_dir']).resolve()}")
     if patterns_path.exists():
         lines.append(f"Patterns: {patterns_path.resolve()}")
-    lines.append(f"Product context: {product_md.resolve()}")
+    lines.append(f"Creator profile: {creator_md.resolve()}")
     lines.append("Reference files:")
     lines.append(f"- {(references_dir / 'hooks.md').resolve()}")
     lines.append(f"- {(references_dir / 'formats.md').resolve()}")
@@ -407,9 +407,9 @@ def qa_prompt(
 
     Refuses with `AgentsError` (exit 2) when `04-scripts/<id>.r<N>.md`
     does not exist yet -- there is nothing to review -- or when the
-    brief or `product.md` is missing. Sections, in order: a HANDOFF
+    brief or `creator.md` is missing. Sections, in order: a HANDOFF
     block, `## Inputs` (the script, the brief, the analysis,
-    `03-patterns.md` when it exists, `product.md`, founder rules when
+    `03-patterns.md` when it exists, `creator.md`, founder rules when
     non-empty, and the reference files), `## Thresholds`
     (`qa_pass_threshold`, `length_tolerance`, the word budget),
     `## Output schema` (`schemas/qa.schema.json` inlined as JSON),
@@ -430,7 +430,7 @@ def qa_prompt(
 
     briefs_path = run_dir / "03-briefs.json"
     brief = _load_brief(briefs_path, brief_id)
-    product_md = _product_md(project)
+    creator_md = _creator_md(project)
 
     fmt = brief.get("format")
     target_length_s, word_budget = word_budget_for(fmt, references_dir)
@@ -449,7 +449,7 @@ def qa_prompt(
     lines.append(f"Analysis: {Path(brief['analysis_path']).resolve()}")
     if patterns_path.exists():
         lines.append(f"Patterns: {patterns_path.resolve()}")
-    lines.append(f"Product context: {product_md.resolve()}")
+    lines.append(f"Creator profile: {creator_md.resolve()}")
     if rules_text:
         lines.append(f"Founder rules: {rules_text}")
     lines.append("Reference files:")

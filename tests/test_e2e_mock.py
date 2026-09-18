@@ -244,7 +244,7 @@ class FullMockPipelineTests(NoNetworkTestCase):
             self.assertTrue((run_dir / "04-scripts" / "B01.r0.md").exists())
             self.assertTrue((run_dir / "05-qa" / "B01.r0.json").exists())
 
-            for name in ("product.md", "config.json", "rules.md", ".gitignore"):
+            for name in ("creator.md", "config.json", "rules.md", ".gitignore"):
                 path = project / ".contentos" / name
                 self.assertTrue(path.exists(), "missing {0}".format(path))
 

@@ -645,7 +645,7 @@ class DirectorPromptTests(NoNetworkTestCase):
             schema = director.load_schema("analysis")
 
             prompt = director.build_director_prompt(
-                run_dir, "AAA001", REFERENCES_DIR, project_dir / "product.md", schema
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
             )
 
         self.assertIn("HANDOFF TO: content-director FROM: research (stage 1)", prompt)
@@ -672,7 +672,7 @@ class DirectorPromptTests(NoNetworkTestCase):
             schema = director.load_schema("analysis")
 
             prompt = director.build_director_prompt(
-                run_dir, "AAA001", REFERENCES_DIR, project_dir / "product.md", schema
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
             )
 
         for prop_name in schema["properties"]:
@@ -688,7 +688,7 @@ class DirectorPromptTests(NoNetworkTestCase):
             schema = director.load_schema("analysis")
 
             prompt = director.build_director_prompt(
-                run_dir, "AAA001", REFERENCES_DIR, project_dir / "product.md", schema
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
             )
 
         frame_dir = run_dir / "frames" / "AAA001"
@@ -710,7 +710,7 @@ class DirectorPromptTests(NoNetworkTestCase):
             schema = director.load_schema("analysis")
 
             prompt = director.build_director_prompt(
-                run_dir, "AAA001", REFERENCES_DIR, project_dir / "product.md", schema
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
             )
 
         frame_dir = run_dir / "frames" / "AAA001"
@@ -735,7 +735,7 @@ class DirectorPromptTests(NoNetworkTestCase):
             schema = director.load_schema("analysis")
 
             prompt = director.build_director_prompt(
-                run_dir, "AAA001", REFERENCES_DIR, project_dir / "product.md", schema
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
             )
 
         frame_dir = run_dir / "frames" / "AAA001"
@@ -751,7 +751,7 @@ class DirectorPromptTests(NoNetworkTestCase):
 
             with self.assertRaises(KeyError):
                 director.build_director_prompt(
-                    run_dir, "NOT-THERE", REFERENCES_DIR, project_dir / "product.md", schema
+                    run_dir, "NOT-THERE", REFERENCES_DIR, project_dir / "creator.md", schema
                 )
 
     def test_director_prompt_cover_only_notes_low_confidence(self) -> None:
@@ -760,7 +760,7 @@ class DirectorPromptTests(NoNetworkTestCase):
             schema = director.load_schema("analysis")
 
             prompt = director.build_director_prompt(
-                run_dir, "AAA001", REFERENCES_DIR, project_dir / "product.md", schema
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
             )
 
         self.assertIn("no keyframes were extracted", prompt)
@@ -787,7 +787,7 @@ class DirectorPromptRealRunTests(NoNetworkTestCase):
             # video (video_status "ok") and full 8-frame extraction under
             # --mock (frames_status "ok") -- see task-13-report.md.
             prompt = director.build_director_prompt(
-                run_dir, "DWN006", REFERENCES_DIR, project_dir / "product.md", schema
+                run_dir, "DWN006", REFERENCES_DIR, project_dir / "creator.md", schema
             )
 
         self.assertIn("DWN006", prompt)
@@ -813,7 +813,7 @@ class SynthPromptTests(NoNetworkTestCase):
                     director.coerce_analysis({"brief_title": shortcode}),
                 )
 
-            prompt = director.build_synth_prompt(run_dir, REFERENCES_DIR, project_dir / "product.md")
+            prompt = director.build_synth_prompt(run_dir, REFERENCES_DIR, project_dir / "creator.md")
 
         expected_paths = [
             str((analyses_dir / f"{sc}.json").resolve()) for sc in ("AAA001", "BBB001", "CCC001")
@@ -825,7 +825,7 @@ class SynthPromptTests(NoNetworkTestCase):
             self.assertIn(f"## {heading}", prompt)
 
         self.assertIn("HANDOFF TO: content-director (synthesis) FROM: content-director (per-reel analyses)", prompt)
-        self.assertIn(str((project_dir / "product.md").resolve()), prompt)
+        self.assertIn(str((project_dir / "creator.md").resolve()), prompt)
         self.assertIn(str((REFERENCES_DIR / "hooks.md").resolve()), prompt)
         self.assertIn(str((REFERENCES_DIR / "formats.md").resolve()), prompt)
         self.assertIn("WROTE <path>", prompt)

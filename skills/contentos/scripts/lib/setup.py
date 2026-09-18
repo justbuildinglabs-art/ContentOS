@@ -1,22 +1,22 @@
-"""`setup`: turn a founder's short answers into their `.contentos/` state.
+"""`setup`: turn a creator's short answers into their `.contentos/` state.
 
-`setup` is the first command a founder runs. The skill interviews them,
+`setup` is the first command a creator runs. The skill interviews them,
 writes the answers to `.contentos/setup-answers.json`, and calls this
 module, which writes the four files every later stage reads:
 
-- `product.md`, built from `references/product-template.md`. The
+- `creator.md`, built from `references/creator-template.md`. The
   headings and their order come from the template, so the one place that
-  defines the shape of a product file stays the template itself. A
-  section the founder answered carries their words; a section they did
+  defines the shape of a creator file stays the template itself. A
+  section the creator answered carries their words; a section they did
   not keeps the template's guidance and a `TODO` line, so the file reads
   as a to-do list rather than as finished work.
-- `config.json`, `store.DEFAULT_CONFIG` with the competitor handles
-  normalized (see `normalize_handle`).
+- `config.json`, `store.DEFAULT_CONFIG` with the competitor and
+  format-account handles normalized (see `normalize_handle`).
 - `rules.md`, one comment line, and only when it does not exist yet.
-  This file is the founder's own; `setup --force` never touches it.
+  This file is the creator's own; `setup --force` never touches it.
 - `.gitignore`, through `store.ensure_gitignore`.
 
-See the design spec's "Reference files" row for `product-template.md`
+See the design spec's "Reference files" row for `creator-template.md`
 and its "Skill" section for the `setup` flow. Nothing here touches the
 network, and nothing is written until every answer has been validated.
 """
@@ -38,47 +38,65 @@ RULES_COMMENT = (
 )
 
 # The line an unanswered section ends with, under the template's own
-# guidance. The skill points the founder at these after setup.
+# guidance. The skill points the creator at these after setup.
 TODO_LINE = "TODO: fill this in."
 
 # What one unanswered sub-bullet of Audience profile or Brand voice says.
 TODO_BULLET = "TODO"
 
-# The template heading `setup` never copies: `product.md` is the
-# founder's own file, not a reference file with a sources footer.
+# The template heading `setup` never copies: `creator.md` is the
+# creator's own file, not a reference file with a sources footer.
 SOURCES_HEADING = "Sources"
 
-# The `## ` heading that holds the scraped accounts. Always answered:
-# `run_setup` refuses an empty competitor list.
+# The `## ` heading that holds the scraped niche accounts. Always
+# answered: `run_setup` refuses an empty competitor list.
 COMPETITORS_HEADING = "Competitors"
+
+# The `## ` heading that holds the (optional) format accounts: accounts
+# from any niche whose formats travel. Rendered like any other list
+# section (empty means guidance plus TODO), except its handles are also
+# deduplicated against `COMPETITORS_HEADING`: a handle in both lists
+# stays a competitor (see `normalize_format_accounts`).
+FORMAT_ACCOUNTS_HEADING = "Format accounts"
+
+# The `## ` heading for the optional offer block. Unlike every other
+# section, a blank answer here is not a TODO: it renders `NO_OFFER_LINE`
+# instead, because "no offer" is itself a complete, valid answer.
+OFFER_HEADING = "What you promote"
+
+# What `## What you promote` reads when the creator has nothing to
+# promote. This is a real answer, not a placeholder, so the section is
+# never counted as unanswered.
+NO_OFFER_LINE = "None. Scripts end on a follow, comment, save, or share ask."
 
 # Sections whose answer is one sentence, rendered as a paragraph.
 TEXT_SECTIONS = {
-    "Product": "product_name",
+    "Creator": "creator_name",
     "One-liner": "one_liner",
     "CTA": "cta",
 }
 
 # Sections whose answer is a list, rendered one bullet per item. A
-# string answer counts as a one-item list (`demo_moment`).
+# string answer counts as a one-item list.
 LIST_SECTIONS = {
-    "Core features": "core_features",
-    "Demo moments": "demo_moment",
+    "Pillars": "pillars",
+    "Payoff moments": "payoff_moments",
     "Allowed claims": "allowed_claims",
     "Forbidden claims": "forbidden_claims",
     "Proof assets": "proof_assets",
     "Hashtag seeds": "hashtag_seeds",
     COMPETITORS_HEADING: "competitors",
+    FORMAT_ACCOUNTS_HEADING: "format_accounts",
 }
 
 # Sections the template writes as labeled sub-bullets. The setup
 # interview only asks for some of them, so each label either carries the
-# founder's answer or reads TODO; the labels and their order come from
+# creator's answer or reads TODO; the labels and their order come from
 # the template, never from here.
 BULLET_SECTIONS = {
     "Audience profile": {
         "Who specifically": "target_user",
-        "Their number one frustration, in their own words": "frustration",
+        "Their number one frustration or want, in their own words": "frustration",
         "Top 3 objections": "objection",
     },
     "Brand voice": {
@@ -88,10 +106,10 @@ BULLET_SECTIONS = {
     },
 }
 
-# The header of the generated file. `product.md` is read by the
+# The header of the generated file. `creator.md` is read by the
 # director, the writer, and the reviewer, so it says up front what it is
 # for.
-PRODUCT_HEADER = """# Product facts
+CREATOR_HEADER = """# Creator profile
 
 ContentOS reads this file at every stage. A claim, a feature, or a word that is
 not written here does not exist for the writer or the reviewer. Keep each answer
@@ -99,8 +117,9 @@ short and concrete. Plain language, no em dashes. Anything marked TODO is still
 yours to fill in."""
 
 # What Instagram allows in a username, and therefore the only shape a
-# competitor entry may reduce to. Anything else is a typo, not an
-# account, and scraping it would spend the founder's money on nothing.
+# competitor or format-account entry may reduce to. Anything else is a
+# typo, not an account, and scraping it would spend the creator's money
+# on nothing.
 _HANDLE_RE = re.compile(r"^[A-Za-z0-9._]+$")
 
 # instagram.com, or any subdomain of it. `notinstagram.com` and
@@ -113,7 +132,7 @@ class SetupError(Exception):
     """A setup failure, carrying the exit code `contentos.py` returns.
 
     Always `codes.EXIT_USAGE` today: every way setup can fail is the
-    founder (or the skill) handing it something it cannot work from.
+    creator (or the skill) handing it something it cannot work from.
     The attribute exists so the CLI handler never has to know that.
     """
 
@@ -145,10 +164,10 @@ def load_answers(path: Path) -> Dict[str, Any]:
 
 
 def _url_parts(value: str) -> Tuple[Optional[str], str]:
-    """Split a URL-ish competitor entry into `(host, path)`.
+    """Split a URL-ish account entry into `(host, path)`.
 
     Handles both `https://www.instagram.com/sproutapp/` and the
-    scheme-less `instagram.com/sproutapp` a founder is just as likely to
+    scheme-less `instagram.com/sproutapp` a creator is just as likely to
     paste. Returns `(None, "")` when the entry has no path separator at
     all, which is the bare-handle case.
     """
@@ -162,7 +181,7 @@ def _url_parts(value: str) -> Tuple[Optional[str], str]:
 
 
 def normalize_handle(raw: Any) -> str:
-    """Reduce one competitor answer to a bare lowercase Instagram handle.
+    """Reduce one competitor or format-account answer to a bare lowercase handle.
 
     Accepts a bare handle (`sproutapp`, `@SproutApp`) or any
     instagram.com profile URL, with or without a scheme, a subdomain,
@@ -175,7 +194,7 @@ def normalize_handle(raw: Any) -> str:
     drops. Raises `SetupError` for anything else that is not an
     Instagram handle: a URL on another host, or a handle carrying a
     character Instagram does not allow, such as a space. Those are
-    typos, and scraping them would spend the founder's Apify credit on
+    typos, and scraping them would spend the creator's Apify credit on
     an account that cannot exist.
     """
     if not isinstance(raw, str):
@@ -190,7 +209,7 @@ def normalize_handle(raw: Any) -> str:
     else:
         if not _INSTAGRAM_HOST_RE.match(host):
             raise SetupError(
-                "{0!r} is not an Instagram account; a competitor is a handle "
+                "{0!r} is not an Instagram account; an account is a handle "
                 "like sproutapp or a link like "
                 "https://www.instagram.com/sproutapp/".format(raw)
             )
@@ -200,17 +219,17 @@ def normalize_handle(raw: Any) -> str:
     candidate = candidate.lstrip("@").strip()
     if not _HANDLE_RE.match(candidate):
         raise SetupError(
-            "{0!r} is not an Instagram handle; competitors use only letters, "
+            "{0!r} is not an Instagram handle; accounts use only letters, "
             "numbers, dots, and underscores".format(raw)
         )
     return candidate.lower()
 
 
 def normalize_handles(raw_handles: Any) -> List[str]:
-    """Normalize every competitor answer, dropping blanks and duplicates.
+    """Normalize every account answer, dropping blanks and duplicates.
 
-    Order is the founder's, because the research summary and the run
-    report list accounts in config order and a founder scanning that
+    Order is the creator's, because the research summary and the run
+    report list accounts in config order and a creator scanning that
     table expects to see the order they typed. Raises `SetupError`,
     naming the entry, on the first answer that is not an Instagram
     handle or profile URL.
@@ -223,6 +242,20 @@ def normalize_handles(raw_handles: Any) -> List[str]:
         if handle and handle not in handles:
             handles.append(handle)
     return handles
+
+
+def normalize_format_accounts(raw_format_accounts: Any, competitors: List[str]) -> List[str]:
+    """Normalize the format-account handles, dropping any that are also a competitor.
+
+    A handle a creator listed under both `Competitors` and `Format
+    accounts` stays a competitor: it is dropped from the format-account
+    list (case-insensitively, since `normalize_handles` already
+    lowercases both sides) so research never tags the same account as
+    both a niche and a format account.
+    """
+    handles = normalize_handles(raw_format_accounts)
+    competitor_set = set(competitors)
+    return [handle for handle in handles if handle not in competitor_set]
 
 
 def _answer_text(answers: Dict[str, Any], key: str) -> str:
@@ -246,13 +279,13 @@ def _answer_list(answers: Dict[str, Any], key: str) -> List[str]:
 
 
 def parse_template(template_text: str) -> List[Tuple[str, List[str], List[str]]]:
-    """Split `product-template.md` into `(heading, guidance, bullet labels)`.
+    """Split `creator-template.md` into `(heading, guidance, bullet labels)`.
 
     `guidance` is the prose under the heading, line for line as the
     template wrote it. `bullet labels` are the `- Label: hint` lines'
-    labels, in order, for the two sections the template writes that way.
+    labels, in order, for the sections the template writes that way.
     The `Sources` footer is dropped: it belongs to the reference file,
-    not to a founder's product.md.
+    not to a creator's creator.md.
     """
     sections: List[Tuple[str, List[str], List[str]]] = []
     heading: Optional[str] = None
@@ -293,10 +326,33 @@ def _guidance_block(guidance: List[str]) -> List[str]:
     return lines
 
 
+def _render_offer_section(heading: str, answers: Dict[str, Any]) -> Tuple[List[str], bool]:
+    """Render `## What you promote`: the one section a blank answer never TODOs.
+
+    A blank or missing `offer` renders `NO_OFFER_LINE` alone: "no
+    offer" is a complete answer, not a gap. An `offer` renders both
+    bullets, with `offer_objection` reading TODO when it is itself
+    blank. Either way the section counts as answered.
+    """
+    offer = _answer_text(answers, "offer")
+    if not offer:
+        return ["## " + heading, NO_OFFER_LINE], True
+
+    objection = _answer_text(answers, "offer_objection")
+    bullets = [
+        "- What it is: " + offer,
+        "- The objection that stops people: " + (objection if objection else TODO_BULLET),
+    ]
+    return ["## " + heading] + bullets, True
+
+
 def _render_section(
     heading: str, guidance: List[str], labels: List[str], answers: Dict[str, Any]
 ) -> Tuple[List[str], bool]:
-    """Render one product.md section; return its lines and whether it was answered."""
+    """Render one creator.md section; return its lines and whether it was answered."""
+    if heading == OFFER_HEADING:
+        return _render_offer_section(heading, answers)
+
     prose = _guidance_block(guidance)
 
     if heading in BULLET_SECTIONS:
@@ -317,6 +373,9 @@ def _render_section(
             # The same handles config.json gets, so the two files can
             # never disagree about which accounts a run scrapes.
             items = normalize_handles(answers.get(LIST_SECTIONS[heading]))
+        elif heading == FORMAT_ACCOUNTS_HEADING:
+            competitors = normalize_handles(answers.get("competitors"))
+            items = normalize_format_accounts(answers.get(LIST_SECTIONS[heading]), competitors)
         else:
             items = _answer_list(answers, LIST_SECTIONS[heading])
         if items:
@@ -333,15 +392,15 @@ def _render_section(
     return ["## " + heading] + prose + ["", TODO_LINE], False
 
 
-def render_product_md(
+def render_creator_md(
     template_text: str, answers: Dict[str, Any]
 ) -> Tuple[str, List[str]]:
-    """Build `product.md` from the template and the founder's answers.
+    """Build `creator.md` from the template and the creator's answers.
 
     Returns the file's text and the list of headings left as TODO, in
-    template order, so the skill can point the founder at them.
+    template order, so the skill can point the creator at them.
     """
-    blocks = [PRODUCT_HEADER]
+    blocks = [CREATOR_HEADER]
     todo: List[str] = []
 
     for heading, guidance, labels in parse_template(template_text):
@@ -353,19 +412,21 @@ def render_product_md(
     return "\n\n".join(blocks).rstrip() + "\n", todo
 
 
-def _config_for(config_path: Path, handles: List[str]) -> Dict[str, Any]:
+def _config_for(
+    config_path: Path, competitors: List[str], format_accounts: List[str]
+) -> Dict[str, Any]:
     """Build the `config.json` to write: defaults, or the tuned file kept.
 
-    A founder who raised `apify_max_charge_usd`, dropped `briefs` to 2,
+    A creator who raised `apify_max_charge_usd`, dropped `briefs` to 2,
     or moved `qa_pass_threshold` must not lose that because they re-ran
-    setup to change the competitor list. Whenever `config.json` exists
-    and parses as a JSON object, every key it holds is kept, including
-    keys ContentOS does not know about, and only `competitors` is
-    replaced. This holds with or without `--force`: `--force` is about
-    overwriting `product.md`, and setup can reach this point without it
-    whenever `product.md` is absent. Anything else (no file yet, or a
-    file that is not a readable JSON object) falls back to
-    `store.DEFAULT_CONFIG` plus the handles.
+    setup to change their accounts. Whenever `config.json` exists and
+    parses as a JSON object, every key it holds is kept, including keys
+    ContentOS does not know about, and only `competitors` and
+    `format_accounts` are replaced. This holds with or without
+    `--force`: `--force` is about overwriting `creator.md`, and setup
+    can reach this point without it whenever `creator.md` is absent.
+    Anything else (no file yet, or a file that is not a readable JSON
+    object) falls back to `store.DEFAULT_CONFIG` plus the handles.
     """
     try:
         existing = store.read_json(config_path)
@@ -373,11 +434,10 @@ def _config_for(config_path: Path, handles: List[str]) -> Dict[str, Any]:
         existing = None
     if isinstance(existing, dict):
         config = copy.deepcopy(existing)
-        config["competitors"] = handles
-        return config
-
-    config = copy.deepcopy(store.DEFAULT_CONFIG)
-    config["competitors"] = handles
+    else:
+        config = copy.deepcopy(store.DEFAULT_CONFIG)
+    config["competitors"] = competitors
+    config["format_accounts"] = format_accounts
     return config
 
 
@@ -387,22 +447,22 @@ def run_setup(
     references_dir: Path,
     force: bool = False,
 ) -> Dict[str, Any]:
-    """Write a founder's `.contentos/` state from their answers.
+    """Write a creator's `.contentos/` state from their answers.
 
     Refuses, with exit 2, when `answers` is not a JSON object, when no
     usable competitor handle survives normalization, or when
-    `product.md` already exists and `force` is false. Nothing is written
-    until every one of those has passed, so a refused setup leaves the
-    project exactly as it found it.
+    `creator.md` already exists and `force` is false. Nothing is
+    written until every one of those has passed, so a refused setup
+    leaves the project exactly as it found it.
 
-    `force` rewrites `product.md`. It never rewrites `rules.md`: those
-    lines are the founder's own corrections, and re-running setup must
+    `force` rewrites `creator.md`. It never rewrites `rules.md`: those
+    lines are the creator's own corrections, and re-running setup must
     not throw them away. `config.json` is rewritten either way, keeping
-    every setting the founder had tuned and replacing only
-    `competitors` (see `_config_for`).
+    every setting the creator had tuned and replacing only
+    `competitors` and `format_accounts` (see `_config_for`).
 
-    Returns `{project, product_md, config_json, rules_md, gitignore,
-    competitors, todo_sections}`.
+    Returns `{project, creator_md, config_json, rules_md, gitignore,
+    competitors, format_accounts, todo_sections}`.
     """
     project = Path(project)
     if not isinstance(answers, dict):
@@ -411,41 +471,43 @@ def run_setup(
     handles = normalize_handles(answers.get("competitors"))
     if not handles:
         raise SetupError(
-            "no competitor accounts; setup needs 3 to 8 Instagram handles to research"
+            "no competitor accounts; setup needs 3 to 8 Instagram handles in your niche"
         )
+    format_accounts = normalize_format_accounts(answers.get("format_accounts"), handles)
 
     contentos_dir = store.contentos_dir(project)
-    product_path = contentos_dir / "product.md"
+    creator_path = contentos_dir / "creator.md"
     config_path = contentos_dir / "config.json"
     rules_path = contentos_dir / "rules.md"
 
-    if product_path.exists() and not force:
+    if creator_path.exists() and not force:
         raise SetupError(
-            f"{product_path} already exists; re-run with --force to rewrite it"
+            f"{creator_path} already exists; re-run with --force to rewrite it"
         )
 
-    template_path = Path(references_dir) / "product-template.md"
+    template_path = Path(references_dir) / "creator-template.md"
     try:
         template_text = template_path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise SetupError(f"{template_path}: cannot read the product template: {exc}") from exc
+        raise SetupError(f"{template_path}: cannot read the creator template: {exc}") from exc
 
-    product_text, todo_sections = render_product_md(template_text, answers)
+    creator_text, todo_sections = render_creator_md(template_text, answers)
 
     store.ensure_gitignore(project)
-    product_path.write_text(product_text, encoding="utf-8")
+    creator_path.write_text(creator_text, encoding="utf-8")
 
-    store.write_json_atomic(config_path, _config_for(config_path, handles))
+    store.write_json_atomic(config_path, _config_for(config_path, handles, format_accounts))
 
     if not rules_path.exists():
         rules_path.write_text(RULES_COMMENT + "\n", encoding="utf-8")
 
     return {
         "project": str(project),
-        "product_md": str(product_path),
+        "creator_md": str(creator_path),
         "config_json": str(config_path),
         "rules_md": str(rules_path),
         "gitignore": str(contentos_dir / ".gitignore"),
         "competitors": handles,
+        "format_accounts": format_accounts,
         "todo_sections": todo_sections,
     }

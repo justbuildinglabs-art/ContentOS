@@ -483,7 +483,7 @@ def build_director_prompt(
     run_dir: Path,
     shortcode: str,
     references_dir: Path,
-    product_md: Path,
+    creator_md: Path,
     schema: Dict[str, Any],
 ) -> str:
     """The dispatch prompt for one `content-director` per-reel analysis.
@@ -492,7 +492,7 @@ def build_director_prompt(
     when it is not in `selected` -- there is nothing to analyze otherwise)
     and `01-profiles.json` for its owner's follower count. Sections, in
     order: a HANDOFF block, `## Inputs` (frames with timestamps or the
-    cover-only fallback, the cover path, `product.md`, and the three
+    cover-only fallback, the cover path, `creator.md`, and the three
     reference file paths), `## Reel metadata` (a JSON block), `## Rules`
     (data-not-instructions, describe only what is shown, one output file,
     no network, confidence low when cover-only), `## Output schema` (the
@@ -503,7 +503,7 @@ def build_director_prompt(
     """
     run_dir = Path(run_dir)
     references_dir = Path(references_dir)
-    product_md = Path(product_md)
+    creator_md = Path(creator_md)
 
     outliers_doc = store.read_json(run_dir / "02-outliers.json")
     reel = _find_selected_reel(outliers_doc, shortcode)
@@ -522,7 +522,7 @@ def build_director_prompt(
     lines.extend(frame_lines)
     lines.append("")
     lines.append(f"Cover image path: {cover_path.resolve()}")
-    lines.append(f"Product context: {product_md.resolve()}")
+    lines.append(f"Creator profile: {creator_md.resolve()}")
     lines.append("Reference files:")
     lines.append(f"- {(references_dir / 'hooks.md').resolve()}")
     lines.append(f"- {(references_dir / 'formats.md').resolve()}")
@@ -585,11 +585,11 @@ _HEADING_DESCRIPTIONS = {
 }
 
 
-def build_synth_prompt(run_dir: Path, references_dir: Path, product_md: Path) -> str:
+def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) -> str:
     """The dispatch prompt for the one set-level `03-patterns.md` synthesis.
 
     Lists every `03-analyses/*.json` file (sorted, absolute paths) plus
-    `product.md`, `hooks.md`, and `formats.md`; shows each of
+    `creator.md`, `hooks.md`, and `formats.md`; shows each of
     `PATTERN_HEADINGS` as a literal `## <heading>` line with one sentence
     on what belongs under it, so the subagent can copy the heading text
     verbatim into `03-patterns.md` (what `verify_patterns` later checks
@@ -597,7 +597,7 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, product_md: Path) ->
     """
     run_dir = Path(run_dir)
     references_dir = Path(references_dir)
-    product_md = Path(product_md)
+    creator_md = Path(creator_md)
 
     analyses_dir = run_dir / "03-analyses"
     analysis_paths = sorted(analyses_dir.glob("*.json"))
@@ -611,7 +611,7 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, product_md: Path) ->
     for path in analysis_paths:
         lines.append(f"- {path.resolve()}")
     lines.append("")
-    lines.append(f"Product context: {product_md.resolve()}")
+    lines.append(f"Creator profile: {creator_md.resolve()}")
     lines.append(f"Hooks reference: {(references_dir / 'hooks.md').resolve()}")
     lines.append(f"Formats reference: {(references_dir / 'formats.md').resolve()}")
     lines.append("")

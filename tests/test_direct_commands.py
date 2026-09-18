@@ -51,28 +51,28 @@ FIXTURE_HANDLES = ["sproutapp", "habitlab", "dailywins", "ghostaccount"]
 ANALYZED_SHORTCODES = ["DWN006", "HAB005", "SPA006", "DWN001", "DWN003"]
 NO_FRAMES_SHORTCODE = "HAB004"
 
-PRODUCT_MD = """# Product
+CREATOR_MD = """# Creator profile
 
-Sprout is a habit tracker for people who keep quitting on day four.
+Dana is a productivity creator for people who keep quitting their system by Wednesday.
 
-## Demo moments
+## Payoff moments
 
-- The streak screen filling in after a check-in.
+- The week view filling in after a planning session.
 
 ## Allowed claims
 
-- Logging one habit takes under five seconds.
+- Setting up the weekly plan takes under 10 minutes.
 """
 
 
 def _write_project(project: Path) -> None:
-    """Write the founder state a Stage 2 command needs: config and product.md."""
+    """Write the founder state a Stage 2 command needs: config and creator.md."""
     config_dir = store.contentos_dir(project)
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(
         json.dumps({"competitors": FIXTURE_HANDLES}), encoding="utf-8"
     )
-    (config_dir / "product.md").write_text(PRODUCT_MD, encoding="utf-8")
+    (config_dir / "creator.md").write_text(CREATOR_MD, encoding="utf-8")
 
 
 def _mock_research(project: Path) -> Path:
@@ -167,7 +167,7 @@ class DirectPromptTests(NoNetworkTestCase):
             self.assertIn("what app is this??", out)
             self.assertIn(str((run_dir / "03-analyses" / "SPA006.json").resolve()), out)
             # References and product context, by absolute path.
-            self.assertIn(str((project / ".contentos" / "product.md").resolve()), out)
+            self.assertIn(str((project / ".contentos" / "creator.md").resolve()), out)
             self.assertIn("hooks.md", out)
             self.assertIn("formats.md", out)
             # Every schema property the director has to fill in.
@@ -226,11 +226,11 @@ class DirectPromptTests(NoNetworkTestCase):
             self.assertEqual(store.read_json(analysis_path)["structure"], [])
             self.assertEqual(_reel(run_dir, "DWN001")["analysis_status"], "ok")
 
-    def test_direct_prompt_exit_2_without_product_md(self) -> None:
+    def test_direct_prompt_exit_2_without_creator_md(self) -> None:
         with temp_project() as project:
             _write_project(project)
             _mock_research(project)
-            (project / ".contentos" / "product.md").unlink()
+            (project / ".contentos" / "creator.md").unlink()
 
             code, out, err = _main(
                 ["direct-prompt", "--project", str(project), "--run", "latest",
@@ -239,7 +239,7 @@ class DirectPromptTests(NoNetworkTestCase):
 
             self.assertEqual(code, codes.EXIT_USAGE)
             self.assertEqual(out, "")
-            self.assertIn("product.md", err)
+            self.assertIn("creator.md", err)
 
     def test_direct_prompt_exit_2_when_run_not_found(self) -> None:
         with temp_project() as project:

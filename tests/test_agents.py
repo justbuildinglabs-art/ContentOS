@@ -46,17 +46,17 @@ QA_FIXTURE = FIXTURES_DIR / "qa.sample.json"
 # `fixtures/script.sample.md` is built for B01/DWN006/screen_demo.
 FIXTURE_HANDLES = ["sproutapp", "habitlab", "dailywins", "ghostaccount"]
 
-PRODUCT_MD = """# Product
+CREATOR_MD = """# Creator profile
 
-Sprout is a habit tracker for people who keep quitting on day four.
+Dana is a productivity creator for people who keep quitting their system by Wednesday.
 
-## Demo moments
+## Payoff moments
 
-- The streak screen filling in after a check-in.
+- The week view filling in after a planning session.
 
 ## Allowed claims
 
-- Logging one habit takes under five seconds.
+- Setting up the weekly plan takes under 10 minutes.
 """
 
 # Deliberately broken on four axes at once: a missing section (no
@@ -106,13 +106,13 @@ Some caption text.
 
 
 def _write_project(project: Path) -> None:
-    """Write the founder state Stage 3/4 commands need: config and product.md."""
+    """Write the founder state Stage 3/4 commands need: config and creator.md."""
     config_dir = store.contentos_dir(project)
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(
         json.dumps({"competitors": FIXTURE_HANDLES}), encoding="utf-8"
     )
-    (config_dir / "product.md").write_text(PRODUCT_MD, encoding="utf-8")
+    (config_dir / "creator.md").write_text(CREATOR_MD, encoding="utf-8")
 
 
 def _main(argv: Sequence[str]) -> Tuple[int, str, str]:
@@ -206,7 +206,7 @@ class WritePromptTests(NoNetworkTestCase):
             self.assertIn(str((run_dir / "03-briefs.json").resolve()), prompt)
             self.assertIn(str(Path(brief["analysis_path"]).resolve()), prompt)
             self.assertIn(str(Path(brief["frames_dir"]).resolve()), prompt)
-            self.assertIn(str((project / ".contentos" / "product.md").resolve()), prompt)
+            self.assertIn(str((project / ".contentos" / "creator.md").resolve()), prompt)
             self.assertIn(str((REFERENCES_DIR / "hooks.md").resolve()), prompt)
             self.assertIn(str((REFERENCES_DIR / "formats.md").resolve()), prompt)
             self.assertIn(str((REFERENCES_DIR / "scripting.md").resolve()), prompt)
@@ -314,7 +314,7 @@ class WritePromptTests(NoNetworkTestCase):
             self.assertIn("Fix only what QA flagged", prompt)
             self.assertIn(str((run_dir / "04-scripts" / "B01.r1.md").resolve()), prompt)
 
-    def test_write_prompt_exit_2_for_unknown_brief_and_missing_product_md(self) -> None:
+    def test_write_prompt_exit_2_for_unknown_brief_and_missing_creator_md(self) -> None:
         with temp_project() as project:
             _write_project(project)
             run_dir = _mock_research_and_rank(project)
@@ -323,7 +323,7 @@ class WritePromptTests(NoNetworkTestCase):
                 agents.write_prompt(project, run_dir, "B99", references_dir=REFERENCES_DIR)
             self.assertEqual(ctx.exception.exit_code, codes.EXIT_USAGE)
 
-            (project / ".contentos" / "product.md").unlink()
+            (project / ".contentos" / "creator.md").unlink()
             with self.assertRaises(agents.AgentsError) as ctx:
                 agents.write_prompt(project, run_dir, "B01", references_dir=REFERENCES_DIR)
             self.assertEqual(ctx.exception.exit_code, codes.EXIT_USAGE)

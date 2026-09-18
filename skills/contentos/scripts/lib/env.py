@@ -240,7 +240,7 @@ def diagnose(
         "apify": bool(keys.apify),
         "apify_source": keys.source,
         "project_dir": str(project_dir),
-        "product_md": (contentos_dir / "product.md").exists(),
+        "creator_md": (contentos_dir / "creator.md").exists(),
         "rules_md": (contentos_dir / "rules.md").exists(),
         "config_json": (contentos_dir / "config.json").exists(),
         "python": platform.python_version(),

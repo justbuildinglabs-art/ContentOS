@@ -34,7 +34,7 @@ AGENTS_DIR = REPO_ROOT / "agents"
 # two gold example scripts (v1 ships talking_head and screen_demo).
 REFERENCE_FILES = [
     "hooks.md", "formats.md", "scripting.md", "qa-rubric.md",
-    "scoring.md", "stages.md", "product-template.md",
+    "scoring.md", "stages.md", "creator-template.md",
 ]
 EXAMPLE_FILES = ["talking_head.md", "screen_demo.md"]
 

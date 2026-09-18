@@ -1,28 +1,35 @@
 {
-  "product_name": "Sprout, a habit tracker that holds one habit at a time.",
-  "one_liner": "Sprout is the habit app that only lets you track one habit until it sticks.",
-  "target_user": "people who have deleted four habit apps in the last year and still want a morning routine",
-  "frustration": "I quit on day four every single time and then the app just turns red at me",
-  "objection": "it is one more habit app I will abandon by next Tuesday",
-  "core_features": [
-    "One habit at a time. The Add button stays locked until day 14.",
-    "A day count that holds when you miss a day, instead of resetting to zero.",
-    "A plant that drops one leaf on a missed day and keeps growing.",
-    "A four week view that shows the thin patches without scoring them."
+  "creator_name": "Dana Cole, a productivity creator who posts habit and planning tips",
+  "one_liner": "Dana turns a messy to-do list into a system you actually stick with.",
+  "pillars": [
+    "One habit at a time",
+    "Weekly planning resets",
+    "Notion and paper systems compared",
+    "Focus tricks that survive a bad week"
   ],
-  "demo_moment": "Tap a missed Tuesday. One leaf falls and the day count stays on nine.",
+  "target_user": "people who have deleted four productivity apps in the last year and still want a system",
+  "frustration": "I set up a perfect system on Sunday and it falls apart by Wednesday",
+  "objection": "another productivity hack I will abandon in a week",
+  "offer": "a free weekly planning email with one prompt and one template",
+  "offer_objection": "another newsletter that just piles up unread",
+  "payoff_moments": [
+    "The week view filling in from a blank page to a done list",
+    "A habit streak that survives a missed day instead of resetting to zero",
+    "The email prompt turning into a finished plan on screen"
+  ],
   "allowed_claims": [
-    "Setting up a habit takes one field and under 11 seconds.",
-    "Missing a day never resets the day count.",
-    "The Add button is locked until the first habit is 14 days old."
+    "Setting up the weekly plan takes under 10 minutes.",
+    "The email has gone out every Sunday for the last year.",
+    "Over 4000 people get the weekly email."
   ],
   "forbidden_claims": [
-    "No health, medical, or mental health outcomes.",
     "No income or productivity guarantees.",
-    "No claim that Sprout works for everyone or that results are permanent."
+    "No claim that this system works for everyone.",
+    "No mental health or medical claims."
   ],
   "proof_assets": [
-    "The App Store rating screenshot, current as of this month."
+    "The email open-rate screenshot from this month.",
+    "Comments asking for the template after a video."
   ],
   "voice_on": ["dry", "direct", "warm"],
   "voice_off": ["peppy", "clinical", "salesy"],
@@ -38,23 +45,25 @@
     "transform",
     "crush it"
   ],
-  "cta": "Download Sprout and set up one habit tonight. It is free to start and there is nothing to cancel.",
+  "cta": "Join the free weekly planning email, link in bio.",
   "hashtag_seeds": [
+    "#productivity",
+    "#productivitytips",
+    "#planwithme",
     "#habittracker",
-    "#habits",
-    "#routine",
-    "#consistency",
-    "#productivityapp",
-    "#morningroutine",
-    "#appdemo",
-    "#screenrecording",
-    "#sprout",
-    "#onehabit"
+    "#weeklyplanning",
+    "#notion",
+    "#focus",
+    "#timemanagement",
+    "#productivityhacks",
+    "#getitdone"
   ],
   "competitors": [
     "sproutapp",
     "habitlab",
-    "dailywins",
     "ghostaccount"
+  ],
+  "format_accounts": [
+    "dailywins"
   ]
 }

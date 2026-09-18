@@ -303,7 +303,7 @@ class DiagnoseCliTests(NoNetworkTestCase):
             "apify": bool,
             "apify_source": (str, type(None)),
             "project_dir": str,
-            "product_md": bool,
+            "creator_md": bool,
             "rules_md": bool,
             "config_json": bool,
             "python": str,

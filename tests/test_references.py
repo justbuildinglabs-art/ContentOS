@@ -37,21 +37,22 @@ REFERENCE_FILENAMES = [
     "qa-rubric.md",
     "scoring.md",
     "stages.md",
-    "product-template.md",
+    "creator-template.md",
 ]
 
 # v1 ships at least these two gold scripts (design spec, "Reference files").
 EXAMPLE_FILENAMES = ["talking_head.md", "screen_demo.md"]
 
 # The exact `## ` heading order the design spec's "Reference files" table
-# pins down for product-template.md, with Sources appended last like every
+# pins down for creator-template.md, with Sources appended last like every
 # other reference file.
-PRODUCT_TEMPLATE_SECTIONS = [
-    "Product",
+CREATOR_TEMPLATE_SECTIONS = [
+    "Creator",
     "One-liner",
+    "Pillars",
     "Audience profile",
-    "Core features",
-    "Demo moments",
+    "What you promote",
+    "Payoff moments",
     "Allowed claims",
     "Forbidden claims",
     "Proof assets",
@@ -59,6 +60,7 @@ PRODUCT_TEMPLATE_SECTIONS = [
     "CTA",
     "Hashtag seeds",
     "Competitors",
+    "Format accounts",
 ]
 
 # product.md section names that read as genuine section citations: each is
@@ -217,11 +219,11 @@ class SourcesFooterTests(NoNetworkTestCase):
                 self.assertEqual(headings[-1], "Sources")
 
 
-class ProductTemplateTests(NoNetworkTestCase):
-    def test_product_template_has_every_section(self) -> None:
-        text = (REFERENCES_DIR / "product-template.md").read_text(encoding="utf-8")
+class CreatorTemplateTests(NoNetworkTestCase):
+    def test_creator_template_has_every_section(self) -> None:
+        text = (REFERENCES_DIR / "creator-template.md").read_text(encoding="utf-8")
         headings = _headings(text, HEADING2_RE)
-        self.assertEqual(headings, PRODUCT_TEMPLATE_SECTIONS + ["Sources"])
+        self.assertEqual(headings, CREATOR_TEMPLATE_SECTIONS + ["Sources"])
 
 
 class ProductSectionCitationTests(NoNetworkTestCase):

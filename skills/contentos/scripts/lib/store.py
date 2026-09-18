@@ -226,6 +226,16 @@ def load_config(project: Path) -> Dict[str, Any]:
     config = copy.deepcopy(DEFAULT_CONFIG)
     config.update(overrides)
     _validate_config(config)
+
+    # A handle a founder hand-edited into both lists stays a competitor
+    # (design spec, "Reference files" -> Format accounts): drop it from
+    # format_accounts here too, case-insensitively, so a hand-edited
+    # config.json behaves exactly like one `setup` wrote.
+    competitors = {handle.lower() for handle in config["competitors"]}
+    config["format_accounts"] = [
+        handle for handle in config["format_accounts"] if handle.lower() not in competitors
+    ]
+
     return config
 
 

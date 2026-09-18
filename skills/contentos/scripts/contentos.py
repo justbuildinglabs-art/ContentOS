@@ -120,15 +120,15 @@ def _sync_plugin_key_handler(_args: argparse.Namespace) -> int:
 
 
 def _setup_handler(args: argparse.Namespace) -> int:
-    """Write `.contentos/` from the founder's answers file, then print `diagnose`.
+    """Write `.contentos/` from the creator's answers file, then print `diagnose`.
 
     Every refusal (`setup.SetupError`) is a usage error: a missing or
     unreadable answers file, an answers file that is not a JSON object,
-    an empty competitor list, or an existing `product.md` without
+    an empty competitor list, or an existing `creator.md` without
     `--force`. The message goes to stderr and nothing is written. On
     success the stdout JSON is exactly what `diagnose` prints (with
     `apify_live` null, since setup never calls Apify), so the skill can
-    read the founder's new state from one place.
+    read the creator's new state from one place.
     """
     project_dir = args.project.resolve()
     try:
@@ -223,7 +223,7 @@ def _direct_prompt_handler(args: argparse.Namespace) -> int:
 
     Every refusal (`direct.DirectError`) carries its own exit code: 2
     for an unresolvable run, a reel that is not selected, a reel with
-    no keyframes, or a missing `product.md`. The prompt itself goes to
+    no keyframes, or a missing `creator.md`. The prompt itself goes to
     stdout for the skill to hand to the subagent.
     """
     project_dir = args.project.resolve()
@@ -327,7 +327,7 @@ def _write_prompt_handler(args: argparse.Namespace) -> int:
 
     Every refusal (`agents.AgentsError`) carries its own exit code: 2
     for an unresolvable run, a brief not in `03-briefs.json`, or a
-    missing `product.md`.
+    missing `creator.md`.
     """
     project_dir = args.project.resolve()
     try:

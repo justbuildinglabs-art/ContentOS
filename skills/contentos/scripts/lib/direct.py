@@ -12,7 +12,7 @@ call one function here, print what it returns -- exactly like the
 - `run_direct_prompt` / `run_synth_prompt` return the text the skill
   hands to the `contentos:content-director` subagent (design spec,
   "Stage 2 -- direct"). Both refuse, with exit 2, when the run, the
-  reel, its keyframes, or `product.md` are not there to build a prompt
+  reel, its keyframes, or `creator.md` are not there to build a prompt
   from; a prompt that points at files the subagent cannot read is worse
   than no prompt at all.
 - `verify_direct` / `verify_synth` are the `verify --stage
@@ -79,7 +79,7 @@ class DirectError(Exception):
     """A Stage 2 failure, carrying the exit code `contentos.py` returns.
 
     `exit_code` is 2 for every usage problem (no such run, no such
-    reel, no frames, no `product.md`, nothing to rank) and 7 for a
+    reel, no frames, no `creator.md`, nothing to rank) and 7 for a
     verification failure. The message is what goes to stderr; a
     verification failure joins one line per problem with newlines, so
     the founder (and the skill's re-dispatch) sees all of them at once.
@@ -137,14 +137,14 @@ def _selected_reel(outliers_doc: Dict[str, Any], shortcode: str, run_name: str) 
     )
 
 
-def _product_md(project: Path) -> Path:
-    """`<project>/.contentos/product.md`, or a usage error when it is missing."""
-    product_md = store.contentos_dir(Path(project)) / "product.md"
-    if not product_md.exists():
+def _creator_md(project: Path) -> Path:
+    """`<project>/.contentos/creator.md`, or a usage error when it is missing."""
+    creator_md = store.contentos_dir(Path(project)) / "creator.md"
+    if not creator_md.exists():
         raise DirectError(
-            f"{product_md}: no product.md; run: /contentos setup", codes.EXIT_USAGE
+            f"{creator_md}: no creator.md; run: /contentos setup", codes.EXIT_USAGE
         )
-    return product_md
+    return creator_md
 
 
 def _frames_status(run_dir: Path, shortcode: str) -> Optional[str]:
@@ -215,7 +215,7 @@ def run_direct_prompt(
     resolve, the run has no `02-outliers.json` yet, the reel is not in
     `selected`, its `frames_status` is neither `ok` nor `cover_only`
     (there would be no image for the director to read), or the founder
-    has no `product.md`. Otherwise returns
+    has no `creator.md`. Otherwise returns
     `director.build_director_prompt`'s text for `contentos.py` to print
     to stdout.
     """
@@ -231,12 +231,12 @@ def run_direct_prompt(
             codes.EXIT_USAGE,
         )
 
-    product_md = _product_md(project)
+    creator_md = _creator_md(project)
     return director.build_director_prompt(
         run_dir,
         shortcode,
         Path(references_dir),
-        product_md,
+        creator_md,
         director.load_schema("analysis"),
     )
 
@@ -246,7 +246,7 @@ def run_synth_prompt(project: Path, run_ref: str, references_dir: Path) -> str:
 
     Refuses with exit 2 when the run does not resolve, when
     `03-analyses/` holds no `*.json` files yet (there is nothing to
-    synthesize from), or when `product.md` is missing.
+    synthesize from), or when `creator.md` is missing.
     """
     run_dir = _resolve_run(project, run_ref)
     analyses = sorted((run_dir / "03-analyses").glob("*.json"))
@@ -255,8 +255,8 @@ def run_synth_prompt(project: Path, run_ref: str, references_dir: Path) -> str:
             f"{run_dir.name}: no analyses in 03-analyses/; run the director dispatches first",
             codes.EXIT_USAGE,
         )
-    product_md = _product_md(project)
-    return director.build_synth_prompt(run_dir, Path(references_dir), product_md)
+    creator_md = _creator_md(project)
+    return director.build_synth_prompt(run_dir, Path(references_dir), creator_md)
 
 
 # ---------------------------------------------------------------------------

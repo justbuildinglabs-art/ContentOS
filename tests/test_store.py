@@ -245,6 +245,26 @@ class FormatAccountsConfigTests(NoNetworkTestCase):
                     with self.assertRaises(ConfigError):
                         load_config(project_dir)
 
+    def test_load_config_drops_format_accounts_already_a_competitor(self) -> None:
+        # Resolution (task-3 controller ruling): a handle in both lists
+        # stays a competitor. setup.py already enforces this when it
+        # writes config.json; load_config enforces it too, so a
+        # hand-edited config.json is just as safe -- case-insensitively,
+        # since Instagram handles are case-insensitive.
+        with temp_project() as project_dir:
+            _write_config(
+                project_dir,
+                {
+                    "competitors": ["acme", "DailyWins"],
+                    "format_accounts": ["dailywins", "ghostaccount", "Acme"],
+                },
+            )
+
+            config = load_config(project_dir)
+
+        self.assertEqual(config["competitors"], ["acme", "DailyWins"])
+        self.assertEqual(config["format_accounts"], ["ghostaccount"])
+
     def test_load_config_rejects_negative_or_non_integer_max_format_briefs(self) -> None:
         # 0 is the interesting boundary here: max_format_briefs is a cap,
         # not a count that must be positive like the _NUMERIC_CONFIG_KEYS
