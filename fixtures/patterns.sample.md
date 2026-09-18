@@ -10,11 +10,11 @@
 
 ## Recurring formats
 
-Screen demos and talking heads carry the two strongest reels here. DWN006 is a plain screen recording. HAB005 is one person to camera with the phone in shot. SPA006 shows that a trend remix still works when the middle of the video holds a real hack. Slideshow text (DWN001) and voiceover b roll (DWN003) are the cheapest to produce and still land.
+Screen demos and talking heads carry the two strongest reels here. DWN006 is a plain screen recording. HAB005 is one person to camera with the phone in shot. SPA006 shows that a trend remix still works when the middle of the video holds a real technique. Slideshow text (DWN001) and voiceover b roll (DWN003) are the cheapest to produce and still land.
 
 ## Saturated angles to avoid
 
-The five apps you need listicle. The aesthetic montage set to a trending sound with no hack in it. The talking head who says consistency is key and never shows a screen. The rate my setup post built on a board nobody actually uses. Every one of these is already in the feed.
+The five productivity hacks you need listicle. The aesthetic montage set to a trending sound with no technique in it. The talking head who says consistency is key and never shows a screen. The rate my setup post built on a board nobody actually uses. Every one of these is already in the feed.
 
 ## Structural recommendation
 
@@ -22,10 +22,10 @@ Aim for 17 to 27 seconds. Put the promise in the first line and the screen on ca
 
 ## Language bank
 
-- "what app is this??" (DWN006, HAB005, SPA006)
-- "need it now" (DWN006)
-- "downloaded within 2 seconds of watching" (DWN006)
-- "omg need this in my life, link please" (SPA006)
+- "how do I do this??" (DWN006, HAB005, SPA006)
+- "need this now" (DWN006)
+- "following for this" (DWN006)
+- "omg need this in my life, tell me more" (SPA006)
 - "ok but does it actually work long term" (SPA006, the objection to answer on screen)
-- "is this available on android" (HAB005)
+- "link to the email please" (HAB005)
 - "obsessed with this" (DWN001)

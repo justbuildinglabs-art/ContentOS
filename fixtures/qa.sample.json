@@ -5,8 +5,8 @@
   "checks": {
     "hook_first_3s": "pass",
     "hook_matches_brief": "pass",
-    "demo_present": "pass",
-    "consistent_with_product": "pass",
+    "payoff_present": "pass",
+    "consistent_with_profile": "pass",
     "no_fabricated_claims": "pass",
     "no_fake_testimonial": "pass",
     "no_restricted_claims": "pass",
@@ -31,18 +31,18 @@
     "cta_urgency": 8
   },
   "length_check": {
-    "word_count": 103,
+    "word_count": 105,
     "word_budget": 100,
     "within_tolerance": true
   },
   "filler_cut_list": [],
   "placeholders": ["[NEED NUMBER]"],
-  "strongest_line": "Every habit app buries the one number you actually want to see.",
+  "strongest_line": "Every planning system buries the one page you actually open.",
   "weakest_lines": [],
-  "one_watch_test": "A viewer walks away remembering that the number shows up the moment they check in, which is the differentiator the brief named, not a joke, a transition, or the music.",
+  "one_watch_test": "A viewer walks away remembering that the week fills in the moment they answer one prompt, which is the differentiator the brief named, not a joke, a transition, or the music.",
   "spoken_flow_issues": [],
   "cringe_flags": [],
   "issues": [],
-  "summary": "The hook keeps the number reveal mechanism and swaps in the Sprout streak screen as the brief asked. The body stays inside the word budget and every claim traces to product.md except the one placeholder, which is listed rather than invented.",
+  "summary": "The hook keeps the number reveal mechanism and swaps in the weekly planning screen as the brief asked. The body stays inside the word budget and every claim traces to creator.md except the one placeholder, which is listed rather than invented.",
   "confidence": 9
 }
