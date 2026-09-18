@@ -82,7 +82,7 @@ Per-creator state lives in their project, never in the plugin:
 <project>/.contentos/
 ├── creator.md            # creator profile: pillars, audience, optional offer, payoff moments, allowed/forbidden claims, voice, CTA, accounts
 ├── rules.md              # creator corrections, one per line, appended to writer and QA prompts (correction rule)
-├── config.json           # competitors[], format_accounts[], thresholds, cost cap, qa_pass_threshold
+├── config.json           # competitors[], format_accounts[], max_format_briefs, thresholds, cost cap, qa_pass_threshold
 ├── .env                  # optional APIFY_API_TOKEN, must be chmod 600
 └── runs/<YYYYMMDD-HHMMSS>/
     ├── run.json                  # stages, timings, cost estimate (actual is deferred, see Later), apify run ids, warnings
