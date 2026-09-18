@@ -347,7 +347,7 @@ def write_prompt(
     lines.append("- Execute the brief. Do not redo the analysis or the ranking.")
     lines.append(
         "- Keep the hook mechanism named in the brief. Change 10 to 20 percent of the "
-        "source: the topic, the setting, the example, the number."
+        "source: the subject, the setting, the example, the number."
     )
     lines.append(
         "- Every claim must exist in creator.md, under Allowed claims, Proof assets, "

@@ -80,7 +80,7 @@ a frame.
   works for a different subject. "Promise a number, then show the screen that
   produces it" is a mechanism. "Talk about habits" is not.
 - `adaptation`: the 10 to 20 percent change that makes this the creator's own
-  reel. Keep the mechanism. Change the subject, the payoff moment, and the
+  reel. Keep the mechanism. Change the subject, the payoff moment, or the
   claim, and land the subject on one of the pillars in `creator.md`. Never
   invent a fact about the creator or about what they promote.
 - `avoid`: the obvious copy. The version everyone else in this niche will make
