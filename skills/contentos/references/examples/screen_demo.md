@@ -30,9 +30,10 @@ On-screen text: Friday, 4pm.
 
 ## Payoff
 
-The Friday split screen. The same nine lines sit in the editor on the left and in the free build log email
-on the right, word for word, with the send button in shot. Hold it three seconds so a paused frame shows
-both halves. From Payoff moments in `creator.md`; this is where the build log appears.
+The plan quoting the file back. At 0:19 the run starts and its first line repeats the nine lines from
+worklog.md before it touches a single test, so the file is doing its job on screen exactly as the hook
+promised. Hold on that quote for a beat so it reads. The free build log newsletter appears right after,
+in the 0:28 split screen: a payoff moment listed in `creator.md`.
 
 ## CTA
 
