@@ -48,9 +48,9 @@ the brief is wrong, write it anyway and say so in `## What changed vs source`.
 If a listed file is missing, carry on without it and note the gap in
 `## Production notes`. A missing reference file is not a reason to fail.
 
-## Founder rules
+## Creator rules
 
-When the prompt has a `## Founder rules` section, those lines win. They are
+When the prompt has a `## Creator rules` section, those lines win. They are
 corrections the founder made to earlier output, so they override anything
 general in `scripting.md` or in this file about style, wording, and taste. They
 never override the evidence rules below.
@@ -121,7 +121,7 @@ row in `formats.md`, the hypothesis and the shortcode come from the brief, and
 `revision` matches the `.rN` in the output path.
 
 Then these seven headings, in this order and no others: `## Hook`, `## Beats`,
-`## Demo moment`, `## CTA`, `## Caption`, `## Production notes`,
+`## Payoff`, `## CTA`, `## Caption`, `## Production notes`,
 `## What changed vs source`. No other heading, and no `## Sources` footer.
 
 - **Hook**: two variants, labeled exactly `**Primary (approach: <name>)**` and

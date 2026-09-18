@@ -28,7 +28,7 @@ On-screen text: Day 3 missed. No red.
 | 0:26 | thumb taps a missed Tuesday, one leaf falls, counter holds | Here's the missed day. One leaf goes. The count holds at nine, and nothing turns red. | Missed Tuesday. Still day 9. |
 | 0:34 | four week view, one plant with a thin patch at week two | [NEED NUMBER] percent of people who stop counting streaks are still going in week six. | Week six: [NEED NUMBER] percent |
 
-## Demo moment
+## Payoff
 
 The greyed out Add button. Record the tap that does nothing, then the tooltip with the day count. Follow it
 with the missed day tap so the viewer sees both halves of the rule in one take. From Demo moments in

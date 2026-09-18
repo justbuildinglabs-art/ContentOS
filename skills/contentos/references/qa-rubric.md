@@ -20,12 +20,12 @@ Pass when the hook uses the mechanism the brief named, in `hook_type` and `trans
 when the writer swapped the mechanism for an easier one, even if the new hook is good. A good hook off the
 brief is still a fail, because the brief is what the outlier data supports.
 
-### demo_present
-Pass when `## Demo moment` names a specific on-screen product moment that exists in `product.md` under
+### payoff_present
+Pass when `## Payoff` names a specific on-screen product moment that exists in `product.md` under
 Demo moments. Fail when it is vague, invented, or missing. Use na only when the brief's format puts no
 product on screen at all and says so.
 
-### consistent_with_product
+### consistent_with_profile
 Pass when every feature, price, limit, and behavior in the script matches `product.md`. Fail on invented
 features, wrong prices, or a contradiction with anything under Core features.
 
@@ -146,7 +146,7 @@ say which beat feels rushed and what genuine line would fill it. Do not pad.
 ## Verdict rules
 
 - **reject** when `no_fabricated_claims`, `no_fake_testimonial`, `no_restricted_claims`, or
-  `consistent_with_product` failed. The one exception: if a single line carries the whole problem and
+  `consistent_with_profile` failed. The one exception: if a single line carries the whole problem and
   deleting or rewriting that line fixes it, return `revise` instead and name the line.
 - **revise** when any other check failed, when any score is below the pass threshold, when
   `within_tolerance` is false, or when your own `confidence` is below the threshold.

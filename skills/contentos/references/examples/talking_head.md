@@ -27,7 +27,7 @@ On-screen text: Zero is a quit message.
 | 0:16 | thumb taps a missed Tuesday, the plant drops a single leaf | Miss a day and you lose a leaf, not the streak. [EMPHASIS] Nothing resets. | Missed Tuesday. Still day 9. |
 | 0:23 | four week view, one plant, a thin patch at week two | People who stop counting streaks keep going [NEED NUMBER] weeks longer. That's the whole bet. | [NEED NUMBER] weeks longer on average |
 
-## Demo moment
+## Payoff
 
 The missed day tap. Thumb hits Tuesday, one leaf falls, and the day count stays on nine. Hold the shot two
 full seconds so the number is readable when someone pauses. From Demo moments in `product.md`.

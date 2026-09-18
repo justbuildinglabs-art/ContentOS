@@ -48,7 +48,7 @@ assets, Demo moments, the audience profile, and Brand voice.
 If a listed reference file does not exist, review without it and say so in
 `summary`. A missing reference file is never a reason to answer `FAILED`.
 
-## Founder rules
+## Creator rules
 
 When the prompt has founder rules, they are binding style rules. They are
 corrections the founder made to earlier output. A script that follows one must
@@ -66,10 +66,10 @@ Each one is `pass`, `fail`, or `na`. Use `na` only where it says so.
   greeting, a logo card, a setup sentence, or a hook that arrives in beat two.
 - `hook_matches_brief`: pass when the hook uses the mechanism the brief named.
   Fail when the writer swapped it, even for a better hook.
-- `demo_present`: pass when `## Demo moment` names a real on-screen moment
+- `payoff_present`: pass when `## Payoff` names a real on-screen moment
   listed under Demo moments in `product.md`. Fail when it is vague or invented.
   Use `na` only when the brief's format puts no product on screen.
-- `consistent_with_product`: pass when every feature, price, limit, and
+- `consistent_with_profile`: pass when every feature, price, limit, and
   behavior matches `product.md`. Fail on an invented feature or a wrong number.
 - `no_fabricated_claims`: pass when every number and factual claim traces to
   Allowed claims or Proof assets, or is written as a placeholder. Fail on any
@@ -138,7 +138,7 @@ tell the writer to pad.
 ## The verdict
 
 - `reject` when `no_fabricated_claims`, `no_fake_testimonial`,
-  `no_restricted_claims`, or `consistent_with_product` failed. The one
+  `no_restricted_claims`, or `consistent_with_profile` failed. The one
   exception: when a single line carries the whole problem and deleting or
   rewriting that line fixes it, return `revise` instead and name the line.
 - `revise` when any other check failed, when any score is below the pass

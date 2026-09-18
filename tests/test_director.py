@@ -207,7 +207,7 @@ def _valid_analysis_raw() -> Dict[str, Any]:
 
 
 _QA_CHECK_NAMES = (
-    "hook_first_3s", "hook_matches_brief", "demo_present", "consistent_with_product",
+    "hook_first_3s", "hook_matches_brief", "payoff_present", "consistent_with_profile",
     "no_fabricated_claims", "no_fake_testimonial", "no_restricted_claims", "not_a_clone",
     "cta_present", "brand_voice", "ai_tells",
 )
