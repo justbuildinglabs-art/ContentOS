@@ -26,12 +26,23 @@ import re
 import unittest
 from typing import Dict, Tuple
 
-from tests.helpers import NoNetworkTestCase, REPO_ROOT
+from tests.helpers import NoNetworkTestCase, REPO_ROOT, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
 from lib import agents as agents_lib  # noqa: E402
 from lib import director  # noqa: E402
+
+# `test_bodies_name_the_creator_rules_label_their_prompt_emits` builds a
+# real write/QA prompt pair, which needs a project with `creator.md`, a
+# mock run, and a written script. `tests.test_agents` already has all
+# three; importing them here beats a second copy that could drift.
+from tests.test_agents import (  # noqa: E402
+    REFERENCES_DIR,
+    _mock_research_and_rank,
+    _write_project,
+    _write_script,
+)
 
 AGENTS_DIR = REPO_ROOT / "agents"
 DIRECTOR_AGENT = AGENTS_DIR / "content-director.md"
@@ -140,6 +151,25 @@ def _collapse(text: str) -> str:
     the collapsed text checks the wording without pinning the wrapping.
     """
     return " ".join(text.split())
+
+
+def _creator_rules_label(prompt: str) -> str:
+    """The label one dispatch prompt introduces the creator's rules with.
+
+    `write_prompt` opens a `## Creator rules` section; `qa_prompt` writes a
+    single `Creator rules: <text>` line inside `## Inputs`. An agent body
+    that names the wrong one sends the subagent looking for text that is
+    not in its prompt, so this pulls the label out of a real prompt rather
+    than hard-coding either form. Raises AssertionError when the prompt
+    carries no creator rules at all.
+    """
+    for line in prompt.splitlines():
+        stripped = line.strip()
+        if stripped == "## Creator rules":
+            return stripped
+        if stripped.startswith("Creator rules:"):
+            return "Creator rules:"
+    raise AssertionError("prompt carries no creator rules label")
 
 
 def _body(path) -> str:
@@ -331,12 +361,44 @@ class WriterAndQaAgentTests(NoNetworkTestCase):
             with self.subTest(verdict_phrase=phrase):
                 self.assertIn(phrase, qa_prose)
 
-        # `write_prompt` and `qa_prompt` both append the creator's own
-        # corrections under `## Creator rules`, so both bodies have to
-        # explain that heading under the same name.
-        for name, body in (("script-writer", writer_body), ("qa-reviewer", qa_body)):
-            with self.subTest(agent=name, heading="## Creator rules"):
-                self.assertIn("## Creator rules", body)
+
+
+class CreatorRulesLabelTests(NoNetworkTestCase):
+    """Each body must name the creator-rules label its own prompt emits.
+
+    The two builders disagree on purpose: the writer gets a whole
+    `## Creator rules` section, the reviewer gets one `Creator rules:`
+    line under `## Inputs`. A body that describes the other one's shape
+    reads its prompt, finds nothing, and treats a creator with rules as a
+    creator with none, which drops `brand_voice` to `na`.
+    """
+
+    def test_bodies_name_the_creator_rules_label_their_prompt_emits(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research_and_rank(project)
+            (project / ".contentos" / "rules.md").write_text(
+                "Never use the word cheap.\n", encoding="utf-8"
+            )
+
+            write_text = agents_lib.write_prompt(
+                project, run_dir, "B01", references_dir=REFERENCES_DIR
+            )
+            _write_script(run_dir, "B01", 0)
+            qa_text = agents_lib.qa_prompt(
+                project, run_dir, "B01", 0, references_dir=REFERENCES_DIR
+            )
+
+        write_label = _creator_rules_label(write_text)
+        qa_label = _creator_rules_label(qa_text)
+
+        # Not the same label, so neither body can satisfy both by accident.
+        self.assertNotEqual(write_label, qa_label)
+
+        with self.subTest(agent="script-writer", label=write_label):
+            self.assertIn(write_label, _body(WRITER_AGENT))
+        with self.subTest(agent="qa-reviewer", label=qa_label):
+            self.assertIn(qa_label, _body(QA_AGENT))
 
 
 if __name__ == "__main__":

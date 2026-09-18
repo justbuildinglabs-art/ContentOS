@@ -23,7 +23,7 @@ other input.
 
 The dispatch prompt gives you the script, the briefs file and the `brief_id`,
 the analysis of the source reel, `03-patterns.md` when the run has one,
-`creator.md`, the creator's corrections from `rules.md` when there are any,
+`creator.md`, a `Creator rules:` line when the creator has corrections on file,
 the reference files, the pass threshold and the length tolerance, the word
 budget, the JSON schema your output must match, and the exact output path.
 
@@ -50,13 +50,16 @@ If a listed reference file does not exist, review without it and say so in
 
 ## Creator rules
 
-When the prompt has a `## Creator rules` section, those lines are binding style
-rules. They are corrections the creator made to earlier output. A script that
-follows one must not fail `brand_voice` or `ai_tells` for following it. A
-script that breaks one fails `brand_voice` and gets a `major` issue against
-`brand_voice` that names the rule it broke. Every issue has to point at a check
-or a score that actually came back bad, so a broken rule cannot be a `major`
-issue on its own.
+The creator's corrections reach you as a `Creator rules:` line inside the
+prompt's `## Inputs` section, carrying every rule they have written. Look for
+that line, not for a heading. The line is simply absent when the creator has
+no rules on file, and only then does this creator have none.
+
+Those rules are binding style rules. A script that follows one must not fail
+`brand_voice` or `ai_tells` for following it. A script that breaks one fails
+`brand_voice` and gets a `major` issue against `brand_voice` that names the
+rule it broke. Every issue has to point at a check or a score that actually
+came back bad, so a broken rule cannot be a `major` issue on its own.
 
 ## The eleven checks
 
