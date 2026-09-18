@@ -67,7 +67,7 @@ CREATOR_TEMPLATE_SECTIONS = [
 # two words, so a bare generic word like "Product" or "CTA" used in
 # ordinary prose elsewhere in these files cannot false-positive the check
 # below.
-PRODUCT_SECTION_CITATION_CANDIDATES = [
+CREATOR_SECTION_CITATION_CANDIDATES = [
     "Audience profile",
     "Core features",
     "Demo moments",
@@ -77,6 +77,14 @@ PRODUCT_SECTION_CITATION_CANDIDATES = [
     "Brand voice",
     "Hashtag seeds",
 ]
+
+# Stopgap (task 3, controller ruling): hooks.md, scripting.md,
+# qa-rubric.md, and content-director.md still cite the old product.md
+# section names below the creator pivot dropped (Product -> Creator,
+# and Core features / Demo moments have no creator-template.md
+# equivalent). Task 6 rewrites those citing files for the creator
+# sections and removes this allowance.
+_DROPPED_SECTION_CITATION_ALLOWANCE = {"Product", "Core features", "Demo moments"}
 
 # The subagent prompts and reference files that read product.md directly
 # (design spec, "Reference files" and "Stage 2 -- direct").
@@ -228,9 +236,14 @@ class CreatorTemplateTests(NoNetworkTestCase):
 
 class ProductSectionCitationTests(NoNetworkTestCase):
     def test_references_cite_only_existing_product_sections(self) -> None:
+        # Stopgap (task 3, controller ruling): read creator-template.md,
+        # not the deleted product-template.md, so this test does not
+        # error out on a missing file. See
+        # _DROPPED_SECTION_CITATION_ALLOWANCE above for the sections this
+        # still lets through even though they are no longer headings here.
         template_headings = set(
             _headings(
-                (REFERENCES_DIR / "product-template.md").read_text(encoding="utf-8"),
+                (REFERENCES_DIR / "creator-template.md").read_text(encoding="utf-8"),
                 HEADING2_RE,
             )
         )
@@ -238,7 +251,7 @@ class ProductSectionCitationTests(NoNetworkTestCase):
         cited = set()
         for path in PRODUCT_SECTION_CITING_FILES:
             text = path.read_text(encoding="utf-8")
-            for name in PRODUCT_SECTION_CITATION_CANDIDATES:
+            for name in CREATOR_SECTION_CITATION_CANDIDATES:
                 if name in text:
                     cited.add(name)
 
@@ -247,7 +260,9 @@ class ProductSectionCitationTests(NoNetworkTestCase):
         self.assertTrue(cited, "expected at least one product.md section citation")
         for name in sorted(cited):
             with self.subTest(section=name):
-                self.assertIn(name, template_headings)
+                self.assertIn(
+                    name, template_headings | _DROPPED_SECTION_CITATION_ALLOWANCE
+                )
 
 
 class ScoringMdTests(NoNetworkTestCase):
