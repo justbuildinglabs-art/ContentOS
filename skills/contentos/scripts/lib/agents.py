@@ -382,10 +382,10 @@ def write_prompt(
     )
     lines.append(
         "CTA: two variants, labeled exactly **Primary (direct ask)** and "
-        "**Backup (open loop)**, each under 20 words. The primary answers the offer's "
-        "objection when creator.md has an offer under What you promote; otherwise it "
-        "answers the audience's top objection. With no offer, the primary is a follow, "
-        "comment, save, or share ask."
+        "**Backup (open loop)**, each under 20 words. The primary is a direct ask: with an "
+        "offer under What you promote in creator.md, it asks for that offer and answers the "
+        "offer's objection; without an offer, it asks for a follow, comment, save, or share "
+        "and answers the audience's top objection. The backup is an open loop."
     )
     lines.append("Caption: end with one line of 5 to 8 hashtags and nothing else on that line.")
     lines.append("")
