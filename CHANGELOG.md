@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-17
+
+### Changed
+
+- ContentOS is now for any creator, not only app founders. The profile is `creator.md`, with pillars, an audience, a voice, and an optional "What you promote" block; when nothing is promoted, scripts end on a follow, comment, save, or share ask.
+- Sources are tagged. `competitors` are accounts in your niche; the new `format_accounts` list holds accounts from any niche whose formats travel. Every reel carries `source_kind`, the director scores niche reels on topic fit and format reels on transferability, and ranking caps format-account briefs at `max_format_briefs` (default 2).
+- Renamed for the pivot: analysis fields `topic_shown`, `adaptation`, and `score_fit`; QA checks `payoff_present` and `consistent_with_profile`; the script section `## Payoff`; the prompt heading `## Creator rules`; the `diagnose` key `creator_md`. Nothing had shipped, so there is no migration.
+- The gold example scripts, the reference files, the agent prompts, the setup interview, and the README are rewritten for creators, with a worked example of a run.
+
 ## [0.1.1] - 2026-09-17
 
 ### Fixed
