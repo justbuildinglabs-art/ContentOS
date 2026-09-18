@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from lib import frames as frames_lib
-from lib import store, video
+from lib import instagram, store, video
 
 # ---------------------------------------------------------------------------
 # analysis.schema.json enum values, mirrored here so coerce_analysis can map
@@ -740,7 +740,22 @@ def _hypothesis_line(analysis: Dict[str, Any]) -> str:
 
 def _reel_source_kind(reel: Dict[str, Any]) -> str:
     """`reel["source_kind"]`, defaulting to `"niche"` when the reel carries none."""
-    return reel.get("source_kind") or "niche"
+    return reel.get("source_kind") or instagram.SOURCE_KIND_NICHE
+
+
+def _candidate_sort_key(
+    pair: Tuple[Dict[str, Any], Dict[str, Any]]
+) -> Tuple[float, float, str]:
+    """The one sort key used everywhere in `rank_briefs`: `brief_score`
+    descending, then `outlier_ratio` descending, then `shortCode`
+    ascending. Shared by the initial candidate sort and the re-sort of
+    the taken list, so both orderings can never drift apart."""
+    reel, analysis = pair
+    return (
+        -brief_score(analysis, reel),
+        -(reel.get("outlier_ratio") or 0),
+        reel.get("shortCode") or "",
+    )
 
 
 def rank_briefs(
@@ -768,8 +783,11 @@ def rank_briefs(
     eligible reels), the remaining slots are filled from the set-aside
     format reels, best score first -- so `max_format_briefs` limits how
     many format briefs are taken *freely*, never how many can appear when
-    niche reels run short. `B01`, `B02`, ... are assigned in this final
-    order.
+    niche reels run short. The taken list (walk plus any backfill) is
+    then re-sorted with the same key (`brief_score` descending, same
+    tiebreak), so a backfilled brief never sits below a lower-scoring
+    one just because it was appended last. `B01`, `B02`, ... are assigned
+    in this final, re-sorted order.
 
     `run_dir` is not part of `analyses`/`reels` (neither carries a run
     directory), but every brief's `frames_dir` and `analysis_path` must
@@ -785,19 +803,13 @@ def rank_briefs(
         if analysis is not None:
             candidates.append((reel, analysis))
 
-    candidates.sort(
-        key=lambda pair: (
-            -brief_score(pair[1], pair[0]),
-            -(pair[0].get("outlier_ratio") or 0),
-            pair[0].get("shortCode") or "",
-        )
-    )
+    candidates.sort(key=_candidate_sort_key)
 
     taken: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
     skipped_format: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
     format_taken = 0
     for reel, analysis in candidates:
-        if _reel_source_kind(reel) == "format":
+        if _reel_source_kind(reel) == instagram.SOURCE_KIND_FORMAT:
             if format_taken < max_format_briefs:
                 taken.append((reel, analysis))
                 format_taken += 1
@@ -808,6 +820,10 @@ def rank_briefs(
 
     if len(taken) < n:
         taken.extend(skipped_format[: n - len(taken)])
+
+    # Re-sort so a backfilled brief (appended above, out of score order)
+    # never sits below a lower-scoring one in the final numbering.
+    taken.sort(key=_candidate_sort_key)
 
     briefs: List[Dict[str, Any]] = []
     for index, (reel, analysis) in enumerate(taken[:n], start=1):

@@ -642,12 +642,15 @@ class RankBriefsTests(NoNetworkTestCase):
             # under the cap), N1, N2 (niche, taken freely) -- three briefs
             # for n=4. Niche only had two entries, so the walk falls one
             # short; the remaining slot is filled from the skipped format
-            # briefs (F2, F3) in score order, which is F2, not F3.
+            # briefs (F2, F3) in score order, which is F2, not F3. The
+            # taken list is then re-sorted by brief_score, so the
+            # backfilled F2 (score 8) lands ahead of N2 (score 7) rather
+            # than trailing at the end where the backfill appended it.
             briefs = director.rank_briefs(analyses, reels, 4, run_dir, max_format_briefs=1)
 
-        self.assertEqual([b["shortCode"] for b in briefs], ["F1", "N1", "N2", "F2"])
+        self.assertEqual([b["shortCode"] for b in briefs], ["F1", "N1", "F2", "N2"])
         self.assertEqual([b["brief_id"] for b in briefs], ["B01", "B02", "B03", "B04"])
-        self.assertEqual([b["source_kind"] for b in briefs], ["format", "niche", "niche", "format"])
+        self.assertEqual([b["source_kind"] for b in briefs], ["format", "niche", "format", "niche"])
         self.assertNotIn("F3", [b["shortCode"] for b in briefs])
 
     def test_rank_with_zero_cap_excludes_format_briefs_unless_needed_to_fill(self) -> None:
@@ -664,11 +667,49 @@ class RankBriefsTests(NoNetworkTestCase):
             # Same zero cap, but n=3: the niche briefs run out, so the
             # single best-scoring skipped format brief (F1) fills the last
             # slot even though the cap is 0 -- the cap only limits how many
-            # are taken freely during the walk, not the backfill.
+            # are taken freely during the walk, not the backfill. F1 scores
+            # highest of the three (10), so the re-sort puts it first
+            # rather than leaving it trailing where the backfill appended
+            # it.
             briefs_with_fill = director.rank_briefs(analyses, reels, 3, run_dir, max_format_briefs=0)
 
-        self.assertEqual([b["shortCode"] for b in briefs_with_fill], ["N1", "N2", "F1"])
-        self.assertEqual(briefs_with_fill[2]["source_kind"], "format")
+        self.assertEqual([b["shortCode"] for b in briefs_with_fill], ["F1", "N1", "N2"])
+        self.assertEqual(briefs_with_fill[0]["source_kind"], "format")
+
+    def test_rank_resorts_backfilled_briefs_so_none_sits_below_a_lower_score(self) -> None:
+        # Two niche briefs (scores 9, 1), three format briefs (8, 7, 6),
+        # max_format_briefs=2, n=5. The walk takes N-high (9), F-high (8,
+        # under the cap), F-mid (7, under the cap), N-low (1, niche is
+        # always taken), then sets F-low (6) aside because the cap is
+        # full. That leaves 4 taken for n=5, so F-low backfills the last
+        # slot -- appended after N-low, out of score order. Without the
+        # re-sort the ids would read 9, 8, 7, 1, 6; with it, a backfilled
+        # brief never sits below a lower-scoring one, so the final order
+        # is strictly by score: 9, 8, 7, 6, 1 (design spec, "Stage 2 --
+        # direct": "then re-sort the taken briefs by brief_score ...").
+        with temp_project() as project_dir:
+            run_dir = store.init_run(project_dir, _cfg(), "mock")
+            specs = [
+                ("N9", "niche", 9.0),
+                ("N1", "niche", 1.0),
+                ("F8", "format", 8.0),
+                ("F7", "format", 7.0),
+                ("F6", "format", 6.0),
+            ]
+            reels = [
+                _scored_reel(code, viral_proof=score, outlier_ratio=score, source_kind=kind)
+                for code, kind, score in specs
+            ]
+            analyses = {code: self._analysis(code) for code, _kind, _score in specs}
+
+            briefs = director.rank_briefs(analyses, reels, 5, run_dir, max_format_briefs=2)
+
+        self.assertEqual(
+            [b["shortCode"] for b in briefs], ["N9", "F8", "F7", "F6", "N1"]
+        )
+        self.assertEqual(
+            [b["brief_id"] for b in briefs], ["B01", "B02", "B03", "B04", "B05"]
+        )
 
 
 # ---------------------------------------------------------------------------
