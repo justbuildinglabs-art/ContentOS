@@ -145,6 +145,73 @@ class LoadEnvFileTests(NoNetworkTestCase):
         )
 
 
+    def test_env_file_parsing_strips_a_leading_export(self) -> None:
+        # `export KEY=value` is how a founder who pasted the line from
+        # their shell profile would have written it.
+        with temp_project() as project_dir:
+            env_path = project_dir / ".contentos" / ".env"
+            _write_env_file(
+                env_path,
+                "export APIFY_API_TOKEN=exported_token\n"
+                'export QUOTED="quoted value"\n'
+                "export    SPACED=spaced\n"
+                "exportable=not-an-export\n",
+            )
+
+            values = load_env_file(env_path)
+
+        self.assertEqual(
+            values,
+            {
+                "APIFY_API_TOKEN": "exported_token",
+                "QUOTED": "quoted value",
+                "SPACED": "spaced",
+                "exportable": "not-an-export",
+            },
+        )
+
+    def test_exported_token_resolves_as_project_env(self) -> None:
+        with temp_project() as project_dir:
+            _write_env_file(
+                project_dir / ".contentos" / ".env",
+                "export APIFY_API_TOKEN=exported_token\n",
+            )
+
+            keys = resolve_keys(project_dir, {"CONTENTOS_CONFIG_DIR": ""})
+
+        self.assertEqual(keys.apify, "exported_token")
+        self.assertEqual(keys.source, "project_env")
+
+    def test_unreadable_env_file_is_ignored_with_a_warning(self) -> None:
+        # A .env that is not UTF-8 text, or that cannot be opened at all,
+        # must never take the whole CLI down with a traceback.
+        with temp_project() as project_dir:
+            env_path = project_dir / ".contentos" / ".env"
+            env_path.parent.mkdir(parents=True, exist_ok=True)
+            env_path.write_bytes(b"APIFY_API_TOKEN=\xff\xfe\x00binary\n")
+            os.chmod(env_path, 0o600)
+
+            self.assertEqual(load_env_file(env_path), {})
+
+            keys = resolve_keys(project_dir, {"CONTENTOS_CONFIG_DIR": ""})
+
+        self.assertIsNone(keys.apify)
+        self.assertIsNone(keys.source)
+        self.assertTrue(any("could not be read" in warning for warning in keys.warnings))
+
+    def test_env_file_that_is_a_directory_is_ignored_with_a_warning(self) -> None:
+        with temp_project() as project_dir:
+            env_path = project_dir / ".contentos" / ".env"
+            env_path.mkdir(parents=True)
+
+            self.assertEqual(load_env_file(env_path), {})
+
+            keys = resolve_keys(project_dir, {"CONTENTOS_CONFIG_DIR": ""})
+
+        self.assertIsNone(keys.apify)
+        self.assertTrue(any("could not be read" in warning for warning in keys.warnings))
+
+
 class CheckFilePermissionsTests(NoNetworkTestCase):
     def test_warns_when_env_file_not_600(self) -> None:
         with temp_project() as project_dir:

@@ -353,27 +353,28 @@ def render_product_md(
     return "\n\n".join(blocks).rstrip() + "\n", todo
 
 
-def _config_for(config_path: Path, handles: List[str], force: bool) -> Dict[str, Any]:
+def _config_for(config_path: Path, handles: List[str]) -> Dict[str, Any]:
     """Build the `config.json` to write: defaults, or the tuned file kept.
 
     A founder who raised `apify_max_charge_usd`, dropped `briefs` to 2,
     or moved `qa_pass_threshold` must not lose that because they re-ran
-    setup to change the competitor list. With `--force` over a
-    `config.json` that exists and parses as a JSON object, every key it
-    holds is kept, including keys ContentOS does not know about, and
-    only `competitors` is replaced. Anything else (no file yet, or a
+    setup to change the competitor list. Whenever `config.json` exists
+    and parses as a JSON object, every key it holds is kept, including
+    keys ContentOS does not know about, and only `competitors` is
+    replaced. This holds with or without `--force`: `--force` is about
+    overwriting `product.md`, and setup can reach this point without it
+    whenever `product.md` is absent. Anything else (no file yet, or a
     file that is not a readable JSON object) falls back to
     `store.DEFAULT_CONFIG` plus the handles.
     """
-    if force and config_path.exists():
-        try:
-            existing = store.read_json(config_path)
-        except (ValueError, OSError):
-            existing = None
-        if isinstance(existing, dict):
-            config = copy.deepcopy(existing)
-            config["competitors"] = handles
-            return config
+    try:
+        existing = store.read_json(config_path)
+    except (ValueError, OSError):
+        existing = None
+    if isinstance(existing, dict):
+        config = copy.deepcopy(existing)
+        config["competitors"] = handles
+        return config
 
     config = copy.deepcopy(store.DEFAULT_CONFIG)
     config["competitors"] = handles
@@ -394,11 +395,11 @@ def run_setup(
     until every one of those has passed, so a refused setup leaves the
     project exactly as it found it.
 
-    `force` rewrites `product.md`, and rewrites `config.json` keeping
+    `force` rewrites `product.md`. It never rewrites `rules.md`: those
+    lines are the founder's own corrections, and re-running setup must
+    not throw them away. `config.json` is rewritten either way, keeping
     every setting the founder had tuned and replacing only
-    `competitors` (see `_config_for`). It never rewrites `rules.md`:
-    those lines are the founder's own corrections, and re-running setup
-    must not throw them away.
+    `competitors` (see `_config_for`).
 
     Returns `{project, product_md, config_json, rules_md, gitignore,
     competitors, todo_sections}`.
@@ -434,7 +435,7 @@ def run_setup(
     store.ensure_gitignore(project)
     product_path.write_text(product_text, encoding="utf-8")
 
-    store.write_json_atomic(config_path, _config_for(config_path, handles, force))
+    store.write_json_atomic(config_path, _config_for(config_path, handles))
 
     if not rules_path.exists():
         rules_path.write_text(RULES_COMMENT + "\n", encoding="utf-8")

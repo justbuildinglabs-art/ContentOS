@@ -26,20 +26,35 @@ class Keys:
     warnings: List[str]
 
 
-def load_env_file(path: Path) -> Dict[str, str]:
+def load_env_file(path: Path, warnings: Optional[List[str]] = None) -> Dict[str, str]:
     """Parse a simple `KEY=VALUE` env file into a dict.
 
-    Blank lines and lines starting with `#` are skipped. A value's
-    matching surrounding quotes (single or double) are stripped. Keys
-    whose value is empty (after quote-stripping) are dropped entirely
-    rather than kept as "".
+    Blank lines and lines starting with `#` are skipped. A leading
+    `export ` is stripped first, since that is how the line reads when a
+    founder copies it out of their shell profile. A value's matching
+    surrounding quotes (single or double) are stripped. Keys whose value
+    is empty (after quote-stripping) are dropped entirely rather than
+    kept as "".
+
+    A file that cannot be read at all -- not valid UTF-8, a directory in
+    the file's place, permissions -- yields `{}` plus one line appended
+    to `warnings` when a list was passed. Key resolution has three other
+    sources to fall back on, so an unreadable `.env` is never a reason
+    to end the whole command in a traceback.
     """
     values: Dict[str, str] = {}
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        if warnings is not None:
+            warnings.append(f"{path} could not be read and was ignored: {exc}")
+        return values
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
         key, sep, value = line.partition("=")
         if not sep:
             continue
@@ -91,7 +106,10 @@ def resolve_keys(project_dir: Path, environ: Mapping[str, str] = os.environ) -> 
     `.env`. An empty string at any source falls through to the next one.
     File-permission warnings are collected for every env file that
     exists (project and global), whether or not it holds the key, and
-    independent of which source ultimately wins.
+    independent of which source ultimately wins. An env file that
+    cannot be read adds its own warning and is otherwise skipped
+    (`load_env_file`), so a corrupt `.env` never stops the later
+    sources from being tried.
     """
     warnings: List[str] = []
     apify: Optional[str] = None
@@ -110,7 +128,7 @@ def resolve_keys(project_dir: Path, environ: Mapping[str, str] = os.environ) -> 
         warning = check_file_permissions(project_env_path)
         if warning:
             warnings.append(warning)
-        project_values = load_env_file(project_env_path)
+        project_values = load_env_file(project_env_path, warnings)
         if apify is None and project_values.get(KEY_NAME):
             apify = project_values[KEY_NAME]
             source = "project_env"
@@ -122,7 +140,7 @@ def resolve_keys(project_dir: Path, environ: Mapping[str, str] = os.environ) -> 
             warning = check_file_permissions(global_env_path)
             if warning:
                 warnings.append(warning)
-            global_values = load_env_file(global_env_path)
+            global_values = load_env_file(global_env_path, warnings)
             if apify is None and global_values.get(KEY_NAME):
                 apify = global_values[KEY_NAME]
                 source = "global_env"

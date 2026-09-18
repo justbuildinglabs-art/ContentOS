@@ -49,6 +49,37 @@ _NUMERIC_CONFIG_KEYS = tuple(
     if isinstance(default, (int, float)) and not isinstance(default, bool)
 )
 
+# The subset of _NUMERIC_CONFIG_KEYS that must be whole numbers. Each of
+# these is a count of things, and ends up as a list slice bound, a
+# `range()` argument, or a batch size: `top_k_videos`/`backfill_pool`
+# (lib/outliers.py), `frames_per_reel` (lib/frames.py), `briefs`
+# (lib/director.py), `reels_per_account` and `min_reels_for_median`
+# (the scrape size and the baseline minimum), `max_per_account`,
+# `parallel_agents`, and the two polling numbers. A float there is
+# either an outright TypeError or, worse, a silently truncated answer.
+#
+# Everything else stays int-or-float, because each one is a measurement
+# a founder could reasonably want a fraction of: thresholds
+# (`outlier_threshold`, `qa_pass_threshold`, `length_tolerance`), money
+# (`apify_max_charge_usd`), and sizes/limits (`min_plays`,
+# `small_account_followers`, `max_video_mb`, `max_video_seconds`,
+# `frame_long_edge_px`, `baseline_lookback_days`). None of those indexes
+# anything; the two that reach an int-shaped API (`frame_long_edge_px`
+# in an ffmpeg filter string, `baseline_lookback_days` in Apify's
+# "<n> days") are formatted into text, which a float survives.
+_INT_CONFIG_KEYS = (
+    "reels_per_account",
+    "min_reels_for_median",
+    "top_k_videos",
+    "backfill_pool",
+    "max_per_account",
+    "frames_per_reel",
+    "briefs",
+    "parallel_agents",
+    "apify_timeout_s",
+    "poll_interval_s",
+)
+
 _GITIGNORE_LINES = (
     ".env",
     "runs/*/videos/",
@@ -118,6 +149,8 @@ def _validate_config(config: Dict[str, Any]) -> None:
         )
         if not is_positive_number:
             raise ConfigError(f"{key} must be a number greater than 0")
+        if key in _INT_CONFIG_KEYS and not isinstance(value, int):
+            raise ConfigError(f"{key} must be a whole number greater than 0")
 
     if not 1 <= config["qa_pass_threshold"] <= 10:
         raise ConfigError("qa_pass_threshold must be between 1 and 10")
@@ -134,8 +167,12 @@ def load_config(project: Path) -> Dict[str, Any]:
 
     Keys the file omits fall back to DEFAULT_CONFIG; keys the file has
     that DEFAULT_CONFIG does not know about are preserved as-is. Raises
-    ConfigError when the file is missing, is not valid JSON, is not a
-    JSON object, or fails validation.
+    ConfigError when the file is missing, cannot be read (not UTF-8
+    text, a directory in its place, permissions), is not valid JSON, is
+    not a JSON object, or fails validation. Every one of those is the
+    same thing from the founder's side -- the config is not usable --
+    and every caller already handles ConfigError, so none of them
+    should end in a traceback.
     """
     config_path = contentos_dir(project) / "config.json"
     if not config_path.exists():
@@ -143,7 +180,9 @@ def load_config(project: Path) -> Dict[str, Any]:
 
     try:
         overrides = json.loads(config_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except (OSError, ValueError) as exc:
+        # ValueError covers both json.JSONDecodeError and
+        # UnicodeDecodeError, which are both subclasses of it.
         raise ConfigError(f"invalid .contentos/config.json: {exc}") from exc
 
     if not isinstance(overrides, dict):

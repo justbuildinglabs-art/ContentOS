@@ -305,6 +305,42 @@ class SetupTests(NoNetworkTestCase):
                 json.loads(config_path.read_text(encoding="utf-8")), expected
             )
 
+    def test_setup_without_force_also_preserves_a_tuned_config(self) -> None:
+        # Setup only refuses without --force when product.md exists. With
+        # no product.md (a founder who deleted it, or who ran `setup`
+        # after hand-writing a config) the run goes ahead, and it must
+        # still not reset settings the founder tuned.
+        with temp_project() as project:
+            answers_file = _write_answers(project, FULL_ANSWERS)
+            code, _out, err = _main(
+                ["setup", "--project", str(project), "--answers-file", str(answers_file)]
+            )
+            self.assertEqual(code, 0, err)
+
+            config_path = store.contentos_dir(project) / "config.json"
+            tuned = json.loads(config_path.read_text(encoding="utf-8"))
+            tuned["apify_max_charge_usd"] = 12.5
+            tuned["briefs"] = 2
+            tuned["qa_pass_threshold"] = 10
+            tuned["my_own_note"] = "keep me"
+            config_path.write_text(json.dumps(tuned), encoding="utf-8")
+
+            (store.contentos_dir(project) / "product.md").unlink()
+
+            new_answers = dict(FULL_ANSWERS, competitors=["@DailyWins", "ghostaccount"])
+            new_file = _write_answers(project, new_answers)
+            code, _out, err = _main(
+                ["setup", "--project", str(project), "--answers-file", str(new_file)]
+            )
+
+            self.assertEqual(code, 0, err)
+            after = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(after["competitors"], ["dailywins", "ghostaccount"])
+            self.assertEqual(after["apify_max_charge_usd"], 12.5)
+            self.assertEqual(after["briefs"], 2)
+            self.assertEqual(after["qa_pass_threshold"], 10)
+            self.assertEqual(after["my_own_note"], "keep me")
+
     def test_setup_rejects_non_instagram_urls_and_handles_with_spaces(self) -> None:
         # Anything that is not an instagram.com URL or a bare handle is a
         # typo, not a competitor. Refuse it by name and write nothing,

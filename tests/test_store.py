@@ -137,6 +137,76 @@ class LoadConfigTests(NoNetworkTestCase):
                         load_config(project_dir)
 
 
+    def test_load_config_raises_config_error_on_an_unreadable_file(self) -> None:
+        # A config.json that is not UTF-8 text, or that is a directory in
+        # the file's place, is an invalid config, not a traceback.
+        with temp_project() as project_dir:
+            config_path = contentos_dir(project_dir) / "config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_bytes(b'{"competitors": ["\xff\xfe"]}')
+
+            with self.assertRaises(ConfigError) as ctx:
+                load_config(project_dir)
+
+            self.assertIn("config.json", str(ctx.exception))
+
+        with temp_project() as project_dir:
+            config_path = contentos_dir(project_dir) / "config.json"
+            config_path.mkdir(parents=True)
+
+            with self.assertRaises(ConfigError):
+                load_config(project_dir)
+
+    def test_load_config_rejects_a_fractional_count(self) -> None:
+        # These keys end up as slice bounds, range() arguments, and
+        # counts of things (outliers.py's top_k_videos/backfill_pool,
+        # frames.py's frames_per_reel, direct.py's briefs), where a float
+        # is either a TypeError or a silently wrong answer.
+        for key in (
+            "reels_per_account",
+            "min_reels_for_median",
+            "top_k_videos",
+            "backfill_pool",
+            "max_per_account",
+            "frames_per_reel",
+            "briefs",
+            "parallel_agents",
+            "apify_timeout_s",
+            "poll_interval_s",
+        ):
+            for bad in (3.0, 2.5):
+                with self.subTest(key=key, value=bad):
+                    with temp_project() as project_dir:
+                        _write_config(project_dir, {"competitors": ["acme"], key: bad})
+
+                        with self.assertRaises(ConfigError) as ctx:
+                            load_config(project_dir)
+
+                        self.assertIn(key, str(ctx.exception))
+
+    def test_load_config_still_accepts_a_float_for_a_measurement_key(self) -> None:
+        # These are thresholds and limits, not counts, so a float is a
+        # legitimate value a founder might tune to.
+        with temp_project() as project_dir:
+            _write_config(
+                project_dir,
+                {
+                    "competitors": ["acme"],
+                    "outlier_threshold": 3.5,
+                    "apify_max_charge_usd": 2.5,
+                    "max_video_mb": 40.5,
+                    "length_tolerance": 0.15,
+                },
+            )
+
+            cfg = load_config(project_dir)
+
+        self.assertEqual(cfg["outlier_threshold"], 3.5)
+        self.assertEqual(cfg["apify_max_charge_usd"], 2.5)
+        self.assertEqual(cfg["max_video_mb"], 40.5)
+        self.assertEqual(cfg["length_tolerance"], 0.15)
+
+
 class ResolveRunTests(NoNetworkTestCase):
     def test_resolve_latest_picks_newest_and_unknown_raises(self) -> None:
         with temp_project() as project_dir:
