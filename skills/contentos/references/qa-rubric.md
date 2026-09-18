@@ -52,8 +52,9 @@ loop. Fail when one is missing, over length, or when both are the same ask rewor
 
 ### brand_voice
 Pass when the script obeys the Brand voice section of `product.md`: the three adjectives it should be, the
-three it should not, the sentence rules, and the word lists. Fail on any off-limits word. Use na when the
-founder has not filled in the Brand voice section.
+three it should not, the sentence rules, and the word lists. Fail on any off-limits word, and on any
+founder rule the script breaks. Use na when the founder has not filled in the Brand voice section and the
+prompt carries no founder rules.
 
 ### ai_tells
 Pass when sentence length varies, contractions appear where speech would use them, numbers are textured or
@@ -166,7 +167,9 @@ transition, or the music.
 
 Then run the three-part version. Could the viewer name the product, say why it beats what they use now,
 and repeat the next step. If any of the three is missing, the body has a structural problem, not a wording
-problem. Return `revise` and say the beats need rebuilding rather than a line edit.
+problem. Score `body_argument_clarity` no higher than 4 and add an issue against it, `major`, saying the
+beats need rebuilding rather than a line edit. The verdict then follows the verdict rules like every other
+finding: a score under the threshold is a `revise`.
 
 ## Spoken flow and cringe (spoken_flow_issues, cringe_flags)
 

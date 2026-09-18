@@ -115,7 +115,7 @@ can read.
 | --- | --- | --- | --- |
 | `/contentos setup` | the setup flow below, ending in `contentos.py setup --answers-file <file>` | the new `product.md` and the headings still marked TODO | offer `/contentos run` |
 | `/contentos run` | the run flow below, all four stages | the estimate, the brief list, then the final message | nothing, the run is done |
-| `/contentos research` | `contentos.py research --estimate-only`, then `contentos.py research --yes` | the per-account table and the `RESULT` line, in plain words | offer `/contentos direct` |
+| `/contentos research` | `contentos.py research --estimate-only`, show the estimate and wait for a yes, then `contentos.py research --yes` | the per-account table and the `RESULT` line, in plain words | offer `/contentos direct` |
 | `/contentos direct` | the director loop, the synthesis, then `contentos.py rank --run <run_id>` | the ranked briefs from `briefs.md` | offer `/contentos write` |
 | `/contentos write [B01 B02]` | the writer loop for the named briefs, or ask which | each script path and its word count | offer `/contentos qa` |
 | `/contentos qa [B01]` | the QA loop for the named briefs, or every brief with a script | each verdict and its issues | `contentos.py report --run <run_id>` |
@@ -372,6 +372,11 @@ type specific ids such as `B02 B05` through Other.
 With `--auto`, skip the question and take the top `briefs` from
 `.contentos/config.json` (default 5).
 
+`rank` already cuts the list to `briefs` before it writes `briefs.md`, so `All
+<n> briefs` never offers more than that, and `--auto` takes all of them. To
+choose from a longer list, raise `briefs` in `.contentos/config.json` and run
+`rank` again.
+
 ## Offering a rule
 
 When the founder corrects something you produced, such as a word they hate, a
@@ -394,9 +399,17 @@ Every command returns one of these. Exit 0 is the only success.
 | 2 | usage: bad arguments, no such run, a missing file | name the file or run that is missing | `contentos.py diagnose --project "$PWD"`, or `/contentos setup` when there is no `.contentos/` |
 | 3 | confirmation required, the estimate was printed | the estimate in one line, then ask | re-run the same command with `--yes` |
 | 4 | no Apify key resolved and not `--mock` | the four key locations from Step 1 | set the key, or re-run with `--mock` |
-| 5 | upstream failure: an Apify run or fetch failed | Apify failed, the run id is saved, nothing is lost | `contentos.py research --project "$PWD" --yes --resume <run_id>` |
+| 5 | upstream failure: an Apify run or fetch failed | Apify failed, the run id is saved, nothing is lost | read the message first: see below |
 | 6 | cost cap: the estimate is over `apify_max_charge_usd` | the estimate and the cap | cut `competitors` or `reels_per_account`, or raise the cap in `.contentos/config.json` |
 | 7 | verification failed: a subagent's file did not pass | only after the second try, and name the brief or reel | re-dispatch once with the problems appended, then move on |
+
+On exit 5, read the message before you act:
+
+- It names a timeout or a network error. The Apify run may still be alive.
+  Resume it:
+  `python3 "$CONTENTOS_ROOT/scripts/contentos.py" research --project "$PWD" --yes --resume <run_id>`
+- It says the Apify run ended FAILED or ABORTED. That run is dead and resuming
+  only polls it forever. Start a new research run instead, and say why.
 
 Two more worth knowing:
 

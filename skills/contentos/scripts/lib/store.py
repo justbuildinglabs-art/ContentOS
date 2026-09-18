@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -100,6 +101,13 @@ _MAX_RUN_ID_SUFFIX = 99
 # run.json fields that update_run merges one level deep instead of
 # replacing outright.
 _MERGE_KEYS = ("stages", "costs", "apify_runs")
+
+# What a run directory's name looks like: `new_run_id`'s
+# "%Y%m%d-%H%M%S", plus `init_run`'s optional two-digit collision
+# suffix. `resolve_run` uses it to pick "latest" only among real runs,
+# so a stray directory somebody dropped in `runs/` is never handed back
+# as if it were one.
+_RUN_ID_RE = re.compile(r"^\d{8}-\d{6}(-\d{2})?$")
 
 
 class ConfigError(Exception):
@@ -204,24 +212,38 @@ def new_run_id(now: Optional[datetime] = None) -> str:
 def resolve_run(project: Path, ref: str) -> Path:
     """Resolve a run reference (a run id, or "latest") to its directory.
 
-    "latest" is the lexically greatest directory name under `runs/`,
-    which is also the chronologically newest since run ids sort that
-    way. Any other ref must name an existing directory directly under
-    `runs/`. A missing or empty `runs/` directory, or an unresolvable
-    ref, all raise RunNotFound(ref).
+    "latest" is the lexically greatest run-id-shaped directory name
+    under `runs/`, which is also the chronologically newest since run
+    ids sort that way (`_RUN_ID_RE`). Directories whose names are not
+    run ids are ignored, so a stray folder in `runs/` is never returned
+    as the latest run.
+
+    Any other ref must be a plain directory name -- no path separator,
+    no `..`, not absolute -- that exists directly under `runs/`. A run
+    ref arrives straight off the command line, so anything that could
+    walk out of `runs/` is refused rather than resolved. A missing or
+    empty `runs/` directory, or an unresolvable ref, all raise
+    RunNotFound(ref).
     """
     base = runs_dir(project)
 
     if ref == "latest":
         if not base.is_dir():
             raise RunNotFound(ref)
-        names = sorted(entry.name for entry in base.iterdir() if entry.is_dir())
+        names = sorted(
+            entry.name
+            for entry in base.iterdir()
+            if entry.is_dir() and _RUN_ID_RE.match(entry.name)
+        )
         if not names:
             raise RunNotFound(ref)
         return base / names[-1]
 
-    candidate = base / ref if ref else None
-    if candidate is None or not candidate.is_dir():
+    if not ref or ref in (".", "..") or Path(ref).name != ref:
+        raise RunNotFound(ref)
+
+    candidate = base / ref
+    if not candidate.is_dir():
         raise RunNotFound(ref)
     return candidate
 

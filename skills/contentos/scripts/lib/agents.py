@@ -235,6 +235,22 @@ def _product_md(project: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _example_for(project: Path, references_dir: Path, fmt: Any) -> Optional[Path]:
+    """The gold example script for `fmt`, or None when neither copy exists.
+
+    The founder's own `<project>/.contentos/examples/<format>.md` wins.
+    The plugin's `references/examples/` directory is replaced wholesale
+    on every plugin update, so a gold script kept there would not
+    survive one; a founder's best script has to live in their project.
+    The plugin's shipped example is the fallback.
+    """
+    project_example = Path(project) / ".contentos" / "examples" / f"{fmt}.md"
+    if project_example.is_file():
+        return project_example
+    shipped = Path(references_dir) / "examples" / f"{fmt}.md"
+    return shipped if shipped.is_file() else None
+
+
 def write_prompt(
     project: Path,
     run_dir: Path,
@@ -249,8 +265,10 @@ def write_prompt(
     `03-briefs.json` or the founder has no `product.md`. Sections, in
     order: a HANDOFF block, `## Inputs` (absolute paths to the brief,
     the analysis, the frames directory, `03-patterns.md` when it
-    exists, `product.md`, and the reference files, including
-    `examples/<format>.md` when present), `## Founder rules` (only when
+    exists, `product.md`, and the reference files, including the gold
+    example for this format when there is one -- the founder's own
+    `<project>/.contentos/examples/<format>.md` first, else the
+    plugin's `examples/<format>.md`), `## Founder rules` (only when
     `store.read_rules` is non-empty), `## Budget` (target length, word
     budget, the counting rule, the tolerance), `## Revision` (only on
     `revision >= 1`: the prior script and QA paths, fix-only-what-QA-
@@ -273,7 +291,7 @@ def write_prompt(
     tolerance = cfg["length_tolerance"]
 
     patterns_path = run_dir / "03-patterns.md"
-    example_path = references_dir / "examples" / f"{fmt}.md"
+    example_path = _example_for(project, references_dir, fmt)
     rules_text = store.read_rules(project)
     output_path = script_path(run_dir, brief_id, revision)
 
@@ -291,7 +309,7 @@ def write_prompt(
     lines.append(f"- {(references_dir / 'hooks.md').resolve()}")
     lines.append(f"- {(references_dir / 'formats.md').resolve()}")
     lines.append(f"- {(references_dir / 'scripting.md').resolve()}")
-    if example_path.exists():
+    if example_path is not None:
         lines.append(f"- {example_path.resolve()}")
     lines.append("")
 

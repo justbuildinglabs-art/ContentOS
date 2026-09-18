@@ -234,6 +234,50 @@ class WritePromptTests(NoNetworkTestCase):
             self.assertIn("WROTE <path>", prompt)
             self.assertIn("FAILED <reason>", prompt)
 
+
+    def test_write_prompt_prefers_a_project_example_over_the_shipped_one(self) -> None:
+        # The plugin's references/ directory is replaced wholesale on
+        # update, so a founder's gold script has to live in their own
+        # project to survive.
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research_and_rank(project)
+            self.assertEqual(_brief(run_dir, "B01")["format"], "screen_demo")
+
+            shipped = REFERENCES_DIR / "examples" / "screen_demo.md"
+            self.assertTrue(shipped.exists())
+
+            project_example = project / ".contentos" / "examples" / "screen_demo.md"
+            project_example.parent.mkdir(parents=True, exist_ok=True)
+            project_example.write_text("# my own gold script\n", encoding="utf-8")
+
+            prompt = agents.write_prompt(
+                project, run_dir, "B01", revision=0, references_dir=REFERENCES_DIR
+            )
+
+            self.assertIn(str(project_example.resolve()), prompt)
+            self.assertNotIn(str(shipped.resolve()), prompt)
+
+    def test_write_prompt_falls_back_to_the_shipped_example(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research_and_rank(project)
+
+            # A project examples/ directory that has no file for this
+            # format falls through to the plugin's own example.
+            (project / ".contentos" / "examples").mkdir(parents=True, exist_ok=True)
+            (project / ".contentos" / "examples" / "talking_head.md").write_text(
+                "# a different format\n", encoding="utf-8"
+            )
+
+            prompt = agents.write_prompt(
+                project, run_dir, "B01", revision=0, references_dir=REFERENCES_DIR
+            )
+
+            self.assertIn(
+                str((REFERENCES_DIR / "examples" / "screen_demo.md").resolve()), prompt
+            )
+
     def test_write_prompt_includes_rules_only_when_nonempty(self) -> None:
         with temp_project() as project:
             _write_project(project)

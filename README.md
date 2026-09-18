@@ -105,6 +105,7 @@ Your state lives in your own project, never in the plugin:
 ├── rules.md              # your corrections, one per line
 ├── config.json           # competitors, thresholds, cost cap, QA threshold
 ├── .env                  # optional Apify key, chmod 600
+├── examples/<format>.md  # optional, your own gold script per format
 └── runs/<YYYYMMDD-HHMMSS>/
     ├── run.json  01-reels.json  01-profiles.json  02-outliers.json
     ├── videos/  frames/         # gitignored, they get large
@@ -132,11 +133,13 @@ word is wrong, or that you never want a certain hook, it offers to add the line
 here. Every later writer and reviewer prompt carries those lines as binding
 style rules, so a correction you make once does not come back.
 
-**`skills/contentos/references/examples/`.** One gold script per format. The
-writer reads the example that matches the brief's format and imitates its shape.
-ContentOS ships two, `talking_head` and `screen_demo`. Add your own best script
-as `<format>.md` in the same shape and every later script in that format follows
-it.
+**`.contentos/examples/`.** One gold script per format. The writer reads the
+example that matches the brief's format and imitates its shape. ContentOS ships
+two of its own, `talking_head` and `screen_demo`. Add your own best script as
+`.contentos/examples/<format>.md` in the same shape and every later script in
+that format follows yours instead. Keep it in your project, not in the plugin:
+the plugin's own `references/examples/` is replaced every time the plugin
+updates, so anything you put there is lost.
 
 Between them, the second run is better than the first, and the tenth is better
 than the second.

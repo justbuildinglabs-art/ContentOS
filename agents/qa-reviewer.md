@@ -53,7 +53,9 @@ If a listed reference file does not exist, review without it and say so in
 When the prompt has founder rules, they are binding style rules. They are
 corrections the founder made to earlier output. A script that follows one must
 not fail `brand_voice` or `ai_tells` for following it. A script that breaks one
-gets a `major` issue that names the rule it broke.
+fails `brand_voice` and gets a `major` issue against `brand_voice` that names
+the rule it broke. Every issue has to point at a check or a score that actually
+came back bad, so a broken rule cannot be a `major` issue on its own.
 
 ## The eleven checks
 

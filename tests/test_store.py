@@ -226,6 +226,65 @@ class ResolveRunTests(NoNetworkTestCase):
             with self.assertRaises(RunNotFound):
                 resolve_run(project_dir, "does-not-exist")
 
+    def test_resolve_run_rejects_path_traversal_and_absolute_refs(self) -> None:
+        # A run ref reaches resolve_run straight off the command line, so
+        # it must never be able to point outside runs/.
+        with temp_project() as project_dir:
+            run_dir(project_dir, "20260101-000000").mkdir(parents=True)
+            outside = project_dir / "outside"
+            outside.mkdir()
+
+            bad_refs = [
+                "..",
+                "../..",
+                "../../..",
+                "20260101-000000/..",
+                "20260101-000000/../20260101-000000",
+                "./20260101-000000",
+                "../outside",
+                str(outside),
+                str(run_dir(project_dir, "20260101-000000")),
+                "/",
+                "/tmp",
+                ".",
+            ]
+            for ref in bad_refs:
+                with self.subTest(ref=ref):
+                    with self.assertRaises(RunNotFound):
+                        resolve_run(project_dir, ref)
+
+            # The plain run id still resolves.
+            self.assertEqual(
+                resolve_run(project_dir, "20260101-000000"),
+                run_dir(project_dir, "20260101-000000"),
+            )
+
+    def test_resolve_latest_skips_directories_that_are_not_runs(self) -> None:
+        # runs/ can pick up a stray directory: an editor's backup folder,
+        # a half-copied run, anything the founder dropped in. "latest"
+        # must not hand one of those back as if it were a run.
+        with temp_project() as project_dir:
+            for name in (
+                "20260101-000000",
+                "20260501-000000-02",
+                "zzz-scratch",
+                "tmp",
+                "20260501",
+                "20260501-000000-2",
+            ):
+                run_dir(project_dir, name).mkdir(parents=True)
+
+            self.assertEqual(
+                resolve_run(project_dir, "latest"),
+                run_dir(project_dir, "20260501-000000-02"),
+            )
+
+        with temp_project() as project_dir:
+            run_dir(project_dir, "zzz-scratch").mkdir(parents=True)
+
+            with self.assertRaises(RunNotFound):
+                resolve_run(project_dir, "latest")
+
     def test_resolve_run_missing_runs_dir_raises(self) -> None:
         # Resolution: "A missing runs/ directory also raises RunNotFound."
         with temp_project() as project_dir:
