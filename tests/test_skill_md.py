@@ -367,6 +367,22 @@ class SkillBodyTests(NoNetworkTestCase):
         self.assertIn("`creator.md`", body)
         self.assertIn("--force", body)
 
+    def test_skill_brief_choice_matches_what_rank_really_does(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        section = _collapse(body.split("## Choosing briefs", 1)[1])
+
+        # Both source kinds, and the cap by its config key.
+        for phrase in ("niche", "format", "`max_format_briefs`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+
+        # `rank_briefs` fills the remaining slots from the format briefs
+        # it set aside whenever the niche briefs ran short, so the cap is
+        # not a promise about the finished list. The file has to say so:
+        # everything Claude tells the creator comes from the run dir.
+        self.assertIn("unless too few niche reels survived analysis", section)
+        self.assertIn("fills the remaining slots from the format briefs", section)
+
     def test_skill_preflight_checks_creator_md(self) -> None:
         body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
 

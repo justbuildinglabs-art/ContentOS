@@ -377,8 +377,11 @@ the id, the title, the format, the hook type, and the brief score. Each brief
 also names its source kind, `niche` or `format`. A niche brief comes from an
 account in their own niche and is scored on topic fit. A format brief comes
 from a format account in another niche and is scored on how cleanly the
-mechanism transfers. At most `max_format_briefs` of the ranked briefs come from
-format accounts, 2 by default, so most of the list is always their own niche.
+mechanism transfers. At most `max_format_briefs` of the ranked briefs (2 by
+default) come from format accounts, unless too few niche reels survived analysis
+to fill the list. Then `rank` fills the remaining slots from the format briefs
+it had set aside, best score first, and the list can be mostly or entirely
+format briefs. Read each brief's source line rather than assuming the split.
 Then ask with AskUserQuestion, options `All <n> briefs`, `Top 3`, `Top 1`, and
 let them type specific ids such as `B02 B05` through Other.
 
