@@ -1,14 +1,15 @@
 # ContentOS
 
-ContentOS is a Claude Code plugin for app founders. It turns competitor
-Instagram Reels into Reel scripts for your own app, in four stages. **Research**
-scrapes the accounts you name, works out each one's normal reach, and picks the
-posts that beat it. **Direct** looks at the keyframes of each winner and writes
-down why it worked and the part you can reuse, then ranks the ideas into briefs.
-**Write** turns the briefs you pick into full scripts: two hooks, a beats table
-with visual cues, a demo moment, two CTAs, and a caption. **QA** reviews each
-script against your own product facts and a scoring rubric, sends one revision
-back to the writer when it needs one, and flags anything that needs you.
+ContentOS is a Claude Code plugin for creators. It takes the Instagram Reels
+that outperformed in your niche, and in any niche, and turns them into scripts
+in your voice, in four stages. **Research** scrapes the accounts you name, works
+out each one's normal reach, and picks the posts that beat it. **Direct** looks
+at the keyframes of each winner and writes down why it worked and the part you
+can reuse, then ranks the ideas into briefs. **Write** turns the briefs you pick
+into full scripts: two hooks, a beats table with visual cues, a payoff, two
+CTAs, and a caption. **QA** reviews each script against your own creator profile
+and a scoring rubric, sends one revision back to the writer when it needs one,
+and flags anything that needs you.
 
 Everything runs on your machine. You type `/contentos run` and read the report.
 
@@ -60,10 +61,12 @@ In your project directory:
 /contentos setup
 ```
 
-Claude asks about your product, your audience, your claims, your voice, and the
-three to eight competitor accounts to research. It writes `.contentos/product.md`
-and leaves the deeper sections marked TODO for you to fill in by hand. Those
-sections are what make the scripts sound like you, so they are worth an hour.
+Claude asks about you, your viewer, what you promote if anything, your claims,
+your voice, and the accounts to research: 3 to 8 handles in your niche, plus up
+to 5 accounts from any niche whose formats travel. It writes
+`.contentos/creator.md` and leaves the deeper sections marked TODO for you to
+fill in by hand. Those sections are what make the scripts sound like you, so
+they are worth an hour.
 
 ```
 /contentos run
@@ -79,19 +82,66 @@ data:
 /contentos run --mock --auto
 ```
 
+## How a run looks
+
+Mara is invented, and so is everything she posts. She makes reels about AI
+coding tools for indie developers. Here is one pass through the pipeline.
+
+She runs `/contentos setup` once and answers: who she is and what she makes,
+one sentence a stranger would get, her 3 to 5 pillars, who watches and their
+number one frustration in their own words, what she promotes (a free
+newsletter, with the objection "I already get too many"), the on-screen payoffs
+she can show (a terminal running a skill end to end, a before and after diff),
+what she may and may not claim, her voice, a default CTA, five handles in her
+niche, and three format accounts from other niches. That writes
+`.contentos/creator.md` and `.contentos/config.json`.
+
+`/contentos run` estimates the Apify cost for eight accounts. She confirms.
+Research scrapes the last 30 reels per account, works out each account's median
+plays, and flags the outliers by their ratio to that median. A reel at 9x its
+own account's median, from a dev creator with 12k followers, ranks above a big
+account's average reel. The top 20 outliers are downloaded and eight keyframes
+are pulled from each.
+
+The director looks at each outlier's frames, caption, and comments, and writes
+an analysis: hook type, format, why it worked, the transferable mechanism, how
+Mara would adapt it in her niche, and the obvious copy to avoid. Niche reels are
+scored on topic fit. Format reels are scored on how cleanly the mechanism
+transfers to one of her pillars. A synthesis pass writes `03-patterns.md`: the
+proven hooks across the set, the recurring formats, the saturated angles, and a
+language bank taken from the comments.
+
+Ranking writes `briefs.md`. B01 reads: source, a dev creator's "one command
+replaced my whole morning routine" screen demo at 11x baseline; adaptation, the
+same reveal structure with a coding-agent skill running end to end as the
+payoff; hypothesis, "If we ... using the ... hook, we expect above-baseline
+plays because ...". At most two of the five briefs come from format accounts.
+Mara picks three.
+
+For each brief the writer produces a shoot-ready script: two hooks under 25
+words that take different approaches, a beats table with visual cues and
+on-screen text, a payoff section naming the exact moment on screen, two CTAs
+(the newsletter ask that answers "too many already", and an open loop), a
+caption with hashtags, and production notes. QA scores it on the rubric, checks
+it is not a clone of the source, that every claim traces back to `creator.md`,
+and that the payoff is real. One revision round is allowed. `report.md` lists
+the scripts, their scores, and the `[NEED NUMBER]` placeholders Mara fills in
+with real figures.
+
 ## What a run costs
 
-About $0.84 of Apify credit for ten competitor accounts at the default 30 reels
-each, which is one scrape of the reels plus one of the profiles. Nothing else in
-ContentOS costs money. The estimate is printed before anything is spent, and a
-run stops on its own if the estimate goes over `apify_max_charge_usd` in your
-config.
+About $0.67 of Apify credit for eight accounts at the default 30 reels each,
+and about $0.84 for ten. Both are one scrape of the reels plus one of the
+profiles: accounts times reels times $0.0027, plus $0.0027 per account. Nothing
+else in ContentOS costs money. The estimate is printed before anything is
+spent, and a run stops on its own if the estimate goes over
+`apify_max_charge_usd` in your config.
 
 ## Commands
 
 | command | what it does |
 | --- | --- |
-| `/contentos setup` | Interview, then write `product.md`, `config.json`, and `rules.md` |
+| `/contentos setup` | Interview, then write `creator.md`, `config.json`, and `rules.md` |
 | `/contentos run` | All four stages, end to end. `--auto` skips the brief question, `--yes` skips the spend question, `--mock` uses fixtures |
 | `/contentos research` | Stage 1 only: scrape, score, select, download, keyframes |
 | `/contentos direct` | Stage 2 only: analyze each selected reel, find the patterns, rank the briefs |
@@ -106,9 +156,9 @@ Your state lives in your own project, never in the plugin:
 
 ```
 <your project>/.contentos/
-├── product.md            # your product facts, audience, voice, claims, CTA
+├── creator.md            # your profile: pillars, audience, voice, what you promote, payoff moments, claims, CTA, accounts
 ├── rules.md              # your corrections, one per line
-├── config.json           # competitors, thresholds, cost cap, QA threshold
+├── config.json           # niche accounts, format accounts, thresholds, cost cap, QA threshold
 ├── .env                  # optional Apify key, chmod 600
 ├── examples/<format>.md  # optional, your own gold script per format
 └── runs/<YYYYMMDD-HHMMSS>/
@@ -153,10 +203,10 @@ than the second.
 
 The scraped reels, the keyframes, the briefs, and the scripts all stay on your
 machine, under your own project directory. ContentOS uploads nothing. The one
-outside service it calls is Apify, and all Apify sees is the list of competitor
-handles you asked it to scrape. Claude reads your product facts and your run
-files the same way it reads any other file you open in Claude Code, and the
-three subagents that analyze, write, and review have no network access at all.
+outside service it calls is Apify, and all Apify sees is the list of handles you
+asked it to scrape. Claude reads your creator profile and your run files the
+same way it reads any other file you open in Claude Code, and the three
+subagents that analyze, write, and review have no network access at all.
 
 ## Credits
 
@@ -171,7 +221,7 @@ Ray Cfu:
 
 They are paraphrased as checklists in `skills/contentos/references/`, each file
 with a `Sources` footer naming what it drew on. The scoring formulas, the QA
-verdict rules, and the competitor outlier research are ContentOS decisions.
+verdict rules, and the outlier research are ContentOS decisions.
 
 ## Development
 
