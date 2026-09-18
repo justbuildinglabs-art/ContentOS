@@ -316,22 +316,23 @@ class SetupTests(NoNetworkTestCase):
                 _section(creator, setup_lib.FORMAT_ACCOUNTS_HEADING), "- ghostaccount"
             )
 
-        # format_accounts is optional: blank/missing gets an empty list in
-        # config.json, and the section reads as an ordinary unanswered
-        # list section (guidance plus TODO), the same as any other empty
-        # list section.
+        # format_accounts is optional, like the offer: blank/missing gets
+        # an empty list in config.json, and creator.md writes the
+        # no-format-accounts line instead of TODO, so the section is
+        # never counted as unanswered (design spec: "when empty, setup
+        # writes `None. Add accounts from any niche whose formats
+        # travel.` and the section does not count as TODO").
         with temp_project() as project:
-            answers_file = _write_answers(project, MINIMAL_ANSWERS)
-            code, _out, err = _main(
-                ["setup", "--project", str(project), "--answers-file", str(answers_file)]
-            )
-            self.assertEqual(code, 0, err)
+            result = setup_lib.run_setup(project, dict(MINIMAL_ANSWERS), REFERENCES_DIR)
+            self.assertNotIn(setup_lib.FORMAT_ACCOUNTS_HEADING, result["todo_sections"])
             config = store.load_config(project)
             self.assertEqual(config["format_accounts"], [])
             creator = (store.contentos_dir(project) / "creator.md").read_text(
                 encoding="utf-8"
             )
-            self.assertIn("TODO", _section(creator, setup_lib.FORMAT_ACCOUNTS_HEADING))
+            section = _section(creator, setup_lib.FORMAT_ACCOUNTS_HEADING)
+            self.assertIn(setup_lib.NO_FORMAT_ACCOUNTS_LINE, section)
+            self.assertNotIn("TODO", section)
 
     def test_setup_refuses_overwrite_without_force(self) -> None:
         with temp_project() as project:
@@ -585,20 +586,30 @@ class SetupTests(NoNetworkTestCase):
             )
 
             self.assertEqual(_headings(creator), _template_headings())
-            # Every section but Competitors and What you promote is
-            # unanswered, and each one keeps the template's guidance
-            # followed by the to-do line. What you promote is optional: a
-            # blank offer writes the no-offer line instead of TODO, and
-            # does not count as unanswered (see
-            # test_setup_blank_offer_writes_none_line_and_is_not_todo).
+            # Every section but Competitors, What you promote, and Format
+            # accounts is unanswered, and each one keeps the template's
+            # guidance followed by the to-do line. What you promote and
+            # Format accounts are both optional: a blank answer writes a
+            # "none" line instead of TODO, and neither counts as
+            # unanswered (see
+            # test_setup_blank_offer_writes_none_line_and_is_not_todo and
+            # test_setup_format_accounts_optional_normalized_and_deduped_against_competitors).
             for heading in _template_headings():
-                if heading in (setup_lib.COMPETITORS_HEADING, setup_lib.OFFER_HEADING):
+                if heading in (
+                    setup_lib.COMPETITORS_HEADING,
+                    setup_lib.OFFER_HEADING,
+                    setup_lib.FORMAT_ACCOUNTS_HEADING,
+                ):
                     continue
                 with self.subTest(heading=heading):
                     section = _section(creator, heading)
                     self.assertIn("TODO", section)
             self.assertEqual(
                 _section(creator, setup_lib.OFFER_HEADING), setup_lib.NO_OFFER_LINE
+            )
+            self.assertIn(
+                setup_lib.NO_FORMAT_ACCOUNTS_LINE,
+                _section(creator, setup_lib.FORMAT_ACCOUNTS_HEADING),
             )
             self.assertIn(
                 "One sentence that explains what you do to someone who has never "
@@ -670,7 +681,12 @@ class SetupTests(NoNetworkTestCase):
             expected = [
                 name
                 for name in _template_headings()
-                if name not in (setup_lib.COMPETITORS_HEADING, setup_lib.OFFER_HEADING)
+                if name
+                not in (
+                    setup_lib.COMPETITORS_HEADING,
+                    setup_lib.OFFER_HEADING,
+                    setup_lib.FORMAT_ACCOUNTS_HEADING,
+                )
             ]
             self.assertEqual(result["todo_sections"], expected)
             self.assertEqual(result["format_accounts"], [])

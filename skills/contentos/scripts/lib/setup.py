@@ -69,6 +69,12 @@ OFFER_HEADING = "What you promote"
 # never counted as unanswered.
 NO_OFFER_LINE = "None. Scripts end on a follow, comment, save, or share ask."
 
+# What `## Format accounts` reads when the creator lists none. Format
+# accounts are optional (design spec, "Reference files"), so a blank
+# answer here is a real answer too, not a gap: it does not count as
+# unanswered any more than a blank offer does.
+NO_FORMAT_ACCOUNTS_LINE = "None. Add accounts from any niche whose formats travel."
+
 # Sections whose answer is one sentence, rendered as a paragraph.
 TEXT_SECTIONS = {
     "Creator": "creator_name",
@@ -380,6 +386,8 @@ def _render_section(
             items = _answer_list(answers, LIST_SECTIONS[heading])
         if items:
             return ["## " + heading] + ["- " + item for item in items], True
+        if heading == FORMAT_ACCOUNTS_HEADING:
+            return ["## " + heading] + prose + ["", NO_FORMAT_ACCOUNTS_LINE], True
         return ["## " + heading] + prose + ["", TODO_LINE], False
 
     if heading in TEXT_SECTIONS:
