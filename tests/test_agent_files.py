@@ -42,13 +42,13 @@ QA_AGENT = AGENTS_DIR / "qa-reviewer.md"
 # both of the director's jobs, because one subagent definition serves
 # both the per-reel dispatch and the set-level synthesis dispatch.
 DIRECTOR_DESCRIPTION = (
-    "Analyzes one competitor Instagram Reel from keyframes and metadata and writes a "
+    "Analyzes one source Instagram Reel from keyframes and metadata and writes a "
     "ContentOS analysis JSON, or synthesizes patterns across analyses. "
     "Dispatched by /contentos; not for direct use."
 )
 
 # The writer's two jobs, first draft and revision, in one line. Both
-# descriptions end the same way as the director's, so a founder reading
+# descriptions end the same way as the director's, so a creator reading
 # `/agents` can tell at a glance that none of the three is theirs to
 # call directly.
 WRITER_DESCRIPTION = (
@@ -57,7 +57,7 @@ WRITER_DESCRIPTION = (
 )
 
 QA_DESCRIPTION = (
-    "Reviews one ContentOS Reel script against its brief, the product facts, and the QA "
+    "Reviews one ContentOS Reel script against its brief, the creator profile, and the QA "
     "rubric, and writes a QA verdict JSON. Dispatched by /contentos; not for direct use."
 )
 
@@ -82,6 +82,24 @@ QA_VERDICT_PHRASES = [
     "`pass` when nothing above applies",
     "never fail a check",
 ]
+
+# Every string that must not survive the creator pivot in an agent file:
+# the old analysis and QA field names, the old script section and profile
+# file names, and the word "founder" itself (checked case-insensitively,
+# which also covers the old `## Founder rules` prompt heading). The same
+# list guards `references/` in `tests/test_references.py`.
+PRODUCT_LEFTOVER_STRINGS = [
+    "product_fit",
+    "demo_present",
+    "consistent_with_product",
+    "Demo moment",
+    "product.md",
+    "product-template",
+    "adaptation_for_product",
+    "product_or_topic_shown",
+    "Founder rules",
+]
+PRODUCT_LEFTOVER_STRINGS_CASE_INSENSITIVE = ["founder"]
 
 BACKTICKED_RE = re.compile(r"`([^`]+)`")
 
@@ -156,19 +174,26 @@ class ContentDirectorAgentTests(NoNetworkTestCase):
             "hook_spoken",
             "format",
             "structure",
+            "topic_shown",
             "why_it_worked",
             "transferable_mechanism",
-            "adaptation_for_product",
+            "adaptation",
             "avoid",
             "score_scalable",
             "score_convertible",
-            "score_product_fit",
+            "score_fit",
             "risk_flags",
             "confidence",
-            "product.md",
+            "creator.md",
         ):
             with self.subTest(term=term):
                 self.assertIn(term, body)
+
+        # The dispatch prompt carries a `Source kind: niche | format` line,
+        # and `score_fit` means two different things depending on which it
+        # is, so the body has to name that line.
+        lowered = body.lower()
+        self.assertIn("source kind", lowered)
 
     def test_director_agent_prose_is_plain(self) -> None:
         text = DIRECTOR_AGENT.read_text(encoding="utf-8")
@@ -243,6 +268,20 @@ class AllAgentFilesTests(NoNetworkTestCase):
                 self.assertIn("prompt file", prose)
                 self.assertIn("Read that file first", prose)
 
+    def test_agent_bodies_have_no_product_leftovers(self) -> None:
+        # 0.2.0 pivots the plugin from app founders to any creator. The
+        # agent bodies were the last place the old wording lived, so this
+        # greps all three for every name the pivot retired.
+        for name, (path, _description, _turns) in AGENT_FILES.items():
+            text = path.read_text(encoding="utf-8")
+            lowered = text.lower()
+            for banned in PRODUCT_LEFTOVER_STRINGS:
+                with self.subTest(agent=name, banned=banned):
+                    self.assertNotIn(banned, text, f"{name} still contains {banned!r}")
+            for banned in PRODUCT_LEFTOVER_STRINGS_CASE_INSENSITIVE:
+                with self.subTest(agent=name, banned=banned):
+                    self.assertNotIn(banned, lowered, f"{name} still contains {banned!r}")
+
     def test_agent_files_have_no_em_dashes(self) -> None:
         # Founder-facing text: plain language, no em dashes (design spec,
         # "Global Constraints").
@@ -291,6 +330,13 @@ class WriterAndQaAgentTests(NoNetworkTestCase):
         for phrase in QA_VERDICT_PHRASES:
             with self.subTest(verdict_phrase=phrase):
                 self.assertIn(phrase, qa_prose)
+
+        # `write_prompt` and `qa_prompt` both append the creator's own
+        # corrections under `## Creator rules`, so both bodies have to
+        # explain that heading under the same name.
+        for name, body in (("script-writer", writer_body), ("qa-reviewer", qa_body)):
+            with self.subTest(agent=name, heading="## Creator rules"):
+                self.assertIn("## Creator rules", body)
 
 
 if __name__ == "__main__":
