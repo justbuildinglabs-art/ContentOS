@@ -156,8 +156,10 @@ answer: with no offer, scripts end on a follow, comment, save, or share ask.
 **Round 4, the guardrails and the accounts.** What may be claimed as fact. What
 must never be claimed. The proof you can show on screen. Three adjectives the
 voice is, three it is not, and the words that would make them wince. The one
-action a viewer should take by default. 3 to 8 Instagram handles in your niche.
-0 to 5 accounts from any niche whose formats travel well.
+action a viewer should take by default. 5 to 10 hashtag seeds you already use,
+if any: this is optional, and the writer picks from the niche when the
+section is empty. 3 to 8 Instagram handles in your niche. 0 to 5 accounts from
+any niche whose formats travel well.
 
 Then write the answers and run setup:
 

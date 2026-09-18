@@ -356,6 +356,13 @@ class SkillBodyTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, prose)
 
+        # Round 4 also asks for hashtag seeds: optional, and the writer
+        # falls back to the niche when the answer is blank.
+        round4 = collapsed.split("**Round 4,", 1)[1]
+        round4_prose = round4.lower()
+        self.assertIn("hashtag seeds", round4_prose)
+        self.assertIn("optional", round4_prose)
+
         # Every answer key the skill writes, and no key setup cannot read.
         self.assertEqual(set(SETUP_ANSWER_KEYS), _answer_keys_setup_reads())
         for key in SETUP_ANSWER_KEYS:

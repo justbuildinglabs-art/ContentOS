@@ -94,7 +94,8 @@ something the viewer cannot see, either shoot it or cut the line.
   detail the video had no room for.
 - The caption may carry the honest limitation that keeps the whole thing credible.
 - End the caption with one line of 5 to 8 hashtags, nothing after it. Use the seeds in `creator.md`, mix
-  one broad tag with narrow ones, and skip anything that reads like a bot wrote it.
+  one broad tag with narrow ones, and skip anything that reads like a bot wrote it. When Hashtag seeds is
+  empty, pick 5 to 8 tags from the niche and the language bank in `03-patterns.md` instead.
 
 ## AI tells and fixes
 
