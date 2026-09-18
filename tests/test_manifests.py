@@ -16,7 +16,7 @@ DESCRIPTION = (
     "Competitor research to vetted Reel scripts: a four-stage Instagram "
     "Reels content pipeline for creators."
 )
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 
 class ManifestTests(NoNetworkTestCase):
@@ -29,7 +29,7 @@ class ManifestTests(NoNetworkTestCase):
         self.assertEqual(len(marketplace["plugins"]), 1)
         self.assertEqual(marketplace["plugins"][0]["name"], plugin["name"])
 
-    def test_manifests_describe_creators_and_version_0_2_0(self) -> None:
+    def test_manifests_describe_creators_and_version_0_2_1(self) -> None:
         plugin = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))
         marketplace = json.loads(MARKETPLACE_JSON.read_text(encoding="utf-8"))
 

@@ -94,8 +94,27 @@ It always exits 0 and prints JSON. Read these fields and act:
 
 - **`config_json` or `creator_md` is false.** This project has no ContentOS
   state yet. Say so in one line and offer to run setup. Do not run research.
-- **`apify` is false.** No Apify key resolved. Tell the creator the four places
-  the key can live, then stop unless they asked for `--mock`:
+- **`apify` is false.** No Apify key resolved. Stop unless they asked for
+  `--mock`, and hand them these steps to do themselves. Never ask the creator
+  to paste the token into the chat, and never write it to a file for them: a
+  token in a chat transcript is a leaked token. Say the steps in plain words:
+  1. Copy the personal API token from the Apify Console: Settings, then
+     API & Integrations.
+  2. Open a real Terminal window, such as the Terminal app. Do not use the
+     chat's command box: it cannot take typed input, so it prints the prompt
+     and saves nothing.
+  3. Paste this command, paste the token when it asks (nothing shows while
+     they paste), press Return, and wait for `Saved.`:
+
+     ```bash
+     mkdir -p ~/.config/contentos && printf "Paste your Apify token, then press Return: " && read -rs T && printf "\n" && [ -n "$T" ] && printf "APIFY_API_TOKEN=%s\n" "$T" > ~/.config/contentos/.env && chmod 600 ~/.config/contentos/.env && echo "Saved." ; unset T
+     ```
+
+  4. When they say it printed `Saved.`, run `diagnose --live` and check that
+     `apify` and `apify_live` are both true. Never print the key.
+
+  That command saves the key in the fourth place below. The key can also live
+  in any of these, and the first one found wins:
   1. The `APIFY_API_TOKEN` environment variable.
   2. The plugin setting. Claude Code asks for it when the plugin is installed,
      and you can change it later with `/plugin`. ContentOS reads it when a
@@ -416,7 +435,7 @@ Every command returns one of these. Exit 0 is the only success.
 | --- | --- | --- | --- |
 | 2 | usage: bad arguments, no such run, a missing file | name the file or run that is missing | `contentos.py diagnose --project "$PWD"`, or `/contentos setup` when there is no `.contentos/` |
 | 3 | confirmation required, the estimate was printed | the estimate in one line, then ask | re-run the same command with `--yes` |
-| 4 | no Apify key resolved and not `--mock` | the four key locations from Step 1 | set the key, or re-run with `--mock` |
+| 4 | no Apify key resolved and not `--mock` | the key steps from Step 1 | set the key, or re-run with `--mock` |
 | 5 | upstream failure: an Apify run or fetch failed | Apify failed, the run id is saved, nothing is lost | read the message first: see below |
 | 6 | cost cap: the estimate is over `apify_max_charge_usd` | the estimate and the cap | cut `competitors` or `reels_per_account`, or raise the cap in `.contentos/config.json` |
 | 7 | verification failed: a subagent's file did not pass | only after the second try, and name the brief or reel | re-dispatch once with the problems appended, then move on |

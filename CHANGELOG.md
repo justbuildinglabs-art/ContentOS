@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-18
+
+### Changed
+
+- Adding the Apify key is now a guided, step-by-step task in the README and in the `/contentos` skill. Copy the token from the Apify Console, run one terminal command that asks for it with the paste hidden and saves it with owner-only permissions, then check it with `/contentos diagnose`. The token never passes through a chat, and the skill now tells Claude never to ask for it or write it to a file. The four places the key can live are unchanged.
+
 ## [0.2.0] - 2026-09-17
 
 ### Changed

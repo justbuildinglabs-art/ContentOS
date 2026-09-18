@@ -35,8 +35,33 @@ the first command at a local checkout path instead.
 
 ## The Apify key
 
-ContentOS reads `APIFY_API_TOKEN`. Get one at apify.com, under Settings then
-Integrations. It can live in any of four places, and the first one found wins:
+ContentOS needs one key, `APIFY_API_TOKEN`, to scrape Instagram through
+Apify. These steps save it where every project can read it. You do them
+yourself. Never paste the token into a chat: a token in a chat transcript is a
+leaked token.
+
+1. In the Apify Console at apify.com, open Settings, then API & Integrations,
+   and copy your personal API token.
+2. Open a real Terminal window, such as the Terminal app on a Mac. Do not use a
+   chat's command box. It cannot take typed input, so it prints the prompt and
+   saves nothing.
+3. Paste this command. When it asks, paste your token and press Return.
+   Nothing shows on screen while you paste. Wait for `Saved.`
+
+   ```bash
+   mkdir -p ~/.config/contentos && printf "Paste your Apify token, then press Return: " && read -rs T && printf "\n" && [ -n "$T" ] && printf "APIFY_API_TOKEN=%s\n" "$T" > ~/.config/contentos/.env && chmod 600 ~/.config/contentos/.env && echo "Saved." ; unset T
+   ```
+
+   The command hides what you paste and saves the token with owner-only
+   permissions. It writes nothing if you press Return on an empty line. It
+   works in zsh and bash.
+4. Run `/contentos diagnose`. It checks the key at zero cost and never prints
+   it. You should see the key found and valid.
+
+### Other places the key can live
+
+The command above uses the fourth place below. The key can live in any of four
+places, and the first one found wins:
 
 1. The `APIFY_API_TOKEN` environment variable.
 2. The plugin setting. Claude Code asks for it when you install ContentOS, and
