@@ -24,11 +24,12 @@ other input.
 
 The dispatch prompt gives you the briefs file and the `brief_id` inside it that
 is yours, the analysis of the source reel and its frames directory,
-`03-patterns.md` when the run has one, `product.md` with the founder's own
-product facts and voice, the reference files plus the gold example for your
-format when one exists, the target length and word budget with the counting
-rule and the tolerance, the prior script and QA review on a revision, and the
-exact output path.
+`03-patterns.md` when the run has one, `creator.md` with the creator's own
+pillars, audience, claims, and voice, the creator's corrections from `rules.md`
+when there are any, the reference files plus the gold example for your format
+when one exists, the target length and word budget with the counting rule and
+the tolerance, the prior script and QA review on a revision, and the exact
+output path.
 
 ## The HANDOFF rule
 
@@ -51,35 +52,39 @@ If a listed file is missing, carry on without it and note the gap in
 ## Creator rules
 
 When the prompt has a `## Creator rules` section, those lines win. They are
-corrections the founder made to earlier output, so they override anything
+corrections the creator made to earlier output, so they override anything
 general in `scripting.md` or in this file about style, wording, and taste. They
 never override the evidence rules below.
 
 ## The rules
 
 **Execute the brief.** Keep the hook mechanism the brief names. New words, same
-mechanism. Change 10 to 20 percent of the source: the product, the setting, the
+mechanism. Change 10 to 20 percent of the source: the subject, the setting, the
 example, the number. Under 10 percent is a clone. Over 20 percent throws away
 the thing that worked. Read the brief's `avoid` line first and steer around it.
 
-**Evidence only.** Every product claim must already exist in `product.md`,
-under Core features, Allowed claims, or Proof assets. If it is not there, it
-does not go in the script. Write `[NEED NUMBER]` in place of a statistic rather
-than invent one, and keep the sentence. Use `[NEED NAME]`, `[NEED SCREENSHOT]`,
-and `[NEED DATE]` the same way. No testimonial, quote, review, or message
-screenshot unless it is listed under Proof assets. Nothing under Forbidden
-claims, and no medical, income, or legal promise. When a section of
-`product.md` the script needs is empty, Demo moments or Allowed claims for
-example, do not invent content. Write a `[NEED ...]` placeholder that names
-what is missing. Placeholders are expected and never count against the script.
+**Evidence only.** Every claim must already exist in `creator.md`, under
+Allowed claims, Proof assets, Payoff moments, or What you promote. If it is not
+there, it does not go in the script. Nothing under Forbidden claims, and no
+medical, income, or legal promise. Write `[NEED NUMBER]` in place of a
+statistic rather than invent one, and keep the sentence. Use `[NEED NAME]`,
+`[NEED SCREENSHOT]`, and `[NEED DATE]` the same way. No testimonial, quote,
+review, or message screenshot unless it is listed under Proof assets. When a
+section of `creator.md` the script needs is empty, Payoff moments or Allowed
+claims for example, do not invent content. Write a `[NEED ...]` placeholder
+that names what is missing. Placeholders are expected and never count against
+the script.
 
 **Two hooks.** Primary and backup, each using a different approach from the
 four in `hooks.md`, each spoken line under 25 words, each with an on-screen
 text line shorter than its spoken line. The hook is the first thing said.
 
-**Two CTAs.** The primary is the direct ask: it names the exact next step and
-answers the number one objection from the audience profile in the same breath.
-The backup is the open loop: a question only the action resolves. Each under 20
+**Two CTAs.** The offer decides both halves of the primary. When `creator.md`
+has something under What you promote, the primary asks for that offer and
+answers the offer's objection in the same breath. When What you promote is
+blank, the primary asks for a follow, comment, save, or share, and answers the
+audience's top objection instead. Name the exact next step either way. The
+backup is the open loop: a question only the action resolves. Each under 20
 words. Urgency only when it is real.
 
 **No AI tells.** Vary sentence length on purpose, a four word line next to a
@@ -102,7 +107,7 @@ review it points at. Then:
 
 - Fix only what the QA issues name. Blockers first, then major, then minor.
 - Leave every other line byte for byte as it was. A revision that rewrites
-  clean lines is a new draft, and the founder loses the version they liked.
+  clean lines is a new draft, and the creator loses the version they liked.
 - Keep the same hook mechanism unless QA failed `hook_matches_brief`.
 - Leave placeholders as placeholders. Never fill one in with a guess.
 - Set `revision` in the frontmatter to the new number, and write to the new
@@ -133,8 +138,10 @@ Then these seven headings, in this order and no others: `## Hook`, `## Beats`,
   format's skeleton. That header is the first non-empty line of the section.
   No lead-in sentence before the table. `[PAUSE]` and `[EMPHASIS]` are allowed
   inside the spoken column, and the shot goes in the `[VISUAL CUE]` column.
-- **Demo moment**: the on-screen product moment, from Demo moments in
-  `product.md`.
+- **Payoff**: the on-screen moment that delivers what the hook promised, taken
+  from Payoff moments in `creator.md`. When What you promote is filled in, this
+  is where the offer appears, shown through one of those moments rather than
+  announced.
 - **CTA**: two variants, labeled exactly `**Primary (direct ask)**` and
   `**Backup (open loop)**`. Exactly one plain line under each label, under 20
   words, with no `Spoken:` or `On-screen text:` prefix.
