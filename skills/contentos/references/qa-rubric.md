@@ -1,6 +1,6 @@
 # QA rubric
 
-The reviewer reads the script, the brief, the analysis, `03-patterns.md`, and `product.md`, then fills
+The reviewer reads the script, the brief, the analysis, `03-patterns.md`, and `creator.md`, then fills
 `qa.schema.json`. Every check gets pass, fail, or na. Every score gets 1 to 10. The verdict follows the
 rules at the bottom, not your mood. Quote the offending line in every issue so the writer can find it.
 
@@ -21,17 +21,21 @@ when the writer swapped the mechanism for an easier one, even if the new hook is
 brief is still a fail, because the brief is what the outlier data supports.
 
 ### payoff_present
-Pass when `## Payoff` names a specific on-screen product moment that exists in `product.md` under
-Demo moments. Fail when it is vague, invented, or missing. Use na only when the brief's format puts no
-product on screen at all and says so.
+Pass when `## Payoff` names a concrete on-screen moment that delivers what the hook promised. When
+`creator.md` has something under What you promote, the payoff must show that offer through a moment
+listed under Payoff moments. Fail when the payoff is vague, invented, or missing, or when it pays off
+something the hook never promised. Do not use na. Every format has a payoff, even the ones with no
+screen recording in them.
 
 ### consistent_with_profile
-Pass when every feature, price, limit, and behavior in the script matches `product.md`. Fail on invented
-features, wrong prices, or a contradiction with anything under Core features.
+Pass when every fact about the creator, the tools or topics covered, and anything promoted matches
+`creator.md`. Fail on an invented fact, a wrong number, a tool that does something it does not do, or a
+contradiction with Allowed claims or What you promote.
 
 ### no_fabricated_claims
-Pass when every number and factual claim traces to Allowed claims or Proof assets, or is written as a
-placeholder. Fail on any invented statistic, rating, user count, or result. A `[NEED NUMBER]` is a pass.
+Pass when every number and factual claim traces to Allowed claims or Proof assets in `creator.md`, or is
+written as a placeholder. Fail on any invented statistic, rating, user count, or result. A
+`[NEED NUMBER]` is a pass.
 
 ### no_fake_testimonial
 Pass when no quote, review, message screenshot, or customer story appears unless it is listed under Proof
@@ -51,10 +55,10 @@ Pass when both CTAs exist, each under 20 words, the primary is a direct ask, and
 loop. Fail when one is missing, over length, or when both are the same ask reworded.
 
 ### brand_voice
-Pass when the script obeys the Brand voice section of `product.md`: the three adjectives it should be, the
+Pass when the script obeys the Brand voice section of `creator.md`: the three adjectives it should be, the
 three it should not, the sentence rules, and the word lists. Fail on any off-limits word, and on any
-founder rule the script breaks. Use na when the founder has not filled in the Brand voice section and the
-prompt carries no founder rules.
+creator rule the script breaks. Use na when the creator has not filled in the Brand voice section and the
+prompt carries no creator rules.
 
 ### ai_tells
 Pass when sentence length varies, contractions appear where speech would use them, numbers are textured or
@@ -74,14 +78,14 @@ first sentence asks anyone to stay.
 
 ### hook_specificity
 10: an exact number, name, hour, or scene. 7: concrete but soft, "a lot of people", "pretty fast". 4:
-category language that would fit any product in the niche.
+category language that would fit any account in the niche.
 
 ### hook_emotional_charge
 10: an involuntary reaction, recognition or irritation or surprise. 7: it registers as information and
 nothing moves. 4: no reaction of any kind.
 
 ### hook_voice_match
-10: indistinguishable from the sample sentences in `product.md`. 7: generically professional, could be any
+10: indistinguishable from the sample sentences in `creator.md`. 7: generically professional, could be any
 brand. 4: wrong register, or it uses an off-limits word.
 
 ### hook_differentiation
@@ -89,8 +93,8 @@ brand. 4: wrong register, or it uses an off-limits word.
 the same line tomorrow. 4: it is the `avoid` angle.
 
 ### body_argument_clarity
-10: after one watch the viewer could tell a friend why this product matters. 7: they get the gist and miss
-the point. 4: a feature list with no argument.
+10: after one watch the viewer could tell a friend why this matters to them. 7: they get the gist and miss
+the point. 4: a list of things with no argument holding them together.
 
 ### body_emotional_arc
 10: the viewer moves from frustration or curiosity to relief or confidence, and the turn is felt. 7: a
@@ -98,7 +102,7 @@ coherent line of thought with one flat note. 4: the same note from start to fini
 
 ### body_proof_density
 10: every claim carries a number, a comparison, a demonstration, or a placeholder. 7: one claim floating
-without support. 4: mostly assertion, the product is described rather than shown.
+without support. 4: mostly assertion, the thing is described rather than shown.
 
 ### body_pacing
 10: no dead spots, every beat moves. 7: one beat drags or repeats the one before it. 4: a whole beat could
@@ -117,7 +121,7 @@ is ignored. 4: it adds friction, an account, a price surprise, or a form.
 reads like the ending of a different video, glued on.
 
 ### cta_urgency
-10: a real reason to act today, drawn from `product.md`. 7: pleasant and entirely postponable. 4: invented
+10: a real reason to act today, drawn from `creator.md`. 7: pleasant and entirely postponable. 4: invented
 scarcity or a deadline that does not exist. Fake urgency also belongs in `cringe_flags`.
 
 ## Filler questions (filler_cut_list)
@@ -154,7 +158,7 @@ say which beat feels rushed and what genuine line would fill it. Do not pad.
 
 Every problem goes in `issues` with `check_or_score`, a severity of blocker, major, or minor, the detail
 with the line quoted, and a concrete `fix` the writer can apply without guessing. `summary` is two or three
-sentences the founder can read on its own. `confidence` is 1 to 10 on how sure you are about this review;
+sentences the creator can read on its own. `confidence` is 1 to 10 on how sure you are about this review;
 below the threshold, say in the summary what would raise it.
 
 A second `revise` on the same brief sends it to a human. Say clearly what a human needs to decide.
@@ -162,14 +166,14 @@ A second `revise` on the same brief sends it to a human. Say clearly what a huma
 ## One watch test (one_watch_test)
 
 Imagine one viewing at normal speed with the sound on, no replay. Write one or two sentences saying which
-single thing stays with the viewer, and whether that thing is the differentiator rather than a joke, a
-transition, or the music.
+single thing stays with the viewer, and whether that thing is what makes this different rather than a
+joke, a transition, or the music.
 
-Then run the three-part version. Could the viewer name the product, say why it beats what they use now,
-and repeat the next step. If any of the three is missing, the body has a structural problem, not a wording
-problem. Score `body_argument_clarity` no higher than 4 and add an issue against it, `major`, saying the
-beats need rebuilding rather than a line edit. The verdict then follows the verdict rules like every other
-finding: a score under the threshold is a `revise`.
+Then run the three-part version. Could the viewer say what the reel showed them, say why it beats what
+they do now, and say what they would do next. If any of the three is missing, the body has a structural
+problem, not a wording problem. Score `body_argument_clarity` no higher than 4 and add an issue against
+it, `major`, saying the beats need rebuilding rather than a line edit. The verdict then follows the
+verdict rules like every other finding: a score under the threshold is a `revise`.
 
 ## Spoken flow and cringe (spoken_flow_issues, cringe_flags)
 
@@ -186,7 +190,7 @@ Quote the line in each entry. Both arrays are empty when the script is clean.
 
 List every bracketed placeholder in `placeholders`, exactly as written, including `[NEED NUMBER]`,
 `[NEED NAME]`, and the rest. Placeholders never fail a check, never lower a score, and never change the
-verdict. They are the founder's to-do list in the final report. Never ask the writer to fill one in with an
+verdict. They are the creator's to-do list in the final report. Never ask the writer to fill one in with an
 estimate.
 
 ## Sources

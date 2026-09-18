@@ -137,11 +137,69 @@ has 2.0. Sorted, that is A, B, C. With `top_k_videos` at 1, A becomes
 `selected`. With `backfill_pool` at 1, B becomes `backfill`. C is ranked but
 appears nowhere.
 
+## Director scores
+
+The three `brief_score` inputs that are not `viral_proof` are judgment
+calls, not formulas. The director sets each one from 1 to 10 while reading one reel.
+These are the anchors. Score against the 10, then move down until the reel
+stops matching.
+
+### score_convertible
+
+Does the reel turn watching into wanting something from this creator, or
+from what the creator promotes. Read the caption and the comments for it,
+not the view count. Laughs and applause are entertainment, not intent.
+
+10: the comments are full of people asking for the thing. "How do I do
+this", "link?", "following for this", people tagging a friend who needs it.
+7: the comments react to the topic and a few ask a follow-up question, but
+nobody asks for anything they could be given.
+4: the reel entertains and the comments are only about the joke, the song,
+or the creator's shirt. Nothing to convert.
+
+### score_scalable
+
+Could this creator make 100 of these. A mechanism that only works once is
+worth less than a weaker one that runs every week.
+
+10: the shape holds for any topic in the creator's pillars. Swap the subject
+and it still works, with no new gear, no new location, and no luck.
+7: it runs a handful of times, then the idea is used up, or every episode
+needs a fresh one-off asset.
+4: it worked because of this exact moment, this guest, or this news story.
+There is no second one.
+
+### score_fit
+
+How well the reel fits this creator, which means two different things
+depending on where the reel came from.
+
+For a niche reel (`source_kind: niche`), fit is topic overlap: how much the
+subject sits inside the creator's pillars and speaks to the audience in
+`creator.md`.
+
+10: the reel is about a named pillar, aimed at the same viewer, and the
+creator could talk about it with no research.
+7: adjacent. One pillar away, or the right topic for a slightly different
+viewer.
+4: the same broad world, nothing the creator's audience asked for.
+
+For a format reel (`source_kind: format`), fit is transfer: how cleanly the
+mechanism moves onto one named pillar with a payoff the creator can actually
+show on camera.
+
+10: the mechanism lands on one pillar, and the payoff is already in the
+Payoff moments list.
+7: it transfers, but the payoff needs a shot the creator would have to set
+up from scratch.
+4: the mechanism only works with the source's own subject, or the payoff
+would have to be faked.
+
 ## Brief ranking
 
 ### brief_score
 
-`brief_score = 0.35 * viral_proof + 0.25 * score_convertible + 0.20 * score_scalable + 0.20 * score_product_fit`.
+`brief_score = 0.35 * viral_proof + 0.25 * score_convertible + 0.20 * score_scalable + 0.20 * score_fit`.
 `viral_proof` always comes from stage 1's own reel score; it is never
 recomputed here. Then, in this order: the total is capped at 4.0 when the
 analysis's `risk_flags` contains `copyrighted_media` or
@@ -149,7 +207,7 @@ analysis's `risk_flags` contains `copyrighted_media` or
 the result is clamped to 0 to 10; then rounded to 2 decimals.
 
 Worked example, no risk, medium confidence: `viral_proof` 8,
-`score_convertible` 6, `score_scalable` 8, `score_product_fit` 8:
+`score_convertible` 6, `score_scalable` 8, `score_fit` 8:
 `0.35*8 + 0.25*6 + 0.20*8 + 0.20*8 = 2.8 + 1.5 + 1.6 + 1.6 = 7.5`.
 `brief_score = 7.5`.
 
@@ -162,7 +220,8 @@ flag, then reduced by 1.0 for low confidence: `brief_score = 3.0`.
 
 Written from `docs/superpowers/specs/2026-09-16-contentos-design.md`, the
 "Stage 1, research" section (baselines and reel scores) and the "Stage 2,
-direct" section (`brief_score`), which state these formulas. The exact
-rounding and the worked examples here are checked against `lib/outliers.py`
-and `lib/director.py`, not restated from the guides; none of this scoring
-logic comes from the Ray Cfu guides.
+direct" section (`brief_score` and what the three director scores mean).
+The exact rounding and the worked examples here are checked against
+`lib/outliers.py` and `lib/director.py`, and the 10 / 7 / 4 anchors are
+ContentOS wording for the spec's definitions. None of this scoring logic
+comes from the Ray Cfu guides.
