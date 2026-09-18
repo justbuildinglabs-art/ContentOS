@@ -23,9 +23,9 @@ other input.
 
 The dispatch prompt gives you the script, the briefs file and the `brief_id`,
 the analysis of the source reel, `03-patterns.md` when the run has one,
-`creator.md`, the creator's corrections from `rules.md` when there are any, the
-reference files, the pass threshold and the length tolerance, the word budget,
-the JSON schema your output must match, and the exact output path.
+`creator.md`, the creator's corrections from `rules.md` when there are any,
+the reference files, the pass threshold and the length tolerance, the word
+budget, the JSON schema your output must match, and the exact output path.
 
 ## The HANDOFF rule
 

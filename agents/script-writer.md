@@ -25,11 +25,12 @@ other input.
 The dispatch prompt gives you the briefs file and the `brief_id` inside it that
 is yours, the analysis of the source reel and its frames directory,
 `03-patterns.md` when the run has one, `creator.md` with the creator's own
-pillars, audience, claims, and voice, the creator's corrections from `rules.md`
-when there are any, the reference files plus the gold example for your format
-when one exists, the target length and word budget with the counting rule and
-the tolerance, the prior script and QA review on a revision, and the exact
-output path.
+pillars, audience, claims, and voice, the creator's corrections from
+`rules.md` written straight into a `## Creator rules` section when there are
+any, the reference files plus the gold example for your format when one
+exists, the target length and word budget with the counting rule and the
+tolerance, the prior script and QA review on a revision, and the exact output
+path.
 
 ## The HANDOFF rule
 
