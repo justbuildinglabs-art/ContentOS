@@ -26,14 +26,14 @@
   ],
   "audio": "trending_sound",
   "cta": "Link in bio",
-  "product_or_topic_shown": "A habit app, shown for a few seconds inside a trend format",
+  "topic_shown": "A habit app, shown for a few seconds inside a trend format",
   "why_it_worked": "the trending sound bought the first two seconds and the hack paid them back, and the comments ask for the link",
   "transferable_mechanism": "trending sound remix",
-  "adaptation_for_product": "keep the trend timing and make the hack the five second Sprout check in, answering the long term objection on screen",
+  "adaptation": "keep the trend timing and make the hack this creator's own five second planning check in, answering the top objection on screen",
   "avoid": "Copying the sound with a generic aesthetic montage and no hack at all",
   "score_scalable": 9,
   "score_convertible": 8,
-  "score_product_fit": 9,
+  "score_fit": 9,
   "risk_flags": [
     "copyrighted_media"
   ],

@@ -40,8 +40,13 @@ ANALYSES_FIXTURES_DIR = FIXTURES_DIR / "analyses"
 PATTERNS_FIXTURE = FIXTURES_DIR / "patterns.sample.md"
 
 # The fixture handles Task 8/9 designed the sample Apify files around
-# (mirrors tests/test_research.py's FIXTURE_HANDLES).
-FIXTURE_HANDLES = ["sproutapp", "habitlab", "dailywins", "ghostaccount"]
+# (mirrors tests/test_research.py's FIXTURE_HANDLES), split into
+# competitors (niche) and format_accounts the way
+# fixtures/setup-answers.sample.json does: dailywins is the one format
+# account, so its reels (DWN*) carry source_kind "format" and the rest
+# carry "niche" (design spec, "0.2.0 changes").
+FIXTURE_COMPETITORS = ["sproutapp", "habitlab", "ghostaccount"]
+FIXTURE_FORMAT_ACCOUNTS = ["dailywins"]
 
 # What `research --mock --yes` selects from those handles, in rank order
 # by `outlier_ratio`. The first five are the ones `fixtures/analyses/`
@@ -66,11 +71,14 @@ Dana is a productivity creator for people who keep quitting their system by Wedn
 
 
 def _write_project(project: Path) -> None:
-    """Write the founder state a Stage 2 command needs: config and creator.md."""
+    """Write the creator state a Stage 2 command needs: config and creator.md."""
     config_dir = store.contentos_dir(project)
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(
-        json.dumps({"competitors": FIXTURE_HANDLES}), encoding="utf-8"
+        json.dumps(
+            {"competitors": FIXTURE_COMPETITORS, "format_accounts": FIXTURE_FORMAT_ACCOUNTS}
+        ),
+        encoding="utf-8",
     )
     (config_dir / "creator.md").write_text(CREATOR_MD, encoding="utf-8")
 
@@ -166,7 +174,7 @@ class DirectPromptTests(NoNetworkTestCase):
             self.assertIn(str((run_dir / "frames" / "SPA006").resolve()), out)
             self.assertIn("what app is this??", out)
             self.assertIn(str((run_dir / "03-analyses" / "SPA006.json").resolve()), out)
-            # References and product context, by absolute path.
+            # References and creator context, by absolute path.
             self.assertIn(str((project / ".contentos" / "creator.md").resolve()), out)
             self.assertIn("hooks.md", out)
             self.assertIn("formats.md", out)
@@ -179,7 +187,7 @@ class DirectPromptTests(NoNetworkTestCase):
 
     def test_direct_prompt_and_verify_accept_cover_only_reel(self) -> None:
         # A reel whose video was downloaded but never cut into keyframes
-        # (no ffmpeg on the founder's machine) is still analyzable from
+        # (no ffmpeg on the creator's machine) is still analyzable from
         # its cover image, at low confidence and with no beats. Both
         # halves of the loop have to accept that: `direct-prompt` must
         # still build a prompt, and `verify` must not demand a
@@ -323,7 +331,7 @@ class VerifyDirectTests(NoNetworkTestCase):
                 "brief_title": "",
                 "why_it_worked": "   ",
                 "transferable_mechanism": "",
-                "adaptation_for_product": "",
+                "adaptation": "",
                 "avoid": "",
                 "structure": [],
             }
@@ -338,7 +346,7 @@ class VerifyDirectTests(NoNetworkTestCase):
             self.assertEqual(code, codes.EXIT_VERIFY)
             self.assertEqual(out, "")
             for field in ("brief_title", "why_it_worked", "transferable_mechanism",
-                          "adaptation_for_product", "avoid", "structure"):
+                          "adaptation", "avoid", "structure"):
                 self.assertIn(field, err)
             # A rejected analysis is never half-repaired on disk.
             self.assertEqual(store.read_json(broken_path)["hook_type"], "banana")
@@ -495,6 +503,22 @@ class RankTests(NoNetworkTestCase):
                              sorted(ANALYZED_SHORTCODES))
             self.assertTrue(briefs_doc["ranked_at"])
             self.assertEqual(briefs_doc["analyzed"], 5)
+
+            # dailywins is the one format account (fixtures/setup-answers.sample.json),
+            # so its three reels (DWN001, DWN003, DWN006) are format-kind and
+            # the other two (SPA006, HAB005) are niche. With the default
+            # max_format_briefs (2) and only 5 candidates for 5 slots, the
+            # cap never actually excludes anyone: the order is exactly the
+            # brief_score sort, format and niche interleaved by score.
+            by_shortcode = {brief["shortCode"]: brief for brief in briefs}
+            for shortcode in ("DWN001", "DWN003", "DWN006"):
+                self.assertEqual(by_shortcode[shortcode]["source_kind"], "format")
+            for shortcode in ("SPA006", "HAB005"):
+                self.assertEqual(by_shortcode[shortcode]["source_kind"], "niche")
+            self.assertEqual(
+                [brief["shortCode"] for brief in briefs],
+                ["DWN006", "HAB005", "DWN001", "SPA006", "DWN003"],
+            )
 
             briefs_md = (run_dir / "briefs.md").read_text(encoding="utf-8")
             headings = [line for line in briefs_md.splitlines() if line.startswith("## B")]

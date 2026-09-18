@@ -33,7 +33,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from tests.helpers import NoNetworkTestCase, REPO_ROOT, temp_project
 
@@ -193,14 +193,14 @@ def _valid_analysis_raw() -> Dict[str, Any]:
         "structure": [{"frame": 1, "beat": "problem"}, {"frame": 4, "beat": "proof"}],
         "audio": "voiceover",
         "cta": "Try it free today.",
-        "product_or_topic_shown": "a habit tracker app",
+        "topic_shown": "a habit tracker app",
         "why_it_worked": "names the exact frustration",
         "transferable_mechanism": "pain call-out hook",
-        "adaptation_for_product": "swap habits for budgeting",
+        "adaptation": "swap habits for budgeting",
         "avoid": "another generic morning routine video",
         "score_scalable": 8,
         "score_convertible": 7,
-        "score_product_fit": 9,
+        "score_fit": 9,
         "risk_flags": ["none"],
         "confidence": "high",
     }
@@ -343,6 +343,23 @@ class SchemaShapeTests(NoNetworkTestCase):
         self.assertEqual(_collect_enums(analysis_schema), _ANALYSIS_ENUMS)
         self.assertEqual(_collect_enums(qa_schema), _QA_ENUMS)
 
+    def test_schema_uses_topic_shown_adaptation_and_score_fit(self) -> None:
+        schema = director.load_schema("analysis")
+        properties = set(schema["properties"].keys())
+        required = set(schema["required"])
+
+        for name in ("topic_shown", "adaptation", "score_fit"):
+            self.assertIn(name, properties, schema)
+            self.assertIn(name, required, schema)
+
+        for old_name in ("product_or_topic_shown", "adaptation_for_product", "score_product_fit"):
+            self.assertNotIn(old_name, properties, schema)
+            self.assertNotIn(old_name, required, schema)
+
+        self.assertEqual(schema["properties"]["score_fit"]["type"], "integer")
+        self.assertEqual(schema["properties"]["score_fit"]["minimum"], 0)
+        self.assertEqual(schema["properties"]["score_fit"]["maximum"], 10)
+
 
 # ---------------------------------------------------------------------------
 # validate_against / validate_analysis
@@ -407,7 +424,7 @@ class CoerceAnalysisTests(NoNetworkTestCase):
             "audio": "orchestral",
             "score_scalable": 99,
             "score_convertible": -5,
-            "score_product_fit": 7.6,
+            "score_fit": 7.6,
             "risk_flags": ["medical_claim", "medical_claim", "bogus_flag"],
             "confidence": "extremely high",
             # hook_spoken, hook_on_screen_text, cta, and the other required
@@ -424,13 +441,13 @@ class CoerceAnalysisTests(NoNetworkTestCase):
         self.assertEqual(coerced["hook_seconds"], 10.0)
         self.assertEqual(coerced["score_scalable"], 10)
         self.assertEqual(coerced["score_convertible"], 0)
-        self.assertEqual(coerced["score_product_fit"], 8)
+        self.assertEqual(coerced["score_fit"], 8)
         self.assertEqual(coerced["structure"], [{"frame": 1, "beat": "problem"}])
         self.assertEqual(coerced["risk_flags"], ["medical_claim"])
         self.assertIsNone(coerced["hook_spoken"])
         self.assertIsNone(coerced["hook_on_screen_text"])
         self.assertIsNone(coerced["cta"])
-        self.assertEqual(coerced["product_or_topic_shown"], "")
+        self.assertEqual(coerced["topic_shown"], "")
         self.assertEqual(coerced["why_it_worked"], "")
         self.assertEqual(coerced["brief_title"], "Solid hook")
 
@@ -466,7 +483,7 @@ class CoerceAnalysisTests(NoNetworkTestCase):
 class BriefScoreTests(NoNetworkTestCase):
     def _analysis(self, **overrides: Any) -> Dict[str, Any]:
         base = {
-            "score_scalable": 8, "score_convertible": 6, "score_product_fit": 7,
+            "score_scalable": 8, "score_convertible": 6, "score_fit": 7,
             "risk_flags": ["none"], "confidence": "high",
         }
         base.update(overrides)
@@ -483,7 +500,7 @@ class BriefScoreTests(NoNetworkTestCase):
         self.assertEqual(director.brief_score(risky, reel), 4.0)
 
         risky_but_already_low = self._analysis(
-            score_scalable=2, score_convertible=2, score_product_fit=2,
+            score_scalable=2, score_convertible=2, score_fit=2,
             risk_flags=["fake_testimonial_risk"],
         )
         low_reel = {"viral_proof": 1.0}
@@ -500,7 +517,7 @@ class BriefScoreTests(NoNetworkTestCase):
         self.assertEqual(director.brief_score(both, reel), 3.0)
 
         floor = self._analysis(
-            score_scalable=0, score_convertible=0, score_product_fit=0, confidence="low"
+            score_scalable=0, score_convertible=0, score_fit=0, confidence="low"
         )
         zero_reel = {"viral_proof": 0.0}
         # 0 - 1.0 = -1.0, clamped to 0.0.
@@ -521,10 +538,10 @@ class RankBriefsTests(NoNetworkTestCase):
             "emotion_lead": "recognition",
             "score_scalable": 8,
             "score_convertible": 8,
-            "score_product_fit": 8,
+            "score_fit": 8,
             "risk_flags": ["none"],
             "confidence": "high",
-            "adaptation_for_product": "swap in our onboarding flow",
+            "adaptation": "swap in our onboarding flow",
             "transferable_mechanism": "pain call-out",
             "why_it_worked": "names the exact frustration",
             "avoid": "another generic demo",
@@ -545,7 +562,7 @@ class RankBriefsTests(NoNetworkTestCase):
                 "AAA001": self._analysis("A title"),
                 "BBB001": self._analysis("B title"),
                 "CCC001": self._analysis(
-                    "C title", score_scalable=1, score_convertible=1, score_product_fit=1
+                    "C title", score_scalable=1, score_convertible=1, score_fit=1
                 ),
             }
             reels = [reel_a, reel_b, reel_c, reel_no_analysis]
@@ -577,6 +594,9 @@ class RankBriefsTests(NoNetworkTestCase):
         self.assertTrue(Path(brief["analysis_path"]).is_absolute())
         self.assertEqual(Path(brief["frames_dir"]).name, "AAA001")
         self.assertTrue(brief["analysis_path"].replace("\\", "/").endswith("03-analyses/AAA001.json"))
+        # None of these reels carry source_kind, so rank_briefs treats them
+        # as niche (design spec: "a reel without one counts as niche").
+        self.assertEqual(brief["source_kind"], "niche")
 
     def test_rank_takes_n_and_never_ranks_a_reel_without_an_analysis(self) -> None:
         with temp_project() as project_dir:
@@ -589,6 +609,66 @@ class RankBriefsTests(NoNetworkTestCase):
         # Only the three analyzed reels are ranked, even though n=10 asked for more.
         self.assertEqual(len(briefs), 3)
         self.assertEqual({b["shortCode"] for b in briefs}, {"S001", "S002", "S003"})
+
+    def _kind_candidates(self) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+        """Five candidates (F1..F3 format, N1..N2 niche) with descending scores.
+
+        Every analysis carries identical scalable/convertible/fit scores,
+        so brief_score is monotonic in viral_proof alone -- the candidates
+        sort exactly F1 (10), N1 (9), F2 (8), N2 (7), F3 (6), by
+        construction, with no tiebreak ambiguity (outlier_ratio mirrors
+        viral_proof, shortCode is already unique).
+        """
+        specs = [
+            ("F1", "format", 10.0),
+            ("N1", "niche", 9.0),
+            ("F2", "format", 8.0),
+            ("N2", "niche", 7.0),
+            ("F3", "format", 6.0),
+        ]
+        reels = [
+            _scored_reel(code, viral_proof=score, outlier_ratio=score, source_kind=kind)
+            for code, kind, score in specs
+        ]
+        analyses = {code: self._analysis(code) for code, _kind, _score in specs}
+        return analyses, reels
+
+    def test_rank_caps_format_briefs_and_fills_when_niche_runs_short(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = store.init_run(project_dir, _cfg(), "mock")
+            analyses, reels = self._kind_candidates()
+
+            # max_format_briefs=1: the walk takes F1 (first format seen,
+            # under the cap), N1, N2 (niche, taken freely) -- three briefs
+            # for n=4. Niche only had two entries, so the walk falls one
+            # short; the remaining slot is filled from the skipped format
+            # briefs (F2, F3) in score order, which is F2, not F3.
+            briefs = director.rank_briefs(analyses, reels, 4, run_dir, max_format_briefs=1)
+
+        self.assertEqual([b["shortCode"] for b in briefs], ["F1", "N1", "N2", "F2"])
+        self.assertEqual([b["brief_id"] for b in briefs], ["B01", "B02", "B03", "B04"])
+        self.assertEqual([b["source_kind"] for b in briefs], ["format", "niche", "niche", "format"])
+        self.assertNotIn("F3", [b["shortCode"] for b in briefs])
+
+    def test_rank_with_zero_cap_excludes_format_briefs_unless_needed_to_fill(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = store.init_run(project_dir, _cfg(), "mock")
+            analyses, reels = self._kind_candidates()
+
+            # max_format_briefs=0 and n=2: the two niche briefs cover n on
+            # their own, so no format brief is ever admitted.
+            briefs_niche_only = director.rank_briefs(analyses, reels, 2, run_dir, max_format_briefs=0)
+            self.assertEqual([b["shortCode"] for b in briefs_niche_only], ["N1", "N2"])
+            self.assertTrue(all(b["source_kind"] == "niche" for b in briefs_niche_only))
+
+            # Same zero cap, but n=3: the niche briefs run out, so the
+            # single best-scoring skipped format brief (F1) fills the last
+            # slot even though the cap is 0 -- the cap only limits how many
+            # are taken freely during the walk, not the backfill.
+            briefs_with_fill = director.rank_briefs(analyses, reels, 3, run_dir, max_format_briefs=0)
+
+        self.assertEqual([b["shortCode"] for b in briefs_with_fill], ["N1", "N2", "F1"])
+        self.assertEqual(briefs_with_fill[2]["source_kind"], "format")
 
 
 # ---------------------------------------------------------------------------
@@ -607,9 +687,9 @@ class RenderBriefsMdTests(NoNetworkTestCase):
                     "hook_type": "pain_callout",
                     "format": "talking_head",
                     "emotion_lead": "recognition",
-                    "score_scalable": 8, "score_convertible": 7, "score_product_fit": 9,
+                    "score_scalable": 8, "score_convertible": 7, "score_fit": 9,
                     "risk_flags": ["none"], "confidence": "high",
-                    "adaptation_for_product": "swap habits for budgeting",
+                    "adaptation": "swap habits for budgeting",
                     "transferable_mechanism": "pain call-out",
                     "why_it_worked": "names the exact frustration",
                     "avoid": "another generic morning routine video",
@@ -630,7 +710,40 @@ class RenderBriefsMdTests(NoNetworkTestCase):
         self.assertIn("another generic morning routine video", markdown)
         self.assertIn("If we swap habits for budgeting using the pain call-out hook", markdown)
         self.assertIn(briefs[0]["frames_dir"], markdown)
-        self.assertNotIn("—", markdown)  # no em dashes in founder-facing text
+        self.assertNotIn("—", markdown)  # no em dashes in creator-facing text
+
+    def test_render_briefs_md_prints_source_kind_and_fit(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = store.init_run(project_dir, _cfg(), "mock")
+            niche_reel = _scored_reel("AAA001", viral_proof=7.0, outlier_ratio=4.0, source_kind="niche")
+            format_reel = _scored_reel(
+                "BBB001", ownerUsername="formatacct", viral_proof=6.0, outlier_ratio=3.0,
+                source_kind="format",
+            )
+            analysis = director.coerce_analysis(
+                {
+                    "brief_title": "Morning habit callout",
+                    "hook_type": "pain_callout",
+                    "format": "talking_head",
+                    "emotion_lead": "recognition",
+                    "score_scalable": 8, "score_convertible": 7, "score_fit": 9,
+                    "risk_flags": ["none"], "confidence": "high",
+                    "adaptation": "swap habits for budgeting",
+                    "transferable_mechanism": "pain call-out",
+                    "why_it_worked": "names the exact frustration",
+                    "avoid": "another generic morning routine video",
+                }
+            )
+            briefs = director.rank_briefs(
+                {"AAA001": analysis, "BBB001": analysis}, [niche_reel, format_reel], 5, run_dir
+            )
+
+            markdown = director.render_briefs_md(briefs)
+
+        self.assertIn(f"{niche_reel['url']} (by acct1, niche account)", markdown)
+        self.assertIn(f"{format_reel['url']} (by formatacct, format account)", markdown)
+        self.assertIn("fit 9", markdown)
+        self.assertNotIn("product fit", markdown)
 
 
 # ---------------------------------------------------------------------------
@@ -769,6 +882,43 @@ class DirectorPromptTests(NoNetworkTestCase):
         self.assertIn(cover_path, prompt)
         self.assertNotIn("f01.jpg", prompt)
 
+    def test_director_prompt_states_source_kind_and_reads_creator_md(self) -> None:
+        with temp_project() as project_dir:
+            format_run_dir = _write_run_dir(project_dir, "FMT001", source_kind="format")
+            niche_run_dir = _write_run_dir(project_dir, "NCH001", source_kind="niche")
+            no_kind_run_dir = _write_run_dir(project_dir, "NOK001")
+            schema = director.load_schema("analysis")
+            creator_md = project_dir / "creator.md"
+
+            format_prompt = director.build_director_prompt(
+                format_run_dir, "FMT001", REFERENCES_DIR, creator_md, schema
+            )
+            niche_prompt = director.build_director_prompt(
+                niche_run_dir, "NCH001", REFERENCES_DIR, creator_md, schema
+            )
+            no_kind_prompt = director.build_director_prompt(
+                no_kind_run_dir, "NOK001", REFERENCES_DIR, creator_md, schema
+            )
+
+        self.assertIn("Source kind: format", format_prompt)
+        self.assertIn("Source kind: niche", niche_prompt)
+        # A reel without source_kind at all still gets a line, defaulting
+        # to niche (mirrors rank_briefs' own default).
+        self.assertIn("Source kind: niche", no_kind_prompt)
+
+        for prompt in (format_prompt, niche_prompt):
+            self.assertIn("score_fit", prompt)
+            self.assertIn("adaptation", prompt)
+            # One sentence each on what source kind means for score_fit
+            # and for adaptation.
+            self.assertIn("topic overlaps", prompt)
+            self.assertIn("transfers", prompt)
+            self.assertIn("10 to 20 percent", prompt)
+
+        self.assertIn(f"Creator profile: {creator_md.resolve()}", format_prompt)
+        self.assertNotIn("product", format_prompt.lower())
+        self.assertNotIn("founder", format_prompt.lower())
+
 
 class DirectorPromptRealRunTests(NoNetworkTestCase):
     def test_prompt_over_a_real_mock_research_run(self) -> None:
@@ -832,6 +982,22 @@ class SynthPromptTests(NoNetworkTestCase):
         self.assertIn("FAILED <reason>", prompt)
         self.assertIn(str((run_dir / "03-patterns.md").resolve()), prompt)
         self.assertNotIn("—", prompt)  # no em dashes
+
+    def test_synth_prompt_says_for_this_creator(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = store.init_run(project_dir, _cfg(), "mock")
+            analyses_dir = run_dir / "03-analyses"
+            analyses_dir.mkdir(parents=True)
+            store.write_json_atomic(
+                analyses_dir / "AAA001.json", director.coerce_analysis({"brief_title": "AAA001"})
+            )
+
+            prompt = director.build_synth_prompt(run_dir, REFERENCES_DIR, project_dir / "creator.md")
+
+        self.assertIn("for this creator", prompt)
+        self.assertIn("wants more from this creator or what they promote", prompt)
+        self.assertNotIn("product", prompt.lower())
+        self.assertNotIn("founder", prompt.lower())
 
 
 # ---------------------------------------------------------------------------

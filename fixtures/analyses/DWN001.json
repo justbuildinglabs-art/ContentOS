@@ -22,14 +22,14 @@
   ],
   "audio": "unknown",
   "cta": "Rate it out of ten in the comments",
-  "product_or_topic_shown": "A wins board layout, shown as still cards",
+  "topic_shown": "A wins board layout, shown as still cards",
   "why_it_worked": "asking for a score gives every viewer a one word comment to leave, and the board is specific enough that people compare it to their own",
   "transferable_mechanism": "rate my setup",
-  "adaptation_for_product": "show a real Sprout habit list as the board and ask viewers to rate the habits rather than the app",
+  "adaptation": "show this creator's own weekly plan as the board and ask viewers to rate it out of ten instead of a generic template",
   "avoid": "The rate my setup post with a stock photo board nobody actually uses",
   "score_scalable": 7,
   "score_convertible": 6,
-  "score_product_fit": 6,
+  "score_fit": 6,
   "risk_flags": [
     "none"
   ],

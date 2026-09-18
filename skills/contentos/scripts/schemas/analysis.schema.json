@@ -42,14 +42,14 @@
       "enum": ["voiceover", "original_dialogue", "trending_sound", "music_only", "unknown"]
     },
     "cta": { "type": ["string", "null"] },
-    "product_or_topic_shown": { "type": "string" },
+    "topic_shown": { "type": "string" },
     "why_it_worked": { "type": "string" },
     "transferable_mechanism": { "type": "string" },
-    "adaptation_for_product": { "type": "string" },
+    "adaptation": { "type": "string" },
     "avoid": { "type": "string" },
     "score_scalable": { "type": "integer", "minimum": 0, "maximum": 10 },
     "score_convertible": { "type": "integer", "minimum": 0, "maximum": 10 },
-    "score_product_fit": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "score_fit": { "type": "integer", "minimum": 0, "maximum": 10 },
     "risk_flags": {
       "type": "array",
       "items": {
@@ -67,8 +67,8 @@
   },
   "required": [
     "brief_title", "hook_spoken", "hook_on_screen_text", "hook_type", "hook_seconds",
-    "emotion_lead", "format", "structure", "audio", "cta", "product_or_topic_shown",
-    "why_it_worked", "transferable_mechanism", "adaptation_for_product", "avoid",
-    "score_scalable", "score_convertible", "score_product_fit", "risk_flags", "confidence"
+    "emotion_lead", "format", "structure", "audio", "cta", "topic_shown",
+    "why_it_worked", "transferable_mechanism", "adaptation", "avoid",
+    "score_scalable", "score_convertible", "score_fit", "risk_flags", "confidence"
   ]
 }

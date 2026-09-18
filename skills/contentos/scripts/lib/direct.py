@@ -3,7 +3,7 @@
 `lib/director.py` holds the deterministic pieces of Stage 2 (schemas,
 prompt builders, the patterns check, the ranking formula). This module
 is the layer above it: everything the four `contentos.py` subcommands
-need in order to turn a run directory plus a founder's project into
+need in order to turn a run directory plus a creator's project into
 either a dispatch prompt, a verified analysis, or a set of ranked
 briefs. `contentos.py`'s handlers stay thin -- resolve `--project`,
 call one function here, print what it returns -- exactly like the
@@ -70,7 +70,7 @@ REQUIRED_TEXT_FIELDS = (
     "brief_title",
     "why_it_worked",
     "transferable_mechanism",
-    "adaptation_for_product",
+    "adaptation",
     "avoid",
 )
 
@@ -82,7 +82,7 @@ class DirectError(Exception):
     reel, no frames, no `creator.md`, nothing to rank) and 7 for a
     verification failure. The message is what goes to stderr; a
     verification failure joins one line per problem with newlines, so
-    the founder (and the skill's re-dispatch) sees all of them at once.
+    the creator (and the skill's re-dispatch) sees all of them at once.
     """
 
     def __init__(self, message: str, exit_code: int) -> None:
@@ -214,7 +214,7 @@ def run_direct_prompt(
     Refuses with exit 2 (a `DirectError`) when the run does not
     resolve, the run has no `02-outliers.json` yet, the reel is not in
     `selected`, its `frames_status` is neither `ok` nor `cover_only`
-    (there would be no image for the director to read), or the founder
+    (there would be no image for the director to read), or the creator
     has no `creator.md`. Otherwise returns
     `director.build_director_prompt`'s text for `contentos.py` to print
     to stdout.
@@ -292,7 +292,7 @@ def _content_problems(analysis: Dict[str, Any], frames_status: Optional[str]) ->
 
     Coercion fills a missing string with `""` and a malformed
     `structure` with `[]`: both satisfy the schema, and both leave the
-    founder with an empty brief. So every field a brief actually
+    creator with an empty brief. So every field a brief actually
     renders must hold real text, and a reel that has real keyframes
     (`frames_status: ok`) must come back with at least one beat. A
     `cover_only` reel is exempt: one still image cannot be broken into
@@ -418,7 +418,7 @@ def _collect_analyses(
     the file cannot be parsed, or when the coerced object still fails
     the schema. Each skip is one stderr line and one
     `{"shortCode", "reason"}` entry in `03-briefs.json`, so nothing
-    disappears from the run without a reason the founder can read.
+    disappears from the run without a reason the creator can read.
     """
     analyses: Dict[str, Dict[str, Any]] = {}
     skipped: List[Dict[str, str]] = []
@@ -501,7 +501,9 @@ def run_rank(
             codes.EXIT_USAGE,
         )
 
-    briefs = director.rank_briefs(analyses, selected, cfg["briefs"], run_dir)
+    briefs = director.rank_briefs(
+        analyses, selected, cfg["briefs"], run_dir, max_format_briefs=cfg["max_format_briefs"]
+    )
     ranked_at = datetime.now(timezone.utc).isoformat()
 
     store.write_json_atomic(

@@ -26,14 +26,14 @@
   ],
   "audio": "original_dialogue",
   "cta": "Follow for the next breakdown",
-  "product_or_topic_shown": "A habit tracking app, held up to the camera mid explanation",
+  "topic_shown": "A habit tracking app, held up to the camera mid explanation",
   "why_it_worked": "the claim is specific enough to check, so viewers stay for the reason instead of the advice, and the comments ask what the app is and whether it runs on Android",
   "transferable_mechanism": "checkable number",
-  "adaptation_for_product": "open with a real Sprout retention number and explain the day four drop off that the streak screen fixes",
+  "adaptation": "open with a real number from this creator's own results and explain the exact moment their system fixes",
   "avoid": "The talking head who says consistency is key without ever showing a screen",
   "score_scalable": 7,
   "score_convertible": 8,
-  "score_product_fit": 7,
+  "score_fit": 7,
   "risk_flags": [
     "none"
   ],
