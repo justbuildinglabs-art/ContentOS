@@ -8,6 +8,7 @@ from tests.helpers import REPO_ROOT, NoNetworkTestCase
 
 PLUGIN_JSON = REPO_ROOT / ".claude-plugin" / "plugin.json"
 MARKETPLACE_JSON = REPO_ROOT / ".claude-plugin" / "marketplace.json"
+HOOKS_JSON = REPO_ROOT / "hooks" / "hooks.json"
 
 
 class ManifestTests(NoNetworkTestCase):
@@ -33,6 +34,27 @@ class ManifestTests(NoNetworkTestCase):
         self.assertTrue(apify_config["sensitive"])
         self.assertFalse(apify_config["required"])
 
+
+    def test_session_start_hook_copies_the_plugin_option(self) -> None:
+        # Claude Code passes plugin settings to hooks only, never to the
+        # Bash tool, so one SessionStart hook hands the key on. No matcher,
+        # so it runs on startup, resume, clear, and compact alike.
+        hooks = json.loads(HOOKS_JSON.read_text(encoding="utf-8"))
+
+        self.assertEqual(list(hooks["hooks"]), ["SessionStart"])
+        entries = hooks["hooks"]["SessionStart"]
+        self.assertEqual(len(entries), 1)
+        self.assertNotIn("matcher", entries[0])
+        self.assertEqual(len(entries[0]["hooks"]), 1)
+
+        hook = entries[0]["hooks"][0]
+        self.assertEqual(hook["type"], "command")
+        self.assertEqual(
+            hook["command"],
+            'python3 "${CLAUDE_PLUGIN_ROOT}/skills/contentos/scripts/contentos.py" sync-plugin-key',
+        )
+        # A shell-form command must never splice a setting into itself.
+        self.assertNotIn("user_config", json.dumps(hooks))
 
 if __name__ == "__main__":
     unittest.main()

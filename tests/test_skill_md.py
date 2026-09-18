@@ -82,6 +82,9 @@ GUIDE_TITLES = [
 # template line's `<cmd>` placeholder simply do not match.
 COMMAND_RE = re.compile(r"contentos\.py\"?\s+([a-z][a-z-]*)([^\n|]*)")
 FLAG_RE = re.compile(r"(--[a-z][a-z-]*)")
+# Run by hooks/hooks.json, never by the skill: from the Bash tool the
+# plugin option is invisible, so running it there would be meaningless.
+HOOK_ONLY_SUBCOMMANDS = ["sync-plugin-key"]
 
 
 def _split_frontmatter(text: str) -> Tuple[Dict[str, str], str]:
@@ -244,8 +247,19 @@ class SkillBodyTests(NoNetworkTestCase):
                     self.assertIn(flag, options[name], f"{name} has no {flag}")
 
         for name in contentos.SUBCOMMANDS:
+            if name in HOOK_ONLY_SUBCOMMANDS:
+                continue
             with self.subTest(subcommand=name):
                 self.assertIn(name, mentioned, f"SKILL.md never runs {name}")
+
+    def test_skill_never_runs_hook_only_subcommands(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        mentioned = {match.group(1) for match in COMMAND_RE.finditer(body)}
+
+        for name in HOOK_ONLY_SUBCOMMANDS:
+            with self.subTest(subcommand=name):
+                self.assertIn(name, contentos.SUBCOMMANDS)
+                self.assertNotIn(name, mentioned)
 
     def test_skill_has_no_em_dashes(self) -> None:
         # Founder-facing text: plain language, no em dashes (design spec,

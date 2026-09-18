@@ -15,6 +15,11 @@ from typing import Dict, List, Mapping, Optional
 
 KEY_NAME = "APIFY_API_TOKEN"
 PLUGIN_OPTION_NAME = "CLAUDE_PLUGIN_OPTION_APIFY_API_TOKEN"
+# Claude Code hands plugin settings to hook processes only, never to
+# commands run through the Bash tool. The SessionStart hook copies the
+# setting into this file in the global config dir (`sync_plugin_option`),
+# and resolve_keys reads it back as the plugin option.
+PLUGIN_OPTION_FILE = "plugin-option.env"
 
 
 @dataclass
@@ -99,11 +104,66 @@ def _global_config_dir(environ: Mapping[str, str]) -> Optional[Path]:
     return Path(home) / ".config" / "contentos"
 
 
+def sync_plugin_option(environ: Mapping[str, str] = os.environ) -> List[str]:
+    """Copy the /plugin setting into `PLUGIN_OPTION_FILE`, for the SessionStart hook.
+
+    A set option is written as one `APIFY_API_TOKEN=...` line, mode 600,
+    replacing any older copy in one step. An unset or blank option
+    removes the copy, so clearing the setting in /plugin clears the key
+    too. Clean mode (no global config dir) does nothing. The founder's own
+    global `.env` is never touched.
+
+    Returns warnings rather than raising, and no warning ever contains
+    the key: a failed hook must never block a session or leak the key.
+    """
+    config_dir = _global_config_dir(environ)
+    if config_dir is None:
+        return []
+    target = config_dir / PLUGIN_OPTION_FILE
+    value = environ.get(PLUGIN_OPTION_NAME, "").strip()
+
+    try:
+        if "\n" in value or "\r" in value:
+            if target.exists():
+                target.unlink()
+            return [
+                "The Apify API token in /plugin spans more than one line, so ContentOS "
+                "ignored it. Paste it again as a single line."
+            ]
+        if not value:
+            if target.exists():
+                target.unlink()
+            return []
+
+        config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        temp = config_dir / (PLUGIN_OPTION_FILE + ".tmp")
+        if temp.exists():
+            temp.unlink()
+        fd = os.open(str(temp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(
+                "# Written by the ContentOS SessionStart hook from your /plugin setting.\n"
+                "# Change the key in /plugin, not here: this file is rewritten every session.\n"
+                "{0}={1}\n".format(KEY_NAME, value)
+            )
+        os.replace(str(temp), str(target))
+    except OSError as exc:
+        return [
+            "Could not copy the /plugin Apify token to {0}: {1}".format(
+                target, exc.strerror or type(exc).__name__
+            )
+        ]
+    return []
+
+
 def resolve_keys(project_dir: Path, environ: Mapping[str, str] = os.environ) -> Keys:
     """Resolve APIFY_API_TOKEN, trying each source in precedence order.
 
     Precedence: process env -> plugin option -> project `.env` -> global
-    `.env`. An empty string at any source falls through to the next one.
+    `.env`. The plugin option is the `CLAUDE_PLUGIN_OPTION_*` variable
+    when present, else the SessionStart hook's copy of it in
+    `PLUGIN_OPTION_FILE`. An empty string at any source falls through to
+    the next one.
     File-permission warnings are collected for every env file that
     exists (project and global), whether or not it holds the key, and
     independent of which source ultimately wins. An env file that
@@ -123,6 +183,19 @@ def resolve_keys(project_dir: Path, environ: Mapping[str, str] = os.environ) -> 
         apify = environ[PLUGIN_OPTION_NAME]
         source = "plugin_option"
 
+    config_dir = _global_config_dir(environ)
+
+    if config_dir is not None:
+        option_path = config_dir / PLUGIN_OPTION_FILE
+        if option_path.exists():
+            warning = check_file_permissions(option_path)
+            if warning:
+                warnings.append(warning)
+            option_values = load_env_file(option_path, warnings)
+            if apify is None and option_values.get(KEY_NAME):
+                apify = option_values[KEY_NAME]
+                source = "plugin_option"
+
     project_env_path = project_dir / ".contentos" / ".env"
     if project_env_path.exists():
         warning = check_file_permissions(project_env_path)
@@ -133,7 +206,6 @@ def resolve_keys(project_dir: Path, environ: Mapping[str, str] = os.environ) -> 
             apify = project_values[KEY_NAME]
             source = "project_env"
 
-    config_dir = _global_config_dir(environ)
     if config_dir is not None:
         global_env_path = config_dir / ".env"
         if global_env_path.exists():

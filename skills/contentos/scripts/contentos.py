@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -28,6 +29,7 @@ SUBCOMMANDS = [
     "verify",
     "report",
     "status",
+    "sync-plugin-key",
 ]
 
 
@@ -87,6 +89,33 @@ def _diagnose_handler(args: argparse.Namespace) -> int:
     result["apify_live"] = apify_live
 
     print(json.dumps(result, indent=2))
+    return codes.EXIT_OK
+
+
+def _sync_plugin_key_handler(_args: argparse.Namespace) -> int:
+    """Copy the /plugin Apify setting to where later commands can read it.
+
+    The plugin's SessionStart hook (`hooks/hooks.json`) runs this, not
+    the founder. Claude Code hands plugin settings to hooks only, never
+    to commands run through the Bash tool, so this is the one place the
+    setting is visible (`env.sync_plugin_option`). A SessionStart hook's
+    stdout lands in Claude's context, so nothing is printed there:
+    warnings go to stderr, and this always exits 0 so a failure never
+    blocks the founder's session.
+
+    Outside a hook it changes nothing. Claude Code sets
+    `CLAUDE_PLUGIN_ROOT` for plugin hooks only; without it the option is
+    invisible, which would read as "setting cleared" and delete a good
+    copy.
+    """
+    if not os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        print(
+            "sync-plugin-key only runs from the ContentOS SessionStart hook; nothing changed.",
+            file=sys.stderr,
+        )
+        return codes.EXIT_OK
+    for warning in env.sync_plugin_option():
+        print(warning, file=sys.stderr)
     return codes.EXIT_OK
 
 
@@ -411,6 +440,7 @@ HANDLERS["write-prompt"] = _write_prompt_handler
 HANDLERS["qa-prompt"] = _qa_prompt_handler
 HANDLERS["report"] = _report_handler
 HANDLERS["status"] = _status_handler
+HANDLERS["sync-plugin-key"] = _sync_plugin_key_handler
 
 
 def is_stub(name: str) -> bool:

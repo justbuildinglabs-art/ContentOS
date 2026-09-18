@@ -98,7 +98,9 @@ It always exits 0 and prints JSON. Read these fields and act:
   the key can live, then stop unless they asked for `--mock`:
   1. The `APIFY_API_TOKEN` environment variable.
   2. The plugin setting. Claude Code asks for it when the plugin is installed,
-     and you can change it later with `/plugin`.
+     and you can change it later with `/plugin`. ContentOS reads it when a
+     session starts, so after setting or changing it, quit and reopen
+     Claude Code.
   3. `<project>/.contentos/.env`, one line `APIFY_API_TOKEN=...`, then
      `chmod 600` on the file.
   4. `~/.config/contentos/.env`, the same line, shared by every project.

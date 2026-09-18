@@ -39,7 +39,12 @@ Integrations. It can live in any of four places, and the first one found wins:
 
 1. The `APIFY_API_TOKEN` environment variable.
 2. The plugin setting. Claude Code asks for it when you install ContentOS, and
-   `/plugin` lets you change it later.
+   `/plugin` lets you change it later. ContentOS reads it when a session
+   starts, so after you set or change it, quit and reopen Claude Code.
+   Claude Code keeps the setting in your system keychain, but only hooks can
+   see it there, so a small startup hook copies it to
+   `~/.config/contentos/plugin-option.env` (chmod 600) for the ContentOS
+   scripts to read. Clearing the setting deletes that copy at the next start.
 3. `<your project>/.contentos/.env`, one line: `APIFY_API_TOKEN=apify_api_...`
    Then `chmod 600 .contentos/.env`, and ContentOS will warn you if you forget.
 4. `~/.config/contentos/.env`, the same line, shared by every project.

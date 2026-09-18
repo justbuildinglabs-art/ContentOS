@@ -61,6 +61,7 @@ def _required_paths() -> List[Path]:
     paths = [
         REPO_ROOT / ".claude-plugin" / "plugin.json",
         REPO_ROOT / ".claude-plugin" / "marketplace.json",
+        REPO_ROOT / "hooks" / "hooks.json",
         SKILL_DIR / "SKILL.md",
         SCRIPTS_DIR / "contentos.py",
         REPO_ROOT / "README.md",

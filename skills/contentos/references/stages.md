@@ -80,6 +80,11 @@ tell the skill (or the founder) what to do next.
   Frames are resized to a 1024 px long edge before the director reads them.
 
 Live smoke: Apify runs path verified: pending
+Live smoke: the /plugin setting reaches the Bash tool: no. Claude Code passes
+plugin settings to hooks only, so the SessionStart hook in `hooks/hooks.json`
+runs `contentos.py sync-plugin-key`, which copies the key to
+`~/.config/contentos/plugin-option.env` (chmod 600). `diagnose` reports it as
+`apify_source: "plugin_option"`.
 Live smoke: Instagram CDN status for an expired signed URL: pending (expected 403)
 
 ## Sources

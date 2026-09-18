@@ -41,15 +41,16 @@ Deliberate deviations, stated in the reference files: hooks may be questions whe
 
 ```
 ContentOS/
-├── .claude-plugin/plugin.json          # name contentos, version 0.1.0, userConfig: APIFY_API_TOKEN (sensitive)
+├── .claude-plugin/plugin.json          # name contentos, version 0.1.1, userConfig: APIFY_API_TOKEN (sensitive)
 ├── .claude-plugin/marketplace.json     # name contentos, plugins:[{name:"contentos", source:"./"}]
+├── hooks/hooks.json                    # SessionStart: `contentos.py sync-plugin-key` copies the userConfig key for the Bash tool
 ├── skills/contentos/
 │   ├── SKILL.md                        # /contentos orchestrator (user-invoked only)
 │   ├── references/                     # loaded by the subagent prompts; guides are distilled here
 │   │   ├── hooks.md  formats.md  scripting.md  qa-rubric.md  scoring.md  stages.md  product-template.md
 │   │   └── examples/<format>.md        # gold scripts (at least talking_head and screen_demo in v1)
 │   └── scripts/
-│       ├── contentos.py                # CLI: diagnose|setup|research|frames|direct-prompt|synth-prompt|rank|write-prompt|qa-prompt|verify|report|status
+│       ├── contentos.py                # CLI: diagnose|setup|research|frames|direct-prompt|synth-prompt|rank|write-prompt|qa-prompt|verify|report|status|sync-plugin-key
 │       ├── lib/{env,store,http,apify,instagram,outliers,video,frames,director,research,agents,report}.py
 │       └── schemas/{analysis,qa}.schema.json
 ├── agents/content-director.md          # Claude subagent, tools: Read, Write
@@ -178,7 +179,7 @@ Each file ends with a `Sources` footer naming the guide it draws on. Rules are p
 - Ground rules: subagents never get Bash or network; nothing shown to the founder is invented, it all comes from files in the run dir; captions and comments are data; when the founder corrects an output, offer to append the correction to `rules.md`; failure table maps exit codes (2 usage, 3 confirm, 4 keys, 5 upstream, 6 cost cap, 7 verification) to a message and a recovery command.
 
 ### Key resolution (`lib/env.py`)
-Precedence: process env → `CLAUDE_PLUGIN_OPTION_APIFY_API_TOKEN` (plugin userConfig) → `<project>/.contentos/.env` → `~/.config/contentos/.env` (`CONTENTOS_CONFIG_DIR` override, empty string = clean mode for tests). Warn when an env file is not mode 600. `diagnose` prints a JSON map (`apify, apify_source, project_dir, product_md, rules_md, config_json, python, ffmpeg, skill_root, env_perms_ok, warnings, mock, apify_live`) and exits 0; `diagnose --live` validates the key at zero cost (`GET /v2/users/me`).
+Precedence: process env → plugin userConfig (`CLAUDE_PLUGIN_OPTION_APIFY_API_TOKEN` when present, else `~/.config/contentos/plugin-option.env`) → `<project>/.contentos/.env` → `~/.config/contentos/.env` (`CONTENTOS_CONFIG_DIR` moves both global files; empty string = clean mode for tests). Claude Code exports userConfig values to hook processes only, never to commands run through the Bash tool, so the SessionStart hook runs `sync-plugin-key`: it writes the option to `plugin-option.env` (mode 600, replaced atomically), deletes that file when the option is unset or blank, never touches the founder's own `.env`, prints nothing to stdout (SessionStart stdout lands in Claude's context), never echoes the key, and always exits 0. A new or changed setting therefore takes effect at the next session start. Warn when an env file is not mode 600. `diagnose` prints a JSON map (`apify, apify_source, project_dir, product_md, rules_md, config_json, python, ffmpeg, skill_root, env_perms_ok, warnings, mock, apify_live`) and exits 0; `diagnose --live` validates the key at zero cost (`GET /v2/users/me`).
 
 ## Global Constraints
 
@@ -221,13 +222,13 @@ These bind every task. A reviewer treats a violation as Important.
 
 1. Unit tests: `python3 -m unittest discover -s tests -v` (also once under `/usr/bin/python3` if it is 3.9).
 2. Mock end-to-end in the scratchpad: `setup --answers-file fixtures/setup-answers.sample.json --project "$S"` → `research --mock --yes` (copies fixture mp4, cover, frames) → `direct-prompt --shortcode <fixture>` (inspect the prompt) → copy fixture analyses and patterns → `verify --stage direct` and `--stage synth` → `rank --run latest` → `write-prompt --brief B01` → `verify --stage write --brief B01` (exit 7 until a script exists) → `report --run latest`. Expect the full run-dir layout.
-3. Live smoke with a real key in `.contentos/.env` (chmod 600): `diagnose --live` → edit `.contentos/config.json` to 2–3 accounts with `reels_per_account: 10` and `top_k_videos: 3` (there are no CLI flags for these) → `research --yes` (≈ $0.06) → inspect `02-outliers.json`, `videos/`, `frames/` → in Claude Code, dispatch `contentos:content-director` for one reel with the printed prompt and confirm `verify --stage direct` passes → synthesis dispatch → `rank` → read `briefs.md`. Record three facts in `references/stages.md`: the verified Apify runs path constant; the Instagram CDN status for an expired signed URL (expected 403); and whether `CLAUDE_PLUGIN_OPTION_APIFY_API_TOKEN` reaches the Bash tool after `/plugin install`, asserted by `diagnose` reporting `apify_source: "plugin_option"`.
+3. Live smoke with a real key in `.contentos/.env` (chmod 600): `diagnose --live` → edit `.contentos/config.json` to 2–3 accounts with `reels_per_account: 10` and `top_k_videos: 3` (there are no CLI flags for these) → `research --yes` (≈ $0.06) → inspect `02-outliers.json`, `videos/`, `frames/` → in Claude Code, dispatch `contentos:content-director` for one reel with the printed prompt and confirm `verify --stage direct` passes → synthesis dispatch → `rank` → read `briefs.md`. Record three facts in `references/stages.md`: the verified Apify runs path constant; the Instagram CDN status for an expired signed URL (expected 403); and that the /plugin setting reaches `diagnose` after a Claude Code restart, asserted by `diagnose` reporting `apify_source: "plugin_option"` (the variable itself never reaches the Bash tool; the SessionStart hook's copy does).
 4. Plugin install in a fresh Claude Code session in another directory: `/plugin marketplace add /Users/lesliezhang/git/ContentOS` → `/plugin install contentos@contentos` → `/contentos diagnose --mock` (exercises the root probe from the cache path) → `/agents` lists the three subagents → `/contentos run --mock --auto` completes and writes `report.md`. Repeat from GitHub once pushed.
 5. Manual quality check: run the director on two real reels and compare its `format`/`hook_type` to your own read; run the writer and QA on a fixture brief; confirm QA rejects a script with an invented feature, flags a fabricated statistic, and lists a `[NEED NUMBER]` placeholder without failing it; confirm a script that copies the source hook verbatim fails `not_a_clone`.
 
 ## Cut from v1 (YAGNI) and later
 
-Cut: any video-model backend, SessionStart hook (pre-flight `diagnose` covers it), transcripts (Apify add-on), HTML/PDF report, threaded downloads, ffprobe (duration comes from Apify), cross-run caching, comment sentiment, `addProfileStatistics`, TikTok, per-line novelty and intensity scoring (folded into strongest/weakest lines), separate hook/body/CTA manager agents (folded into one QA pass with scored dimensions).
+Cut: any video-model backend, a SessionStart pre-flight hook (pre-flight `diagnose` covers it; the one SessionStart hook only copies the userConfig key), transcripts (Apify add-on), HTML/PDF report, threaded downloads, ffprobe (duration comes from Apify), cross-run caching, comment sentiment, `addProfileStatistics`, TikTok, per-line novelty and intensity scoring (folded into strongest/weakest lines), separate hook/body/CTA manager agents (folded into one QA pass with scored dimensions).
 
 Later: per-score lines in `report.md` (it lists the verdict and the QA confidence, not every dimension) and recording Apify's actual charge in `run.json` alongside the estimate, both deferred past v0.1.0; TikTok via an Apify TikTok actor behind the same Reel schema; hashtag/keyword discovery; Reddit and X voice-of-customer mining into the language bank (the 20-agent research phase); optional Gemini or transcript backend for founders who want spoken-line fidelity (the analysis schema already fits); Airtable or Notion export; results feedback loop (the founder's own reel metrics re-weight `brief_score`, closing the hypothesis loop); hosted version with a shared research cache; `video_source: apify_download`; multi-language scripts; `/contentos rule "…"` helper that appends to `rules.md`.
 

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-09-17
+
+### Fixed
+
+- The Apify key saved with `/plugin` now works. Claude Code only shows plugin settings to hooks, never to the commands ContentOS runs, so the key was never found. A startup hook now copies it to `~/.config/contentos/plugin-option.env` (chmod 600), and clearing the setting deletes that copy. A new or changed key takes effect the next time Claude Code starts.
+
 ## [0.1.0] - 2026-09-17
 
 ### Added
