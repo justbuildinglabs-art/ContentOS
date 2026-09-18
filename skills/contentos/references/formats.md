@@ -16,22 +16,22 @@ at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
 
 | format | target_length_s | word_budget | beats |
 | --- | --- | --- | --- |
-| talking_head | 30 | 75 | problem, solution, differentiator, proof |
-| screen_demo | 40 | 100 | problem, solution on screen, differentiator, proof |
-| voiceover_broll | 40 | 100 | problem, solution, differentiator, proof |
+| talking_head | 30 | 75 | problem, payoff, what is different, proof |
+| screen_demo | 40 | 100 | problem, payoff on screen, what is different, proof |
+| voiceover_broll | 40 | 100 | problem, payoff, what is different, proof |
 | skit | 30 | 75 | setup, conflict, turn, payoff |
-| slideshow_text | 20 | 50 | hook card, problem card, solution card, proof card |
+| slideshow_text | 20 | 50 | hook card, problem card, payoff card, proof card |
 | ugc_review | 30 | 75 | problem, what I tried, what changed, proof |
-| tutorial | 50 | 125 | problem, steps, differentiator, proof |
-| trend_remix | 20 | 50 | trend beat, twist, product, proof |
-| stitch | 30 | 75 | clip claim, response, solution, proof |
-| other | 30 | 75 | problem, solution, differentiator, proof |
+| tutorial | 50 | 125 | problem, steps, what is different, proof |
+| trend_remix | 20 | 50 | trend beat, twist, payoff, proof |
+| stitch | 30 | 75 | clip claim, response, payoff, proof |
+| other | 30 | 75 | problem, payoff, what is different, proof |
 
 ## Per format
 
 ### talking_head
 - Budget: 30 seconds, 75 words.
-- Beats: problem, then solution, then differentiator, then proof. Four rows, one idea per row.
+- Beats: problem, then payoff, then what is different, then proof. Four rows, one idea per row.
 - On-screen text: light. Three to five cards across the beats, six words or fewer each, placed where
   the eye is free. The hook card and the CTA card sit on top of that.
 - CTA: last four seconds, spoken plus one text card. Cut the second the ask lands.
@@ -39,7 +39,7 @@ at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
 
 ### screen_demo
 - Budget: 40 seconds, 100 words.
-- Beats: problem, then the solution shown on screen, then differentiator, then proof. The screen carries
+- Beats: problem, then the payoff shown on screen, then what is different, then proof. The screen carries
   the argument, the voice only names what the viewer is already seeing.
 - On-screen text: medium. Label every tap or field the viewer must notice. Keep labels to five words.
 - CTA: last five seconds, over the final screen state, never over a black card.
@@ -47,7 +47,7 @@ at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
 
 ### voiceover_broll
 - Budget: 40 seconds, 100 words.
-- Beats: problem, then solution, then differentiator, then proof. Every beat needs its own shot. If you
+- Beats: problem, then payoff, then what is different, then proof. Every beat needs its own shot. If you
   cannot name the shot, cut the beat.
 - On-screen text: light. The b-roll is the evidence, the text is a caption, not a second script.
 - CTA: last five seconds over the calmest shot in the set.
@@ -55,14 +55,14 @@ at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
 
 ### skit
 - Budget: 30 seconds, 75 words.
-- Beats: setup, then conflict, then turn, then payoff. The product is the turn, never the setup.
+- Beats: setup, then conflict, then turn, then payoff. The payoff is the turn, never the setup.
 - On-screen text: minimal. One label to establish who is who, nothing else.
 - CTA: after the payoff, said straight to camera so the viewer knows the bit is over.
 - Audio: original dialogue, recorded close. No music over the punchline.
 
 ### slideshow_text
 - Budget: 20 seconds, 50 words.
-- Beats: hook card, then problem card, then solution card, then proof card. The text is the script.
+- Beats: hook card, then problem card, then payoff card, then proof card. The text is the script.
 - On-screen text: heavy, and it is the whole point. One idea per card, eight words or fewer, same position
   on every card so the eye does not move.
 - CTA: the last card, plus the caption. Keep the card readable for two full seconds.
@@ -77,15 +77,15 @@ at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
 
 ### tutorial
 - Budget: 50 seconds, 125 words.
-- Beats: problem, then the steps as their own rows, then differentiator, then proof. Number the steps out
-  loud. Three steps is the ceiling for a reel.
+- Beats: problem, then the steps as their own rows, then what is different, then proof. Number the steps
+  out loud. Three steps is the ceiling for a reel.
 - On-screen text: medium to heavy. Every step gets a numbered card that stays up for the whole step.
-- CTA: last five seconds, after the result is visible. Offer the next step, not a purchase.
+- CTA: last five seconds, after the result is visible. Offer the next step, not a sale.
 - Audio: voiceover, steady pace, a short pause between steps so the viewer can follow.
 
 ### trend_remix
 - Budget: 20 seconds, 50 words.
-- Beats: the trend beat as the audience expects it, then the twist, then the product, then proof. The
+- Beats: the trend beat as the audience expects it, then the twist, then the payoff, then proof. The
   twist must land before the halfway mark.
 - On-screen text: medium. Match the trend's own text convention or the remix reads as a miss.
 - CTA: the caption carries it. On-screen, one short line at the end.
@@ -93,7 +93,7 @@ at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
 
 ### stitch
 - Budget: 30 seconds, 75 words.
-- Beats: the borrowed clip claim, then your response, then the solution, then proof. Keep the borrowed clip
+- Beats: the borrowed clip claim, then your response, then the payoff, then proof. Keep the borrowed clip
   under four seconds and make sure the rights are clear.
 - On-screen text: light. One label naming what is being answered.
 - CTA: last four seconds, in your own frame, never over the borrowed footage.
@@ -101,11 +101,11 @@ at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
 
 ### other
 - Budget: 30 seconds, 75 words. Use these defaults when the source reel fits no named format.
-- Beats: problem, then solution, then differentiator, then proof.
+- Beats: problem, then payoff, then what is different, then proof.
 - On-screen text: light. Three to five cards across the beats, six words or fewer, plus the hook and
   CTA cards.
 - CTA: last four seconds, spoken plus one text card.
-- Audio: whatever the source used, named explicitly in the production notes so the founder can match it.
+- Audio: whatever the source used, named explicitly in the production notes so you can match it.
 
 ## Sources
 

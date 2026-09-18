@@ -15,22 +15,22 @@ Every command is `python3 skills/contentos/scripts/contentos.py <command> --proj
 | --- | --- | --- | --- |
 | research | `research [--yes] [--estimate-only] [--no-download] [--resume <id>]` | `.contentos/config.json`, the Apify key or `--mock` | `run.json`, `01-reels.json`, `01-profiles.json`, `02-outliers.json`, the downloaded videos and frames |
 | frames | `frames --run <id> [--refresh-expired]` | `02-outliers.json`, the downloaded videos | `frames/<shortCode>/`, an updated `02-outliers.json` |
-| direct | `direct-prompt --run <id> --shortcode <sc>` | one selected reel's frames and metadata, `product.md`, the director references | a dispatch prompt on stdout; the subagent writes `03-analyses/<sc>.json` |
+| direct | `direct-prompt --run <id> --shortcode <sc>` | one selected reel's frames and metadata, `creator.md`, the director references | a dispatch prompt on stdout; the subagent writes `03-analyses/<sc>.json` |
 | direct | `verify --run <id> --stage direct --shortcode <sc>` | `03-analyses/<sc>.json` | the file coerced in place, `analysis_status` recorded on the reel |
-| direct | `synth-prompt --run <id>` | every analysis, `product.md` | a dispatch prompt on stdout; the subagent writes `03-patterns.md` |
+| direct | `synth-prompt --run <id>` | every analysis, `creator.md` | a dispatch prompt on stdout; the subagent writes `03-patterns.md` |
 | direct | `rank --run <id> [--mock]` | the selected reels and their valid analyses | `03-briefs.json`, `briefs.md` |
-| write | `write-prompt --run <id> --brief B01 [--revision N]`, then `verify --stage write` | the brief, its analysis and frames, `product.md`, `rules.md`, the writer references | `04-scripts/B01.r<N>.md` |
-| qa | `qa-prompt --run <id> --brief B01 [--revision N]`, then `verify --stage qa` | the script, the brief, the analysis, `product.md`, `rules.md`, `qa-rubric.md` | `05-qa/B01.r<N>.json` |
+| write | `write-prompt --run <id> --brief B01 [--revision N]`, then `verify --stage write` | the brief, its analysis and frames, `creator.md`, `rules.md`, the writer references | `04-scripts/B01.r<N>.md` |
+| qa | `qa-prompt --run <id> --brief B01 [--revision N]`, then `verify --stage qa` | the script, the brief, the analysis, `creator.md`, `rules.md`, `qa-rubric.md` | `05-qa/B01.r<N>.json` |
 | report | `report --run <id>` | every stage's output for one run | `report.md` |
 
 ## Run directory layout
 
-Founder state lives in the founder's own project, never inside this plugin:
+Creator state lives in the creator's own project, never inside this plugin:
 
 ```
 <project>/.contentos/
-├── product.md            # product facts, audience profile, brand voice, claims, CTA, demo moments
-├── rules.md              # founder corrections, one per line
+├── creator.md            # who you are, audience profile, brand voice, claims, CTA, payoff moments
+├── rules.md              # creator corrections, one per line
 ├── config.json           # competitors[], thresholds, cost cap, qa_pass_threshold
 ├── .env                  # optional APIFY_API_TOKEN, must be chmod 600
 └── runs/<YYYYMMDD-HHMMSS>/
@@ -50,7 +50,7 @@ Founder state lives in the founder's own project, never inside this plugin:
 ## Exit codes
 
 Every subcommand returns one of these. 0 is the only success code; the rest
-tell the skill (or the founder) what to do next.
+tell the skill (or the creator) what to do next.
 
 | code | meaning |
 | --- | --- |
@@ -84,7 +84,10 @@ Live smoke: the /plugin setting reaches the Bash tool: no. Claude Code passes
 plugin settings to hooks only, so the SessionStart hook in `hooks/hooks.json`
 runs `contentos.py sync-plugin-key`, which copies the key to
 `~/.config/contentos/plugin-option.env` (chmod 600). `diagnose` reports it as
-`apify_source: "plugin_option"`.
+`apify_source: "plugin_option"`. The full `diagnose` key map is `apify`,
+`apify_source`, `project_dir`, `creator_md`, `rules_md`, `config_json`,
+`python`, `ffmpeg`, `skill_root`, `env_perms_ok`, `warnings`, `mock`, and
+`apify_live`.
 Live smoke: Instagram CDN status for an expired signed URL: pending (expected 403)
 
 ## Sources
