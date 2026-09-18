@@ -10,6 +10,14 @@ PLUGIN_JSON = REPO_ROOT / ".claude-plugin" / "plugin.json"
 MARKETPLACE_JSON = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 HOOKS_JSON = REPO_ROOT / "hooks" / "hooks.json"
 
+# The one line the plugin gallery shows. Both manifests carry it, word
+# for word, and 0.2.0 makes it say creators rather than app founders.
+DESCRIPTION = (
+    "Competitor research to vetted Reel scripts: a four-stage Instagram "
+    "Reels content pipeline for creators."
+)
+VERSION = "0.2.0"
+
 
 class ManifestTests(NoNetworkTestCase):
     def test_manifests_are_valid_json_and_names_agree(self) -> None:
@@ -20,6 +28,19 @@ class ManifestTests(NoNetworkTestCase):
         self.assertEqual(marketplace["name"], "contentos")
         self.assertEqual(len(marketplace["plugins"]), 1)
         self.assertEqual(marketplace["plugins"][0]["name"], plugin["name"])
+
+    def test_manifests_describe_creators_and_version_0_2_0(self) -> None:
+        plugin = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))
+        marketplace = json.loads(MARKETPLACE_JSON.read_text(encoding="utf-8"))
+
+        self.assertEqual(plugin["version"], VERSION)
+        self.assertEqual(plugin["description"], DESCRIPTION)
+        self.assertEqual(marketplace["plugins"][0]["description"], DESCRIPTION)
+        for text in (
+            PLUGIN_JSON.read_text(encoding="utf-8"),
+            MARKETPLACE_JSON.read_text(encoding="utf-8"),
+        ):
+            self.assertNotIn("founder", text.lower())
 
     def test_marketplace_source_is_repo_root(self) -> None:
         marketplace = json.loads(MARKETPLACE_JSON.read_text(encoding="utf-8"))

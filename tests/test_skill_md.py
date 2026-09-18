@@ -1,17 +1,22 @@
 """Tests for `skills/contentos/SKILL.md` and `README.md`.
 
-SKILL.md is the orchestrator Claude follows when a founder types
+SKILL.md is the orchestrator Claude follows when a creator types
 `/contentos ...`. It is the one file in this plugin that has to describe
 the CLI exactly as implemented: a command, a flag, or a file name that
-drifts from `contentos.py` sends the founder (or Claude) at something
+drifts from `contentos.py` sends the creator (or Claude) at something
 that is not there. So these tests check the frontmatter the runtime
 reads, the parts of the body the design spec pins down (the root probe,
 the foreground-Bash rule, the four dispatch loops), and every command
 line in the file against the real argument parser.
 
-README.md is the other founder-facing document, so the install lines,
+README.md is the other creator-facing document, so the install lines,
 the key locations, the ffmpeg note, the per-run cost, and the credits to
 the three guides are checked here too.
+
+Both files were written for app founders in 0.1.x. 0.2.0 makes ContentOS
+a tool for any creator, so these tests also hold the rename shut: no
+`product.md`, no `founder`, and a README that positions the plugin for
+creators and walks through one run.
 
 Both files are parsed with a tiny local frontmatter reader rather than a
 YAML library: this plugin is standard library only (design spec, "Global
@@ -23,12 +28,12 @@ import re
 import unittest
 from typing import Dict, List, Tuple
 
-from tests.helpers import NoNetworkTestCase, REPO_ROOT, SKILL_DIR
+from tests.helpers import NoNetworkTestCase, REPO_ROOT, SKILL_DIR, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
 import contentos  # noqa: E402
-from lib import apify  # noqa: E402
+from lib import apify, env, setup as setup_lib  # noqa: E402
 
 SKILL_MD = SKILL_DIR / "SKILL.md"
 README = REPO_ROOT / "README.md"
@@ -67,6 +72,52 @@ KEY_LOCATIONS = [
     ".contentos/.env",
     "~/.config/contentos/.env",
 ]
+
+# The keys the skill writes into `.contentos/setup-answers.json`
+# (design spec, "Skill"). `_answer_keys_setup_reads` checks this list
+# against the keys `lib/setup.py` really looks at, so the interview and
+# the command that consumes it can never drift apart.
+SETUP_ANSWER_KEYS = [
+    "creator_name",
+    "one_liner",
+    "pillars",
+    "target_user",
+    "frustration",
+    "objection",
+    "offer",
+    "offer_objection",
+    "payoff_moments",
+    "allowed_claims",
+    "forbidden_claims",
+    "proof_assets",
+    "voice_on",
+    "voice_off",
+    "off_limits_words",
+    "cta",
+    "hashtag_seeds",
+    "competitors",
+    "format_accounts",
+]
+
+# Names from the 0.1.x product-and-founder vocabulary. After 0.2.0 none
+# of them may appear in either creator-facing file (design spec, "Global
+# Constraints": "The rename is complete").
+PRODUCT_LEFTOVERS = [
+    "product_fit",
+    "demo_present",
+    "consistent_with_product",
+    "Demo moment",
+    "product.md",
+    "product-template",
+    "adaptation_for_product",
+    "product_or_topic_shown",
+    "Founder rules",
+]
+
+# The invented creator the README's walkthrough follows. Invented on
+# purpose: nothing in a creator-facing file claims anything about a real
+# person or a real product.
+WALKTHROUGH_CREATOR = "Mara"
 
 GUIDE_TITLES = [
     "The 20-Agent Script System: How to Build an AI Writing Pipeline That Actually "
@@ -137,6 +188,17 @@ def _subparser_options() -> Dict[str, List[str]]:
             )
         options[name] = flags
     return options
+
+
+def _answer_keys_setup_reads() -> set:
+    """Every answer key `lib/setup.py` reads, from the module itself."""
+    keys = set(setup_lib.TEXT_SECTIONS.values())
+    keys.update(setup_lib.LIST_SECTIONS.values())
+    for mapping in setup_lib.BULLET_SECTIONS.values():
+        keys.update(mapping.values())
+    # The offer block is rendered by hand, not through a section map.
+    keys.update({"offer", "offer_objection"})
+    return keys
 
 
 class SkillFrontmatterTests(NoNetworkTestCase):
@@ -261,6 +323,63 @@ class SkillBodyTests(NoNetworkTestCase):
                 self.assertIn(name, contentos.SUBCOMMANDS)
                 self.assertNotIn(name, mentioned)
 
+    def test_skill_setup_flow_asks_about_offer_and_format_accounts_and_writes_new_keys(
+        self,
+    ) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        # The body is hard-wrapped, so phrases are matched against the
+        # collapsed prose rather than against the raw lines.
+        collapsed = _collapse(body)
+        prose = collapsed.lower()
+
+        # Four rounds, in order, and still plain chat questions.
+        position = -1
+        for round_number in (1, 2, 3, 4):
+            marker = "**Round {0},".format(round_number)
+            with self.subTest(round=round_number):
+                found = body.find(marker, position + 1)
+                self.assertNotEqual(found, -1, f"{marker} is missing")
+                self.assertGreater(found, position, f"{marker} is out of order")
+                position = found
+        self.assertIn("not AskUserQuestion", collapsed)
+
+        # Round 1 is the creator, round 2 the viewer, round 3 the offer,
+        # round 4 the guardrails and the accounts.
+        for phrase in (
+            "pillars",
+            "payoff",
+            "what you promote",
+            "is a fine answer",
+            "format accounts",
+            "formats travel",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, prose)
+
+        # Every answer key the skill writes, and no key setup cannot read.
+        self.assertEqual(set(SETUP_ANSWER_KEYS), _answer_keys_setup_reads())
+        for key in SETUP_ANSWER_KEYS:
+            with self.subTest(answer_key=key):
+                self.assertIn("`" + key + "`", body)
+
+        # Setup writes creator.md, and --force rewrites that file.
+        self.assertIn("setup --answers-file", body)
+        self.assertIn("`creator.md`", body)
+        self.assertIn("--force", body)
+
+    def test_skill_preflight_checks_creator_md(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+
+        # The pre-flight step reads the diagnose keys by their real names.
+        self.assertIn("`creator_md`", body)
+        self.assertIn("`config_json`", body)
+
+        with temp_project() as project:
+            report = env.diagnose(project, environ={"CONTENTOS_CONFIG_DIR": ""})
+        for key in ("creator_md", "config_json", "apify", "ffmpeg"):
+            with self.subTest(diagnose_key=key):
+                self.assertIn(key, report)
+
     def test_skill_has_no_em_dashes(self) -> None:
         # Founder-facing text: plain language, no em dashes (design spec,
         # "Global Constraints").
@@ -291,10 +410,17 @@ class ReadmeTests(NoNetworkTestCase):
         self.assertIn("/contentos run", text)
         self.assertIn("/contentos run --mock --auto", text)
 
-        # The cost line quotes the number the estimator really produces
-        # for ten accounts at the default 30 reels each.
-        estimate = apify.estimate_cost(10, 30)
-        self.assertIn("${0:.2f}".format(estimate.total_usd), text)
+        # The cost line quotes the numbers the estimator really produces
+        # for eight and for ten accounts at the default 30 reels each.
+        for accounts in (8, 10):
+            estimate = apify.estimate_cost(accounts, 30)
+            with self.subTest(accounts=accounts):
+                self.assertIn("${0:.2f}".format(estimate.total_usd), text)
+
+        # The commands table's setup row names the three files setup writes.
+        self.assertIn(
+            "Interview, then write `creator.md`, `config.json`, and `rules.md`", text
+        )
 
         # Where files go, and how output improves over time.
         self.assertIn(".contentos/", text)
@@ -329,8 +455,52 @@ class ReadmeTests(NoNetworkTestCase):
         self.assertIn("python3 -m unittest discover -s tests", text)
         self.assertIn("License", text)
 
-        # Founder-facing text: no em dashes.
+        # Privacy: what Claude reads is the creator's own profile.
+        self.assertIn("reads your creator profile and your run files", prose)
+
+        # Creator-facing text: no em dashes.
         self.assertNotIn("—", text)
+
+    def test_readme_has_walkthrough_and_creator_positioning(self) -> None:
+        text = README.read_text(encoding="utf-8")
+        prose = _collapse(text)
+
+        # The headline is for creators, not for app founders.
+        headline = _collapse(text.split("## ", 1)[0])
+        self.assertIn("Claude Code plugin for creators", headline)
+        self.assertNotIn("app founders", headline)
+
+        # A worked run, following one invented creator end to end.
+        self.assertIn("## How a run looks", text)
+        walkthrough = text.split("## How a run looks", 1)[1]
+        self.assertIn(WALKTHROUGH_CREATOR, walkthrough)
+        for phrase in (
+            "/contentos setup",
+            "/contentos run",
+            ".contentos/creator.md",
+            "briefs.md",
+            "report.md",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, walkthrough)
+
+        # The new vocabulary, in the stage summary at the top.
+        for phrase in ("payoff", "creator profile"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, prose.lower())
+
+
+class CreatorRenameTests(NoNetworkTestCase):
+    def test_skill_and_readme_have_no_product_leftovers(self) -> None:
+        for path in (SKILL_MD, README):
+            text = path.read_text(encoding="utf-8")
+            for leftover in PRODUCT_LEFTOVERS:
+                with self.subTest(file=path.name, leftover=leftover):
+                    self.assertNotIn(leftover, text)
+            # "Founder" is gone in every case: the README's credits line
+            # does not contain it either, so nothing here is exempt.
+            with self.subTest(file=path.name, leftover="founder"):
+                self.assertNotIn("founder", text.lower())
 
 
 if __name__ == "__main__":
