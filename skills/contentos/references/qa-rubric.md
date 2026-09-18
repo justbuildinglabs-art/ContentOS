@@ -33,9 +33,9 @@ Pass when every fact about the creator, the tools or topics covered, and anythin
 contradiction with Allowed claims or What you promote.
 
 ### no_fabricated_claims
-Pass when every number and factual claim traces to Allowed claims or Proof assets in `creator.md`, or is
-written as a placeholder. Fail on any invented statistic, rating, user count, or result. A
-`[NEED NUMBER]` is a pass.
+Pass when every number and factual claim traces to Allowed claims, Proof assets, Payoff moments, or
+What you promote in `creator.md`, or is written as a placeholder. Fail on any invented statistic,
+rating, user count, or result. A `[NEED NUMBER]` is a pass.
 
 ### no_fake_testimonial
 Pass when no quote, review, message screenshot, or customer story appears unless it is listed under Proof

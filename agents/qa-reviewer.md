@@ -81,8 +81,9 @@ Each one is `pass`, `fail`, or `na`. Use `na` only where it says so.
   an invented fact, a wrong number, or a contradiction with Allowed claims or
   What you promote.
 - `no_fabricated_claims`: pass when every number and factual claim traces to
-  Allowed claims or Proof assets, or is written as a placeholder. Fail on any
-  invented statistic, rating, user count, or result.
+  Allowed claims, Proof assets, Payoff moments, or What you promote, or is
+  written as a placeholder. Fail on any invented statistic, rating, user
+  count, or result.
 - `no_fake_testimonial`: pass when no quote, review, screenshot, or customer
   story appears that is not listed under Proof assets. Fail on any invented
   person or paraphrase.

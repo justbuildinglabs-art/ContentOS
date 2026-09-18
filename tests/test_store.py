@@ -556,7 +556,7 @@ class EnsureGitignoreTests(NoNetworkTestCase):
 
         self.assertEqual(first_text, second_text)
 
-    def test_ensure_gitignore_preserves_founder_edits(self) -> None:
+    def test_ensure_gitignore_preserves_creator_edits(self) -> None:
         with temp_project() as project_dir:
             contentos_dir(project_dir).mkdir(parents=True, exist_ok=True)
             gitignore_path = contentos_dir(project_dir) / ".gitignore"

@@ -31,6 +31,16 @@ REFERENCES_DIR = REPO_ROOT / "skills" / "contentos" / "references"
 EXAMPLES_DIR = REFERENCES_DIR / "examples"
 AGENTS_DIR = REPO_ROOT / "agents"
 
+# The four creator.md sections `no_fabricated_claims` traces claims to
+# (design spec, "Stage 3 -- write": "Every claim must exist in creator.md,
+# under Allowed claims, Proof assets, Payoff moments, or What you promote").
+NO_FABRICATED_CLAIMS_SECTIONS = [
+    "Allowed claims",
+    "Proof assets",
+    "Payoff moments",
+    "What you promote",
+]
+
 # The seven files the design spec's "Reference files" table lists, minus
 # examples/<format>.md (checked separately, by count and by name).
 REFERENCE_FILENAMES = [
@@ -84,7 +94,7 @@ CREATOR_SECTION_CITING_FILES = [
 
 # Every string that must not survive the creator pivot anywhere under
 # references/: the old schema keys, the old script section and profile
-# file names, and the word "creator" itself (checked case-insensitively,
+# file names, and the word "founder" itself (checked case-insensitively,
 # which also covers the old `## Founder rules` prompt heading).
 PRODUCT_LEFTOVER_STRINGS = [
     "product_fit",
@@ -235,6 +245,26 @@ class QaRubricCoverageTests(NoNetworkTestCase):
         for key in keys:
             with self.subTest(key=key):
                 self.assertIn(key, headings)
+
+
+class NoFabricatedClaimsSectionsTests(NoNetworkTestCase):
+    def test_qa_rubric_names_all_four_evidence_sections(self) -> None:
+        text = (REFERENCES_DIR / "qa-rubric.md").read_text(encoding="utf-8")
+        section = _section_text(text, "### no_fabricated_claims")
+        for name in NO_FABRICATED_CLAIMS_SECTIONS:
+            with self.subTest(section=name):
+                self.assertIn(name, section)
+
+    def test_qa_reviewer_agent_names_all_four_evidence_sections(self) -> None:
+        text = (AGENTS_DIR / "qa-reviewer.md").read_text(encoding="utf-8")
+        match = re.search(
+            r"- `no_fabricated_claims`:.*?(?=\n- `|\n## |\Z)", text, re.DOTALL
+        )
+        self.assertIsNotNone(match, "no_fabricated_claims bullet not found")
+        bullet = match.group(0)
+        for name in NO_FABRICATED_CLAIMS_SECTIONS:
+            with self.subTest(section=name):
+                self.assertIn(name, bullet)
 
 
 class SourcesFooterTests(NoNetworkTestCase):

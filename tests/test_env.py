@@ -378,9 +378,9 @@ class SyncPluginOptionTests(NoNetworkTestCase):
 
                     self.assertFalse(mirror.exists())
 
-    def test_never_touches_the_founders_own_global_env(self) -> None:
+    def test_never_touches_the_creators_own_global_env(self) -> None:
         with temp_project() as config_dir:
-            _write_env_file(config_dir / ".env", "APIFY_API_TOKEN=founder_token\n")
+            _write_env_file(config_dir / ".env", "APIFY_API_TOKEN=creator_token\n")
 
             sync_plugin_option(
                 {"CONTENTOS_CONFIG_DIR": str(config_dir), PLUGIN_OPTION_NAME: "plugin_token"}
@@ -389,7 +389,7 @@ class SyncPluginOptionTests(NoNetworkTestCase):
 
             self.assertEqual(
                 (config_dir / ".env").read_text(encoding="utf-8"),
-                "APIFY_API_TOKEN=founder_token\n",
+                "APIFY_API_TOKEN=creator_token\n",
             )
 
     def test_clean_mode_writes_nothing(self) -> None:
