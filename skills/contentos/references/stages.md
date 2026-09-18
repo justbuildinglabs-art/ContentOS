@@ -31,7 +31,7 @@ Creator state lives in the creator's own project, never inside this plugin:
 <project>/.contentos/
 ├── creator.md            # who you are, audience profile, brand voice, claims, CTA, payoff moments
 ├── rules.md              # creator corrections, one per line
-├── config.json           # competitors[], thresholds, cost cap, qa_pass_threshold
+├── config.json           # competitors[], format_accounts[], max_format_briefs, thresholds, cost cap, qa_pass_threshold
 ├── .env                  # optional APIFY_API_TOKEN, must be chmod 600
 └── runs/<YYYYMMDD-HHMMSS>/
     ├── run.json                  # stages, timings, cost estimate and actual, apify run ids, warnings
