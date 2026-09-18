@@ -149,7 +149,7 @@ class LoadEnvFileTests(NoNetworkTestCase):
 
 
     def test_env_file_parsing_strips_a_leading_export(self) -> None:
-        # `export KEY=value` is how a founder who pasted the line from
+        # `export KEY=value` is how a creator who pasted the line from
         # their shell profile would have written it.
         with temp_project() as project_dir:
             env_path = project_dir / ".contentos" / ".env"
@@ -525,7 +525,7 @@ class SyncPluginKeyCliTests(NoNetworkTestCase):
         self.assertNotIn("hook_secret_token", out)
 
     def test_warnings_go_to_stderr_and_exit_stays_zero(self) -> None:
-        # A hook that fails must never block the founder's session.
+        # A hook that fails must never block the creator's session.
         with temp_project() as tmp_dir:
             blocker = tmp_dir / "not-a-dir"
             blocker.write_text("", encoding="utf-8")

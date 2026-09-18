@@ -84,7 +84,7 @@ CREATOR_SECTION_CITING_FILES = [
 
 # Every string that must not survive the creator pivot anywhere under
 # references/: the old schema keys, the old script section and profile
-# file names, and the word "founder" itself (checked case-insensitively,
+# file names, and the word "creator" itself (checked case-insensitively,
 # which also covers the old `## Founder rules` prompt heading).
 PRODUCT_LEFTOVER_STRINGS = [
     "product_fit",

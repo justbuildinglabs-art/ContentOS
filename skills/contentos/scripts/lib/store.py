@@ -1,6 +1,6 @@
-"""Run directory layout, config loading, and rules for a founder project.
+"""Run directory layout, config loading, and rules for a creator project.
 
-See the design spec's "Architecture" section for the per-founder state
+See the design spec's "Architecture" section for the per-creator state
 tree this module owns (everything under `<project>/.contentos/`),
 "Config defaults" for `DEFAULT_CONFIG`, and "Global Constraints" for the
 atomic-JSON-write and Python-3.9-syntax rules every module here follows.
@@ -67,7 +67,7 @@ _NUMERIC_CONFIG_KEYS = tuple(
 # either an outright TypeError or, worse, a silently truncated answer.
 #
 # Everything else stays int-or-float, because each one is a measurement
-# a founder could reasonably want a fraction of: thresholds
+# a creator could reasonably want a fraction of: thresholds
 # (`outlier_threshold`, `qa_pass_threshold`, `length_tolerance`), money
 # (`apify_max_charge_usd`), and sizes/limits (`min_plays`,
 # `small_account_followers`, `max_video_mb`, `max_video_seconds`,
@@ -205,7 +205,7 @@ def load_config(project: Path) -> Dict[str, Any]:
     ConfigError when the file is missing, cannot be read (not UTF-8
     text, a directory in its place, permissions), is not valid JSON, is
     not a JSON object, or fails validation. Every one of those is the
-    same thing from the founder's side -- the config is not usable --
+    same thing from the creator's side -- the config is not usable --
     and every caller already handles ConfigError, so none of them
     should end in a traceback.
     """
@@ -227,7 +227,7 @@ def load_config(project: Path) -> Dict[str, Any]:
     config.update(overrides)
     _validate_config(config)
 
-    # A handle a founder hand-edited into both lists stays a competitor
+    # A handle a creator hand-edited into both lists stays a competitor
     # (design spec, "Reference files" -> Format accounts): drop it from
     # format_accounts here too, case-insensitively, so a hand-edited
     # config.json behaves exactly like one `setup` wrote.
@@ -384,7 +384,7 @@ def ensure_gitignore(project: Path) -> None:
     """Ensure `<project>/.contentos/.gitignore` covers every gitignored path.
 
     Creates `.contentos/` first if it does not exist yet. Appends only
-    the lines missing from an existing file, so founder edits (extra
+    the lines missing from an existing file, so creator edits (extra
     entries, comments, reordering) are never overwritten; calling this
     again once every line is present changes nothing.
     """
@@ -405,7 +405,7 @@ def ensure_gitignore(project: Path) -> None:
 
 
 def read_rules(project: Path) -> str:
-    """Return the founder's rules.md, minus blank lines and `#` comments.
+    """Return the creator's rules.md, minus blank lines and `#` comments.
 
     Returns "" when the file is missing, or holds nothing but blank
     lines and comments.

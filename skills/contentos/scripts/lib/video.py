@@ -28,7 +28,7 @@ from lib import apify, http, store
 from lib.http import HTTPError
 
 # Cap for cover-image downloads. Unlike the video (capped by the
-# founder-configurable `max_video_mb`), a JPEG cover is always small,
+# creator-configurable `max_video_mb`), a JPEG cover is always small,
 # so this is a fixed generous ceiling rather than a config key.
 COVER_MAX_BYTES = 5 * 1024 * 1024
 

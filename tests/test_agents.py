@@ -111,7 +111,7 @@ Some caption text.
 
 
 def _write_project(project: Path) -> None:
-    """Write the founder state Stage 3/4 commands need: config and creator.md."""
+    """Write the creator state Stage 3/4 commands need: config and creator.md."""
     config_dir = store.contentos_dir(project)
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(
@@ -275,7 +275,7 @@ class WritePromptTests(NoNetworkTestCase):
 
     def test_write_prompt_prefers_a_project_example_over_the_shipped_one(self) -> None:
         # The plugin's references/ directory is replaced wholesale on
-        # update, so a founder's gold script has to live in their own
+        # update, so a creator's gold script has to live in their own
         # project to survive.
         with temp_project() as project:
             _write_project(project)

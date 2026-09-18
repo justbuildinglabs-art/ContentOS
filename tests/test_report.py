@@ -204,7 +204,7 @@ class RenderReportTests(NoNetworkTestCase):
             self.assertIn("## Warnings", text)
             self.assertIn("ghostaccount: not_found", text)
 
-            self.assertNotIn("—", text)  # no em dashes anywhere in founder-facing text
+            self.assertNotIn("—", text)  # no em dashes anywhere in creator-facing text
 
     def test_report_marks_none_when_nothing_needs_a_human_or_has_placeholders(self) -> None:
         with temp_project() as project:

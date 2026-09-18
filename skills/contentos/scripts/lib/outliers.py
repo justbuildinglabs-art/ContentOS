@@ -74,7 +74,7 @@ def _account(reel: Dict[str, Any]) -> str:
 def compute_baselines(reels: List[Dict[str, Any]], min_n: int) -> Dict[str, Baseline]:
     """Compute one Baseline per distinct account in `reels`.
 
-    `min_n` is the founder's `min_reels_for_median` config value. For
+    `min_n` is the creator's `min_reels_for_median` config value. For
     each account, `n` is its count of reels with `plays` not None:
 
     - `n >= min_n`: the account's own median plays, confidence "ok".

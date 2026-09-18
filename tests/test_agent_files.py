@@ -96,7 +96,7 @@ QA_VERDICT_PHRASES = [
 
 # Every string that must not survive the creator pivot in an agent file:
 # the old analysis and QA field names, the old script section and profile
-# file names, and the word "founder" itself (checked case-insensitively,
+# file names, and the word "creator" itself (checked case-insensitively,
 # which also covers the old `## Founder rules` prompt heading). The same
 # list guards `references/` in `tests/test_references.py`.
 PRODUCT_LEFTOVER_STRINGS = [
@@ -228,7 +228,7 @@ class ContentDirectorAgentTests(NoNetworkTestCase):
     def test_director_agent_prose_is_plain(self) -> None:
         text = DIRECTOR_AGENT.read_text(encoding="utf-8")
 
-        # Founder-facing text: no em dashes (design spec, "Global Constraints").
+        # Creator-facing text: no em dashes (design spec, "Global Constraints").
         self.assertNotIn("—", text)
 
 
@@ -313,7 +313,7 @@ class AllAgentFilesTests(NoNetworkTestCase):
                     self.assertNotIn(banned, lowered, f"{name} still contains {banned!r}")
 
     def test_agent_files_have_no_em_dashes(self) -> None:
-        # Founder-facing text: plain language, no em dashes (design spec,
+        # Creator-facing text: plain language, no em dashes (design spec,
         # "Global Constraints").
         for name, (path, _description, _turns) in AGENT_FILES.items():
             with self.subTest(agent=name):

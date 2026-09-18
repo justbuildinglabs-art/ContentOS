@@ -610,7 +610,7 @@ class ResearchGateTests(NoNetworkTestCase):
         self.assertTrue(err.strip())
 
     def test_estimate_only_exits_3_even_with_yes(self) -> None:
-        # --estimate-only stops the run even when the founder also passed
+        # --estimate-only stops the run even when the creator also passed
         # --yes: the two flags are independent gates in the brief's order.
         with temp_project() as project_dir:
             _write_config(project_dir, {"competitors": ["sproutapp"]})

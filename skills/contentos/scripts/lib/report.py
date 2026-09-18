@@ -1,4 +1,4 @@
-"""`report` and `status`: the founder-facing wrap-up for a run.
+"""`report` and `status`: the creator-facing wrap-up for a run.
 
 Both read a run directory that `write`/`qa` dispatches (Stage 3/4) have
 already populated, and neither touches a subagent or the network.

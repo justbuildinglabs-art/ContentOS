@@ -63,7 +63,7 @@ def _stub_handler(name: str) -> Callable[[argparse.Namespace], int]:
 
 
 def _diagnose_handler(args: argparse.Namespace) -> int:
-    """Run the founder-facing pre-flight check and print its JSON report.
+    """Run the creator-facing pre-flight check and print its JSON report.
 
     `--live` additionally validates the resolved key against Apify at
     zero cost (`GET /users/me`, via `apify.check_token`). Without the
@@ -96,12 +96,12 @@ def _sync_plugin_key_handler(_args: argparse.Namespace) -> int:
     """Copy the /plugin Apify setting to where later commands can read it.
 
     The plugin's SessionStart hook (`hooks/hooks.json`) runs this, not
-    the founder. Claude Code hands plugin settings to hooks only, never
+    the creator. Claude Code hands plugin settings to hooks only, never
     to commands run through the Bash tool, so this is the one place the
     setting is visible (`env.sync_plugin_option`). A SessionStart hook's
     stdout lands in Claude's context, so nothing is printed there:
     warnings go to stderr, and this always exits 0 so a failure never
-    blocks the founder's session.
+    blocks the creator's session.
 
     Outside a hook it changes nothing. Claude Code sets
     `CLAUDE_PLUGIN_ROOT` for plugin hooks only; without it the option is

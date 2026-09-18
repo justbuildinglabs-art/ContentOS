@@ -186,7 +186,7 @@ class LoadConfigTests(NoNetworkTestCase):
 
     def test_load_config_still_accepts_a_float_for_a_measurement_key(self) -> None:
         # These are thresholds and limits, not counts, so a float is a
-        # legitimate value a founder might tune to.
+        # legitimate value a creator might tune to.
         with temp_project() as project_dir:
             _write_config(
                 project_dir,
@@ -342,7 +342,7 @@ class ResolveRunTests(NoNetworkTestCase):
 
     def test_resolve_latest_skips_directories_that_are_not_runs(self) -> None:
         # runs/ can pick up a stray directory: an editor's backup folder,
-        # a half-copied run, anything the founder dropped in. "latest"
+        # a half-copied run, anything the creator dropped in. "latest"
         # must not hand one of those back as if it were a run.
         with temp_project() as project_dir:
             for name in (
@@ -561,13 +561,13 @@ class EnsureGitignoreTests(NoNetworkTestCase):
             contentos_dir(project_dir).mkdir(parents=True, exist_ok=True)
             gitignore_path = contentos_dir(project_dir) / ".gitignore"
             gitignore_path.write_text(
-                "# founder note\ncustom-thing/\n", encoding="utf-8"
+                "# creator note\ncustom-thing/\n", encoding="utf-8"
             )
 
             ensure_gitignore(project_dir)
             lines = gitignore_path.read_text(encoding="utf-8").splitlines()
 
-        self.assertIn("# founder note", lines)
+        self.assertIn("# creator note", lines)
         self.assertIn("custom-thing/", lines)
         for line in (
             ".env",
@@ -589,7 +589,7 @@ class ReadRulesTests(NoNetworkTestCase):
             rules_path.write_text(
                 "\n".join(
                     [
-                        "# founder corrections",
+                        "# creator corrections",
                         "",
                         "Never use the word cheap.",
                         "# a comment in the middle",

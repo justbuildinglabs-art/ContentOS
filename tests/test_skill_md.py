@@ -65,7 +65,7 @@ DISPATCH_LOOPS = [
 ]
 
 # The four places the Apify key can live (design spec, "Key resolution"),
-# each named by the phrase both founder-facing documents use for it.
+# each named by the phrase both creator-facing documents use for it.
 KEY_LOCATIONS = [
     "APIFY_API_TOKEN",
     "plugin setting",
@@ -397,7 +397,7 @@ class SkillBodyTests(NoNetworkTestCase):
                 self.assertIn(key, report)
 
     def test_skill_has_no_em_dashes(self) -> None:
-        # Founder-facing text: plain language, no em dashes (design spec,
+        # Creator-facing text: plain language, no em dashes (design spec,
         # "Global Constraints").
         self.assertNotIn("—", SKILL_MD.read_text(encoding="utf-8"))
 
@@ -453,7 +453,7 @@ class ReadmeTests(NoNetworkTestCase):
                 self.assertIn(title, prose)
         self.assertIn("Ray Cfu", text)
 
-        # The commands table names every founder-facing command.
+        # The commands table names every creator-facing command.
         for command in (
             "setup",
             "run",
@@ -513,7 +513,7 @@ class CreatorRenameTests(NoNetworkTestCase):
             for leftover in PRODUCT_LEFTOVERS:
                 with self.subTest(file=path.name, leftover=leftover):
                     self.assertNotIn(leftover, text)
-            # "Founder" is gone in every case: the README's credits line
+            # "Creator" is gone in every case: the README's credits line
             # does not contain it either, so nothing here is exempt.
             with self.subTest(file=path.name, leftover="founder"):
                 self.assertNotIn("founder", text.lower())

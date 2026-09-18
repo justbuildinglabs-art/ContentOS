@@ -24,7 +24,7 @@ PLUGIN_OPTION_FILE = "plugin-option.env"
 
 @dataclass
 class Keys:
-    """Result of resolving the founder's Apify key from every source."""
+    """Result of resolving the creator's Apify key from every source."""
 
     apify: Optional[str]
     source: Optional[str]  # "env" | "plugin_option" | "project_env" | "global_env"
@@ -36,7 +36,7 @@ def load_env_file(path: Path, warnings: Optional[List[str]] = None) -> Dict[str,
 
     Blank lines and lines starting with `#` are skipped. A leading
     `export ` is stripped first, since that is how the line reads when a
-    founder copies it out of their shell profile. A value's matching
+    creator copies it out of their shell profile. A value's matching
     surrounding quotes (single or double) are stripped. Keys whose value
     is empty (after quote-stripping) are dropped entirely rather than
     kept as "".
@@ -110,7 +110,7 @@ def sync_plugin_option(environ: Mapping[str, str] = os.environ) -> List[str]:
     A set option is written as one `APIFY_API_TOKEN=...` line, mode 600,
     replacing any older copy in one step. An unset or blank option
     removes the copy, so clearing the setting in /plugin clears the key
-    too. Clean mode (no global config dir) does nothing. The founder's own
+    too. Clean mode (no global config dir) does nothing. The creator's own
     global `.env` is never touched.
 
     Returns warnings rather than raising, and no warning ever contains

@@ -57,6 +57,6 @@ def run_cli(
 
 @contextmanager
 def temp_project() -> Iterator[Path]:
-    """Yield a fresh temporary directory to use as a founder project root."""
+    """Yield a fresh temporary directory to use as a creator project root."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         yield Path(tmp_dir)

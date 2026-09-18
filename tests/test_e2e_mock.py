@@ -5,8 +5,8 @@ its own unit tests (test_research.py, test_direct_commands.py,
 test_agents.py, test_report.py, ...), each exercising its module
 directly or through one or two CLI calls. None of them prove that the
 whole thing actually runs end to end, in order, purely through
-`contentos.main()`, the way a founder's `/contentos run --mock` would:
-`setup` writes founder state from the fixture answers, `research --mock
+`contentos.main()`, the way a creator's `/contentos run --mock` would:
+`setup` writes creator state from the fixture answers, `research --mock
 --yes` seeds the fixture video and frames with no network, `rank --mock`
 seeds the fixture analyses and `03-patterns.md` (standing in for the
 content-director subagent), `verify` accepts and coerces every one of
