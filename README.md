@@ -112,11 +112,11 @@ proven hooks across the set, the recurring formats, the saturated angles, and a
 language bank taken from the comments.
 
 Ranking writes `briefs.md`. B01 reads: source, a dev creator's "one command
-replaced my whole morning routine" screen demo at 11x baseline; adaptation, the
-same reveal structure with a coding-agent skill running end to end as the
-payoff; hypothesis, "If we ... using the ... hook, we expect above-baseline
-plays because ...". At most two of the five briefs come from format accounts.
-Mara picks three.
+replaced my whole morning routine" screen demo, the one research found at 11x
+its account's own baseline; adaptation, the same reveal structure with a
+coding-agent skill running end to end as the payoff; hypothesis, "If we ...
+using the ... hook, we expect above-baseline plays because ...". At most two
+of the five briefs come from format accounts. Mara picks three.
 
 For each brief the writer produces a shoot-ready script: two hooks under 25
 words that take different approaches, a beats table with visual cues and
