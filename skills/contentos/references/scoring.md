@@ -140,7 +140,7 @@ appears nowhere.
 ## Director scores
 
 The three `brief_score` inputs that are not `viral_proof` are judgment
-calls, not formulas. The director sets each one from 1 to 10 while reading one reel.
+calls, not formulas. The director sets each one from 0 to 10 while reading one reel.
 These are the anchors. Score against the 10, then move down until the reel
 stops matching.
 
