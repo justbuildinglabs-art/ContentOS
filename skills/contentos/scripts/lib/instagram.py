@@ -22,6 +22,12 @@ STATUS_PRIVATE = "private"
 STATUS_EMPTY = "empty"
 STATUS_OK = "ok"
 
+# source_kind values normalize_dataset stamps on every reel and profile:
+# "format" when the owner/username (case-insensitively) is one of the
+# `format_handles` passed in, else "niche".
+SOURCE_KIND_NICHE = "niche"
+SOURCE_KIND_FORMAT = "format"
+
 
 def _to_number(value: Any) -> Optional[float]:
     """Coerce a raw Apify numeric field to a number, tolerating strings.
@@ -271,6 +277,7 @@ def normalize_dataset(
     reel_items: List[Dict[str, Any]],
     profile_items: List[Dict[str, Any]],
     handles: List[str],
+    format_handles: Optional[List[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, str]]:
     """Normalize one Apify research run into reels, profiles, and account status.
 
@@ -284,15 +291,27 @@ def normalize_dataset(
     handle with a private profile resolves to `private`; otherwise a
     handle is `ok` when at least one reel's `ownerUsername` matches it,
     else `empty`.
+
+    Every reel and every profile also carries `source_kind`: `"format"`
+    when its owner/`username` (case-insensitively) is one of
+    `format_handles`, else `"niche"`. `format_handles` defaults to none,
+    so every reel/profile is `"niche"` when it is omitted.
     """
+    format_set = {handle.lower() for handle in (format_handles or [])}
+
+    def _source_kind(owner: Any) -> str:
+        return SOURCE_KIND_FORMAT if str(owner or "").lower() in format_set else SOURCE_KIND_NICHE
+
     reels = dedupe_by_shortcode(
         [reel for reel in (normalize_reel(item) for item in reel_items) if reel is not None]
     )
+    reels = [dict(reel, source_kind=_source_kind(reel.get("ownerUsername"))) for reel in reels]
 
     profiles: Dict[str, Dict[str, Any]] = {}
     for item in profile_items:
         profile = normalize_profile(item)
         if profile is not None:
+            profile = dict(profile, source_kind=_source_kind(profile["username"]))
             profiles[profile["username"].lower()] = profile
 
     error_items = [item for item in list(reel_items) + list(profile_items) if "error" in item]

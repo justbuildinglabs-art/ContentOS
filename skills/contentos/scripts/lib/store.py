@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "competitors": [],
+    "format_accounts": [],
+    "max_format_briefs": 2,
     "lookback_days": 90,
     "baseline_lookback_days": 365,
     "reels_per_account": 30,
@@ -42,12 +44,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 # Every DEFAULT_CONFIG key whose default is a plain number (this excludes
-# "competitors", a list, and "video_source", a string). load_config
-# requires each of these to hold a positive, non-bool int/float.
+# "competitors" and "format_accounts", both lists, "video_source", a
+# string, and "max_format_briefs", a count that is allowed to be 0 --
+# unlike every other key here, which the loop below requires to be
+# strictly greater than 0. load_config requires each of these to hold a
+# positive, non-bool int/float.
 _NUMERIC_CONFIG_KEYS = tuple(
     key
     for key, default in DEFAULT_CONFIG.items()
-    if isinstance(default, (int, float)) and not isinstance(default, bool)
+    if key != "max_format_briefs"
+    and isinstance(default, (int, float))
+    and not isinstance(default, bool)
 )
 
 # The subset of _NUMERIC_CONFIG_KEYS that must be whole numbers. Each of
@@ -148,6 +155,13 @@ def _validate_config(config: Dict[str, Any]) -> None:
     if not valid_competitors:
         raise ConfigError("competitors must be a non-empty list of non-empty strings")
 
+    format_accounts = config.get("format_accounts")
+    valid_format_accounts = isinstance(format_accounts, list) and all(
+        isinstance(item, str) and item.strip() for item in format_accounts
+    )
+    if not valid_format_accounts:
+        raise ConfigError("format_accounts must be a list of non-empty strings")
+
     for key in _NUMERIC_CONFIG_KEYS:
         value = config.get(key)
         is_positive_number = (
@@ -159,6 +173,19 @@ def _validate_config(config: Dict[str, Any]) -> None:
             raise ConfigError(f"{key} must be a number greater than 0")
         if key in _INT_CONFIG_KEYS and not isinstance(value, int):
             raise ConfigError(f"{key} must be a whole number greater than 0")
+
+    # max_format_briefs is excluded from _NUMERIC_CONFIG_KEYS above
+    # because, unlike every key in that loop, 0 is a legitimate value
+    # (a creator who wants no format-account briefs at all) rather than
+    # an error -- so it gets its own "whole number, >= 0" check here.
+    max_format_briefs = config.get("max_format_briefs")
+    valid_max_format_briefs = (
+        isinstance(max_format_briefs, int)
+        and not isinstance(max_format_briefs, bool)
+        and max_format_briefs >= 0
+    )
+    if not valid_max_format_briefs:
+        raise ConfigError("max_format_briefs must be a whole number greater than or equal to 0")
 
     if not 1 <= config["qa_pass_threshold"] <= 10:
         raise ConfigError("qa_pass_threshold must be between 1 and 10")

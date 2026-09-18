@@ -207,6 +207,67 @@ class LoadConfigTests(NoNetworkTestCase):
         self.assertEqual(cfg["length_tolerance"], 0.15)
 
 
+class FormatAccountsConfigTests(NoNetworkTestCase):
+    def test_default_config_has_format_accounts_and_max_format_briefs(self) -> None:
+        self.assertEqual(DEFAULT_CONFIG["format_accounts"], [])
+        self.assertEqual(DEFAULT_CONFIG["max_format_briefs"], 2)
+
+    def test_load_config_accepts_empty_format_accounts_and_rejects_bad_entries(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acme"]})
+
+            config = load_config(project_dir)
+
+        self.assertEqual(config["format_accounts"], [])
+
+        with temp_project() as project_dir:
+            _write_config(
+                project_dir,
+                {"competitors": ["acme"], "format_accounts": ["dailywins", "habitlab"]},
+            )
+
+            config = load_config(project_dir)
+
+        self.assertEqual(config["format_accounts"], ["dailywins", "habitlab"])
+
+        bad_cases = [
+            {"competitors": ["acme"], "format_accounts": "dailywins"},
+            {"competitors": ["acme"], "format_accounts": [""]},
+            {"competitors": ["acme"], "format_accounts": ["   "]},
+            {"competitors": ["acme"], "format_accounts": [123]},
+            {"competitors": ["acme"], "format_accounts": ["dailywins", None]},
+        ]
+        for overrides in bad_cases:
+            with self.subTest(overrides=overrides):
+                with temp_project() as project_dir:
+                    _write_config(project_dir, overrides)
+
+                    with self.assertRaises(ConfigError):
+                        load_config(project_dir)
+
+    def test_load_config_rejects_negative_or_non_integer_max_format_briefs(self) -> None:
+        # 0 is the interesting boundary here: max_format_briefs is a cap,
+        # not a count that must be positive like the _NUMERIC_CONFIG_KEYS
+        # loop enforces elsewhere, so 0 (no format briefs at all) is a
+        # legitimate creator choice and must be accepted.
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acme"], "max_format_briefs": 0})
+
+            config = load_config(project_dir)
+
+        self.assertEqual(config["max_format_briefs"], 0)
+
+        for bad in (-1, -5, 1.5, 2.0, "2", True, False, None):
+            with self.subTest(bad=bad):
+                with temp_project() as project_dir:
+                    _write_config(
+                        project_dir, {"competitors": ["acme"], "max_format_briefs": bad}
+                    )
+
+                    with self.assertRaises(ConfigError):
+                        load_config(project_dir)
+
+
 class ResolveRunTests(NoNetworkTestCase):
     def test_resolve_latest_picks_newest_and_unknown_raises(self) -> None:
         with temp_project() as project_dir:

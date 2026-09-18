@@ -298,14 +298,24 @@ def _print_summary(
     account_status: Dict[str, str],
     scored: List[Dict[str, Any]],
     baselines: Dict[str, outliers.Baseline],
+    format_accounts: List[str],
 ) -> None:
-    """Print one `handle | status | reels | median | confidence | top shortCode | ratio` line per account."""
+    """Print `handle | kind | status | reels | median | confidence | top shortCode | ratio` per account.
+
+    `kind` is `instagram.SOURCE_KIND_FORMAT` when `handle` (case-
+    insensitively) is one of `format_accounts`, else
+    `instagram.SOURCE_KIND_NICHE` -- the same rule `instagram.
+    normalize_dataset` tags each reel/profile with.
+    """
     by_account: Dict[str, List[Dict[str, Any]]] = {}
     for reel in scored:
         by_account.setdefault((reel.get("ownerUsername") or "").lower(), []).append(reel)
 
+    format_set = {handle.lower() for handle in format_accounts}
+
     for handle in accounts:
         key = handle.lower()
+        kind = instagram.SOURCE_KIND_FORMAT if key in format_set else instagram.SOURCE_KIND_NICHE
         reels_for_account = by_account.get(key, [])
         baseline = baselines.get(key)
         top = _top_reel(reels_for_account)
@@ -314,7 +324,7 @@ def _print_summary(
         top_shortcode = top["shortCode"] if top else "-"
         ratio_str = f"{top['outlier_ratio']:.2f}" if top else "-"
         print(
-            f"{handle} | {account_status.get(handle, 'unknown')} | {len(reels_for_account)} | "
+            f"{handle} | {kind} | {account_status.get(handle, 'unknown')} | {len(reels_for_account)} | "
             f"{median_str} | {confidence_str} | {top_shortcode} | {ratio_str}"
         )
 
@@ -347,7 +357,10 @@ def run_research(
     if log is None:
         log = _default_log
     project = Path(project)
-    accounts: List[str] = cfg["competitors"]
+    # Spec step 1: the accounts are competitors followed by
+    # format_accounts, in config order -- never deduplicated,
+    # interleaved, or reordered.
+    accounts: List[str] = list(cfg["competitors"]) + list(cfg["format_accounts"])
 
     estimate = apify.estimate_cost(len(accounts), cfg["reels_per_account"])
     payload = _estimate_payload(estimate, cfg, len(accounts))
@@ -394,7 +407,9 @@ def run_research(
         raise UpstreamFailure(str(exc)) from exc
 
     log(f"normalizing {len(reel_items)} reel items and {len(profile_items)} profile items")
-    reels, profiles, account_status = instagram.normalize_dataset(reel_items, profile_items, accounts)
+    reels, profiles, account_status = instagram.normalize_dataset(
+        reel_items, profile_items, accounts, format_handles=cfg["format_accounts"]
+    )
     baselines = outliers.compute_baselines(reels, cfg["min_reels_for_median"])
     scored = _score_all(reels, profiles, baselines, cfg)
     selection = outliers.select_outliers(scored, cfg, now)
@@ -470,7 +485,7 @@ def run_research(
         warnings=warnings,
     )
 
-    _print_summary(accounts, account_status, scored, baselines)
+    _print_summary(accounts, account_status, scored, baselines, cfg["format_accounts"])
 
     result = {
         "run_id": run_dir.name,
@@ -478,6 +493,7 @@ def run_research(
         "mode": mode,
         "status": status,
         "accounts": len(accounts),
+        "format_accounts": len(cfg["format_accounts"]),
         "reels_total": len(scored),
         "selected": len(selection.selected),
         "backfill": len(selection.backfill),

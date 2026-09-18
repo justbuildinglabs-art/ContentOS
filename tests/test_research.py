@@ -328,6 +328,133 @@ class MockResearchTests(NoNetworkTestCase):
         )
 
 
+class FormatAccountsTests(NoNetworkTestCase):
+    """format_accounts: scraped after competitors, tagged source_kind, counted in RESULT."""
+
+    def test_research_scrapes_competitors_then_format_accounts_and_estimates_on_the_total(
+        self,
+    ) -> None:
+        with temp_project() as project_dir:
+            _write_config(
+                project_dir,
+                {"competitors": ["sproutapp", "habitlab"], "format_accounts": ["dailywins"]},
+            )
+
+            # The estimate (printed on the exit-3 confirmation path) must
+            # already be on the total of 3 accounts, not just the 2
+            # competitors.
+            code, out, _err = run_cli(
+                ["research", "--mock", "--project", str(project_dir)], env=NO_GLOBAL_ENV
+            )
+            self.assertEqual(code, codes.EXIT_CONFIRM)
+            estimate_payload = json.loads(out)
+            self.assertEqual(estimate_payload["accounts"], 3)
+            self.assertEqual(estimate_payload["max_items"], 3 * 30)
+            self.assertEqual(estimate_payload["reels_usd"], round(3 * 30 * 0.0027, 4))
+
+            cfg = store.load_config(project_dir)
+            result, _stdout_text, _logs = _run_research_capturing(
+                project=project_dir,
+                cfg=cfg,
+                keys=_mock_keys(),
+                mock=True,
+                yes=True,
+                estimate_only=False,
+                resume=None,
+                no_download=True,
+            )
+
+            run_dir = Path(result["run_dir"])
+            run_doc = store.read_json(run_dir / "run.json")
+
+        self.assertEqual(result["accounts"], 3)
+        self.assertEqual(result["format_accounts"], 1)
+
+        # Order in the Apify inputs is competitors then format_accounts,
+        # in config order -- never the reverse, never interleaved.
+        expected_urls = [
+            "https://www.instagram.com/sproutapp/",
+            "https://www.instagram.com/habitlab/",
+            "https://www.instagram.com/dailywins/",
+        ]
+        self.assertEqual(run_doc["apify_runs"]["reels"]["input"]["directUrls"], expected_urls)
+        self.assertEqual(run_doc["apify_runs"]["details"]["input"]["directUrls"], expected_urls)
+
+    def test_outliers_entries_carry_source_kind(self) -> None:
+        # Acceptance: research --mock --yes on a config with
+        # format_accounts: ["dailywins"] writes source_kind: "format" on
+        # every dailywins reel, and "niche" on every other account's.
+        with temp_project() as project_dir:
+            _write_config(
+                project_dir,
+                {"competitors": ["sproutapp", "habitlab"], "format_accounts": ["dailywins"]},
+            )
+            cfg = store.load_config(project_dir)
+
+            result, _stdout_text, _logs = _run_research_capturing(
+                project=project_dir,
+                cfg=cfg,
+                keys=_mock_keys(),
+                mock=True,
+                yes=True,
+                estimate_only=False,
+                resume=None,
+                no_download=True,
+            )
+
+            run_dir = Path(result["run_dir"])
+            reels = store.read_json(run_dir / "01-reels.json")
+            profiles = store.read_json(run_dir / "01-profiles.json")
+            outliers_doc = store.read_json(run_dir / "02-outliers.json")
+
+        dailywins_reels = [reel for reel in reels if reel["ownerUsername"] == "dailywins"]
+        other_reels = [reel for reel in reels if reel["ownerUsername"] != "dailywins"]
+        self.assertTrue(dailywins_reels)
+        self.assertTrue(other_reels)
+        self.assertTrue(all(reel["source_kind"] == "format" for reel in dailywins_reels))
+        self.assertTrue(all(reel["source_kind"] == "niche" for reel in other_reels))
+
+        self.assertEqual(profiles["dailywins"]["source_kind"], "format")
+        self.assertEqual(profiles["sproutapp"]["source_kind"], "niche")
+        self.assertEqual(profiles["habitlab"]["source_kind"], "niche")
+
+        # 02-outliers.json's selected/backfill entries are copies of
+        # scored reels, so source_kind must flow through to them too.
+        for reel in outliers_doc["selected"] + outliers_doc["backfill"]:
+            expected_kind = "format" if reel["ownerUsername"] == "dailywins" else "niche"
+            self.assertEqual(reel["source_kind"], expected_kind)
+
+    def test_summary_table_has_kind_column_and_result_counts_format_accounts(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(
+                project_dir,
+                {"competitors": ["sproutapp", "habitlab"], "format_accounts": ["dailywins"]},
+            )
+            cfg = store.load_config(project_dir)
+
+            result, stdout_text, _logs = _run_research_capturing(
+                project=project_dir,
+                cfg=cfg,
+                keys=_mock_keys(),
+                mock=True,
+                yes=True,
+                estimate_only=False,
+                resume=None,
+                no_download=True,
+            )
+
+        self.assertEqual(result["format_accounts"], 1)
+
+        lines = stdout_text.splitlines()
+        sproutapp_line = next(line for line in lines if line.startswith("sproutapp "))
+        habitlab_line = next(line for line in lines if line.startswith("habitlab "))
+        dailywins_line = next(line for line in lines if line.startswith("dailywins "))
+
+        self.assertIn(" niche ", sproutapp_line)
+        self.assertIn(" niche ", habitlab_line)
+        self.assertIn(" format ", dailywins_line)
+
+
 class UpstreamFailureTests(NoNetworkTestCase):
     """Apify-run-level failures (as opposed to a single account's own
     not_found/private/empty/error status, covered above): a run that
@@ -555,13 +682,15 @@ class ResearchCliTests(NoNetworkTestCase):
         self.assertEqual(
             set(payload),
             {
-                "run_id", "run_dir", "mode", "status", "accounts", "reels_total",
-                "selected", "backfill", "excluded", "videos", "frames", "warnings",
+                "run_id", "run_dir", "mode", "status", "accounts", "format_accounts",
+                "reels_total", "selected", "backfill", "excluded", "videos", "frames",
+                "warnings",
             },
         )
         self.assertEqual(payload["mode"], "mock")
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["accounts"], 4)
+        self.assertEqual(payload["format_accounts"], 0)
         self.assertEqual(payload["reels_total"], 17)
 
     def test_cli_accepts_no_download_flag(self) -> None:

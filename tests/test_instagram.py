@@ -551,6 +551,66 @@ class NormalizeDatasetTests(NoNetworkTestCase):
         self.assertEqual(account_status2["habitlabpro"], "ok")
 
 
+class SourceKindTests(NoNetworkTestCase):
+    def test_reels_and_profiles_carry_source_kind(self) -> None:
+        reel_items = [
+            _clip_item(shortCode="N1", ownerUsername="nicheacct"),
+            _clip_item(shortCode="F1", ownerUsername="formatacct"),
+            # Case-insensitive match against format_handles, and the
+            # output's ownerUsername casing is preserved regardless.
+            _clip_item(shortCode="F2", ownerUsername="FormatAcct"),
+        ]
+        profile_items = [
+            {
+                "username": "nicheacct",
+                "followersCount": 1000,
+                "postsCount": 5,
+                "verified": False,
+                "private": False,
+            },
+            {
+                "username": "FormatAcct",
+                "followersCount": 2000,
+                "postsCount": 8,
+                "verified": False,
+                "private": False,
+            },
+        ]
+
+        reels, profiles, _account_status = instagram.normalize_dataset(
+            reel_items,
+            profile_items,
+            ["nicheacct", "formatacct"],
+            format_handles=["formatacct"],
+        )
+
+        by_shortcode = {reel["shortCode"]: reel for reel in reels}
+        self.assertEqual(by_shortcode["N1"]["source_kind"], "niche")
+        self.assertEqual(by_shortcode["F1"]["source_kind"], "format")
+        self.assertEqual(by_shortcode["F2"]["source_kind"], "format")
+
+        self.assertEqual(profiles["nicheacct"]["source_kind"], "niche")
+        self.assertEqual(profiles["formatacct"]["source_kind"], "format")
+
+    def test_source_kind_defaults_to_niche_without_format_handles(self) -> None:
+        reels, profiles, _account_status = instagram.normalize_dataset(
+            [_clip_item(shortCode="N1", ownerUsername="someacct")],
+            [
+                {
+                    "username": "someacct",
+                    "followersCount": 1,
+                    "postsCount": 1,
+                    "verified": False,
+                    "private": False,
+                }
+            ],
+            ["someacct"],
+        )
+
+        self.assertEqual(reels[0]["source_kind"], "niche")
+        self.assertEqual(profiles["someacct"]["source_kind"], "niche")
+
+
 class FixtureTests(NoNetworkTestCase):
     def test_fixture_contains_required_edge_cases(self) -> None:
         reel_items = _load_fixture("apify_reels_sample.json")
