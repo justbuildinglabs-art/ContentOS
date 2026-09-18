@@ -54,13 +54,18 @@ Dana is a productivity creator for people who keep quitting their system by Wedn
 
 - The week view filling in after a planning session.
 
+## What you promote
+
+A free weekly planning email with one prompt and one template. Objection: another
+newsletter that just piles up unread.
+
 ## Allowed claims
 
 - Setting up the weekly plan takes under 10 minutes.
 """
 
 # Deliberately broken on four axes at once: a missing section (no
-# Demo moment / Production notes / What changed vs source), a Beats
+# Payoff / Production notes / What changed vs source), a Beats
 # table with no separator row and only 2 data rows, a Primary hook
 # spoken line at 26 words, and a word count over the 75-word
 # talking_head budget by more than 10 percent.
@@ -189,6 +194,39 @@ class WordBudgetForTests(NoNetworkTestCase):
             agents.word_budget_for("not_a_format", REFERENCES_DIR)
 
 
+class QaSchemaTests(NoNetworkTestCase):
+    def test_qa_schema_uses_payoff_present_and_consistent_with_profile(self) -> None:
+        schema = director.load_schema("qa")
+        checks = schema["properties"]["checks"]
+
+        self.assertIn("payoff_present", checks["properties"])
+        self.assertIn("consistent_with_profile", checks["properties"])
+        self.assertNotIn("demo_present", checks["properties"])
+        self.assertNotIn("consistent_with_product", checks["properties"])
+
+        self.assertIn("payoff_present", checks["required"])
+        self.assertIn("consistent_with_profile", checks["required"])
+        self.assertNotIn("demo_present", checks["required"])
+        self.assertNotIn("consistent_with_product", checks["required"])
+
+
+class ContractShapeTests(NoNetworkTestCase):
+    def test_contract_sections_use_payoff(self) -> None:
+        self.assertEqual(
+            agents.CONTRACT_SECTIONS,
+            [
+                "Hook",
+                "Beats",
+                "Payoff",
+                "CTA",
+                "Caption",
+                "Production notes",
+                "What changed vs source",
+            ],
+        )
+        self.assertNotIn("Demo moment", agents.CONTRACT_SECTIONS)
+
+
 class WritePromptTests(NoNetworkTestCase):
     def test_write_prompt_contains_abs_paths_handoff_budget_and_contract(self) -> None:
         with temp_project() as project:
@@ -284,13 +322,13 @@ class WritePromptTests(NoNetworkTestCase):
             run_dir = _mock_research_and_rank(project)
 
             prompt = agents.write_prompt(project, run_dir, "B01", references_dir=REFERENCES_DIR)
-            self.assertNotIn("## Founder rules", prompt)
+            self.assertNotIn("## Creator rules", prompt)
 
             (project / ".contentos" / "rules.md").write_text(
                 "Never use the word cheap.\n", encoding="utf-8"
             )
             prompt = agents.write_prompt(project, run_dir, "B01", references_dir=REFERENCES_DIR)
-            self.assertIn("## Founder rules", prompt)
+            self.assertIn("## Creator rules", prompt)
             self.assertIn("Never use the word cheap.", prompt)
 
     def test_revision_prompt_includes_prior_script_and_issues(self) -> None:
@@ -313,6 +351,23 @@ class WritePromptTests(NoNetworkTestCase):
             self.assertIn(str((run_dir / "05-qa" / "B01.r0.json").resolve()), prompt)
             self.assertIn("Fix only what QA flagged", prompt)
             self.assertIn(str((run_dir / "04-scripts" / "B01.r1.md").resolve()), prompt)
+
+    def test_write_prompt_reads_creator_md_and_creator_rules_heading(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research_and_rank(project)
+
+            prompt = agents.write_prompt(project, run_dir, "B01", references_dir=REFERENCES_DIR)
+            self.assertIn(f"Creator profile: {(project / '.contentos' / 'creator.md').resolve()}", prompt)
+            self.assertNotIn("## Founder rules", prompt)
+            self.assertNotIn("product.md", prompt)
+
+            (project / ".contentos" / "rules.md").write_text(
+                "Never use the word cheap.\n", encoding="utf-8"
+            )
+            prompt = agents.write_prompt(project, run_dir, "B01", references_dir=REFERENCES_DIR)
+            self.assertIn("## Creator rules", prompt)
+            self.assertNotIn("## Founder rules", prompt)
 
     def test_write_prompt_exit_2_for_unknown_brief_and_missing_creator_md(self) -> None:
         with temp_project() as project:
@@ -355,6 +410,29 @@ class QaPromptTests(NoNetworkTestCase):
             self.assertIn("WROTE <path>", prompt)
             self.assertIn("JSON only", prompt)
 
+    def test_qa_prompt_verdict_rules_name_consistent_with_profile(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research_and_rank(project)
+            _write_script(run_dir, "B01", 0)
+
+            prompt = agents.qa_prompt(project, run_dir, "B01", 0, references_dir=REFERENCES_DIR)
+
+            self.assertIn("## Verdict rules", prompt)
+            self.assertIn("consistent_with_profile", prompt)
+            self.assertNotIn("consistent_with_product", prompt)
+            self.assertNotIn("Founder rules:", prompt)
+            self.assertNotIn("product.md", prompt)
+
+            (project / ".contentos" / "rules.md").write_text(
+                "Never use the word cheap.\n", encoding="utf-8"
+            )
+            prompt_with_rules = agents.qa_prompt(
+                project, run_dir, "B01", 0, references_dir=REFERENCES_DIR
+            )
+            self.assertIn("Creator rules:", prompt_with_rules)
+            self.assertNotIn("Founder rules:", prompt_with_rules)
+
     def test_qa_prompt_exit_2_when_script_missing_at_that_revision(self) -> None:
         with temp_project() as project:
             _write_project(project)
@@ -375,9 +453,9 @@ class VerifyScriptTests(NoNetworkTestCase):
 
             self.assertEqual(check.errors, [])
             self.assertEqual(check.warnings, [])
-            self.assertEqual(check.word_count, 103)
-            self.assertEqual(check.spoken_words, 82)
-            self.assertEqual(check.read_time_s, 32.8)
+            self.assertEqual(check.word_count, 105)
+            self.assertEqual(check.spoken_words, 83)
+            self.assertEqual(check.read_time_s, 33.2)
             self.assertEqual(check.placeholders, ["[NEED NUMBER]"])
             self.assertEqual(check.frontmatter["format"], "screen_demo")
             self.assertEqual(check.frontmatter["brief_id"], "B01")
@@ -391,12 +469,32 @@ class VerifyScriptTests(NoNetworkTestCase):
 
             joined = "\n".join(check.errors)
             self.assertIn("sections: expected", joined)
-            self.assertIn("Demo moment", joined)
+            self.assertIn("Payoff", joined)
             self.assertIn("Beats: missing the separator row", joined)
             self.assertIn("only 2 data row", joined)
             self.assertIn("Hook: Primary spoken line has", joined)
             self.assertIn("25 or more", joined)
             self.assertIn("over the 75-word budget", joined)
+
+    def test_verify_script_reports_missing_payoff_section(self) -> None:
+        with temp_project() as project:
+            run_dir = project / "run"
+            path = agents.script_path(run_dir, "B01", 0)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            text = SCRIPT_FIXTURE.read_text(encoding="utf-8")
+            # Drop the whole `## Payoff` section (everything from that
+            # heading up to, but not including, the next `## CTA`
+            # heading), leaving every other section intact.
+            start = text.index("## Payoff")
+            end = text.index("## CTA")
+            text = text[:start] + text[end:]
+            path.write_text(text, encoding="utf-8")
+
+            check = agents.verify_script(path, REFERENCES_DIR, 0.10)
+
+            joined = "\n".join(check.errors)
+            self.assertIn("sections: expected", joined)
+            self.assertIn("Payoff", joined)
 
     def test_verify_script_collects_placeholders_without_failing(self) -> None:
         with temp_project() as project:
@@ -639,8 +737,8 @@ class CliWiringTests(NoNetworkTestCase):
             self.assertEqual(code, codes.EXIT_OK)
             self.assertEqual(err, "")
             self.assertIn("ok ", out)
-            self.assertIn("words=103", out)
-            self.assertIn("read_time_s=32.8", out)
+            self.assertIn("words=105", out)
+            self.assertIn("read_time_s=33.2", out)
             self.assertIn("placeholders=1", out)
 
     def test_qa_prompt_cli_defaults_to_highest_script_revision(self) -> None:

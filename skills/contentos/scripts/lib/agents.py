@@ -51,7 +51,7 @@ from lib import codes, director, store
 CONTRACT_SECTIONS = [
     "Hook",
     "Beats",
-    "Demo moment",
+    "Payoff",
     "CTA",
     "Caption",
     "Production notes",
@@ -238,10 +238,10 @@ def _creator_md(project: Path) -> Path:
 def _example_for(project: Path, references_dir: Path, fmt: Any) -> Optional[Path]:
     """The gold example script for `fmt`, or None when neither copy exists.
 
-    The founder's own `<project>/.contentos/examples/<format>.md` wins.
+    The creator's own `<project>/.contentos/examples/<format>.md` wins.
     The plugin's `references/examples/` directory is replaced wholesale
     on every plugin update, so a gold script kept there would not
-    survive one; a founder's best script has to live in their project.
+    survive one; a creator's best script has to live in their project.
     The plugin's shipped example is the fallback.
     """
     project_example = Path(project) / ".contentos" / "examples" / f"{fmt}.md"
@@ -262,19 +262,19 @@ def write_prompt(
     """The `write-prompt --run <id> --brief <id> [--revision N]` dispatch prompt.
 
     Refuses with `AgentsError` (exit 2) when the brief is not in
-    `03-briefs.json` or the founder has no `creator.md`. Sections, in
+    `03-briefs.json` or the creator has no `creator.md`. Sections, in
     order: a HANDOFF block, `## Inputs` (absolute paths to the brief,
     the analysis, the frames directory, `03-patterns.md` when it
     exists, `creator.md`, and the reference files, including the gold
-    example for this format when there is one -- the founder's own
+    example for this format when there is one -- the creator's own
     `<project>/.contentos/examples/<format>.md` first, else the
-    plugin's `examples/<format>.md`), `## Founder rules` (only when
+    plugin's `examples/<format>.md`), `## Creator rules` (only when
     `store.read_rules` is non-empty), `## Budget` (target length, word
     budget, the counting rule, the tolerance), `## Revision` (only on
     `revision >= 1`: the prior script and QA paths, fix-only-what-QA-
     flagged), `## Rules`, `## Output contract` (frontmatter keys, the
-    seven section headings, the Hook/Beats/CTA/Caption shapes), and
-    `## Output` (the exact output path and the `WROTE`/`FAILED`
+    seven section headings, the Hook/Beats/Payoff/CTA/Caption shapes),
+    and `## Output` (the exact output path and the `WROTE`/`FAILED`
     contract).
     """
     project = Path(project)
@@ -314,7 +314,7 @@ def write_prompt(
     lines.append("")
 
     if rules_text:
-        lines.append("## Founder rules")
+        lines.append("## Creator rules")
         lines.append("")
         lines.append(rules_text)
         lines.append("")
@@ -347,11 +347,11 @@ def write_prompt(
     lines.append("- Execute the brief. Do not redo the analysis or the ranking.")
     lines.append(
         "- Keep the hook mechanism named in the brief. Change 10 to 20 percent of the "
-        "source: the product, the setting, the example, the number."
+        "source: the topic, the setting, the example, the number."
     )
     lines.append(
-        "- Every claim must exist in product.md, under Core features, Allowed claims, "
-        "or Proof assets."
+        "- Every claim must exist in creator.md, under Allowed claims, Proof assets, "
+        "Payoff moments, or What you promote."
     )
     lines.append("- Write [NEED NUMBER] rather than invent a statistic.")
     lines.append("- No testimonial, review, or quote unless it is listed under Proof assets.")
@@ -376,8 +376,16 @@ def write_prompt(
     )
     lines.append(f"Beats: a table with this exact header: {BEATS_HEADER}. At least 3 rows.")
     lines.append(
+        "Payoff: the on-screen moment that delivers what the hook promised, taken from "
+        "Payoff moments in creator.md. When creator.md's What you promote is filled in, "
+        "this is where it appears."
+    )
+    lines.append(
         "CTA: two variants, labeled exactly **Primary (direct ask)** and "
-        "**Backup (open loop)**, each under 20 words."
+        "**Backup (open loop)**, each under 20 words. The primary answers the offer's "
+        "objection when creator.md has an offer under What you promote; otherwise it "
+        "answers the audience's top objection. With no offer, the primary is a follow, "
+        "comment, save, or share ask."
     )
     lines.append("Caption: end with one line of 5 to 8 hashtags and nothing else on that line.")
     lines.append("")
@@ -409,7 +417,7 @@ def qa_prompt(
     does not exist yet -- there is nothing to review -- or when the
     brief or `creator.md` is missing. Sections, in order: a HANDOFF
     block, `## Inputs` (the script, the brief, the analysis,
-    `03-patterns.md` when it exists, `creator.md`, founder rules when
+    `03-patterns.md` when it exists, `creator.md`, creator rules when
     non-empty, and the reference files), `## Thresholds`
     (`qa_pass_threshold`, `length_tolerance`, the word budget),
     `## Output schema` (`schemas/qa.schema.json` inlined as JSON),
@@ -451,7 +459,7 @@ def qa_prompt(
         lines.append(f"Patterns: {patterns_path.resolve()}")
     lines.append(f"Creator profile: {creator_md.resolve()}")
     if rules_text:
-        lines.append(f"Founder rules: {rules_text}")
+        lines.append(f"Creator rules: {rules_text}")
     lines.append("Reference files:")
     lines.append(f"- {(references_dir / 'formats.md').resolve()}")
     lines.append(f"- {(references_dir / 'qa-rubric.md').resolve()}")
@@ -479,7 +487,7 @@ def qa_prompt(
     lines.append("")
     lines.append(
         "- reject: no_fabricated_claims, no_fake_testimonial, no_restricted_claims, or "
-        "consistent_with_product failed, unless a single line fixes the whole problem, "
+        "consistent_with_profile failed, unless a single line fixes the whole problem, "
         "in which case revise instead and name the line."
     )
     lines.append(

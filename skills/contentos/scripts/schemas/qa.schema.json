@@ -10,8 +10,8 @@
       "properties": {
         "hook_first_3s": { "type": "string", "enum": ["pass", "fail", "na"] },
         "hook_matches_brief": { "type": "string", "enum": ["pass", "fail", "na"] },
-        "demo_present": { "type": "string", "enum": ["pass", "fail", "na"] },
-        "consistent_with_product": { "type": "string", "enum": ["pass", "fail", "na"] },
+        "payoff_present": { "type": "string", "enum": ["pass", "fail", "na"] },
+        "consistent_with_profile": { "type": "string", "enum": ["pass", "fail", "na"] },
         "no_fabricated_claims": { "type": "string", "enum": ["pass", "fail", "na"] },
         "no_fake_testimonial": { "type": "string", "enum": ["pass", "fail", "na"] },
         "no_restricted_claims": { "type": "string", "enum": ["pass", "fail", "na"] },
@@ -21,7 +21,7 @@
         "ai_tells": { "type": "string", "enum": ["pass", "fail", "na"] }
       },
       "required": [
-        "hook_first_3s", "hook_matches_brief", "demo_present", "consistent_with_product",
+        "hook_first_3s", "hook_matches_brief", "payoff_present", "consistent_with_profile",
         "no_fabricated_claims", "no_fake_testimonial", "no_restricted_claims", "not_a_clone",
         "cta_present", "brand_voice", "ai_tells"
       ]
