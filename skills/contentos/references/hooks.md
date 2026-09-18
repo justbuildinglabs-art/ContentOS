@@ -18,7 +18,7 @@ it can be true.
 
 ### pain_callout
 Says the viewer's current annoyance back to them, in the words they would use themselves.
-- "Your laundry pile has its own chair." (Rinse, laundry pickup)
+- "Your laundry pile has its own chair." (Tumbly, laundry pickup)
 - "It's 7pm, you have three onions, and no plan." (a cook)
 
 ### contrarian
@@ -33,7 +33,7 @@ Starts inside a scene already running, so the viewer stays to find out how it go
 
 ### question
 Opens with a direct question the viewer answers in their head before they can scroll.
-- "When did you last sleep through the night?" (Hush, sleep)
+- "When did you last sleep through the night?" (Duskline, sleep)
 - "How many terminal tabs are open on your machine right now?" (a dev creator)
 
 ### curiosity_gap

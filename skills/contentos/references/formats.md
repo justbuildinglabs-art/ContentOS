@@ -55,7 +55,7 @@ at on camera. Over budget is a fail, not a rounding issue. The tolerance is plus
 
 ### skit
 - Budget: 30 seconds, 75 words.
-- Beats: setup, then conflict, then turn, then payoff. The payoff is the turn, never the setup.
+- Beats: setup, then conflict, then turn, then payoff. The turn is where the payoff lands, never the setup.
 - On-screen text: minimal. One label to establish who is who, nothing else.
 - CTA: after the payoff, said straight to camera so the viewer knows the bit is over.
 - Audio: original dialogue, recorded close. No music over the punchline.

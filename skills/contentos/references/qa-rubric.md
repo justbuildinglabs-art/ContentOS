@@ -121,8 +121,11 @@ is ignored. 4: it adds friction, an account, a price surprise, or a form.
 reads like the ending of a different video, glued on.
 
 ### cta_urgency
-10: a real reason to act today, drawn from `creator.md`. 7: pleasant and entirely postponable. 4: invented
-scarcity or a deadline that does not exist. Fake urgency also belongs in `cringe_flags`.
+10: a real reason to act today, drawn from `creator.md`, or no honest reason to act today exists and the
+CTA does not fake one. A plain follow, comment, save, or share ask with no false urgency scores 10. 7:
+urgency that is generic or only implied, a "don't miss this" with nothing behind it. 4: manufactured
+urgency, a deadline that does not exist or scarcity that is not real. Fake urgency also belongs in
+`cringe_flags`.
 
 ## Filler questions (filler_cut_list)
 
