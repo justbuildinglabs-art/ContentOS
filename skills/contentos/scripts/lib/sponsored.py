@@ -2,8 +2,11 @@
 
 Instagram draws its "Paid partnership" label over the player, so it is
 never in the video file and no keyframe can show it (design spec,
-"0.5.0 changes"). This module reads the caption, the hashtags, and the
-transcript instead. It is pure: no network, no files.
+"0.5.0 changes"). The scraper does return that label as data, the raw
+item's `paidPartnership` boolean (seen on a hashtag reels scrape,
+2026-09-19). This module reads it, then the hashtags, the caption, and
+the transcript, because plenty of sponsored reels never set the label.
+It is pure: no network, no files.
 """
 from __future__ import annotations
 
@@ -58,12 +61,16 @@ def _phrase_signals(source: str, text: str) -> List[str]:
 def detect(reel: Dict[str, Any], transcript_text: Optional[str] = None) -> Dict[str, Any]:
     """Return `{"detected": bool, "signals": [...]}` for one reel.
 
-    Signals are `hashtag:<tag>`, `caption:<phrase>`, and
-    `transcript:<phrase>`, deduped, in that order. Missing or
+    Signals are `label:paid_partnership` (the raw item's
+    `paidPartnership` is exactly `True`), `hashtag:<tag>`,
+    `caption:<phrase>`, and `transcript:<phrase>`, deduped, in that
+    order. `reel` may be a raw scraper item or a canonical Reel. Missing or
     wrong-typed fields count as empty, never as an error: one odd item
     must not abort a scrape that is already paid for.
     """
     signals: List[str] = []
+    if reel.get("paidPartnership") is True:
+        signals.append("label:paid_partnership")
     for tag in _hashtags(reel):
         signal = f"hashtag:{tag}"
         if tag in SPONSORED_HASHTAGS and signal not in signals:

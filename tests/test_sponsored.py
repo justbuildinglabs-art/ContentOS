@@ -15,6 +15,19 @@ def _reel(caption: str = "", hashtags: Optional[List[str]] = None) -> Dict[str, 
     return {"shortCode": "ABC123", "caption": caption, "hashtags": hashtags or []}
 
 
+class LabelSignalTests(NoNetworkTestCase):
+    def test_the_scraper_flag_is_the_first_signal(self) -> None:
+        reel = dict(_reel("New gear #ad", ["ad"]), paidPartnership=True)
+        self.assertEqual(
+            sponsored.detect(reel)["signals"], ["label:paid_partnership", "hashtag:ad"]
+        )
+
+    def test_only_a_true_boolean_counts(self) -> None:
+        for value in (False, None, "true", 1):
+            with self.subTest(value=value):
+                self.assertFalse(sponsored.detect(dict(_reel(), paidPartnership=value))["detected"])
+
+
 class HashtagSignalTests(NoNetworkTestCase):
     def test_ad_hashtag_is_detected(self) -> None:
         result = sponsored.detect(_reel("My morning routine #ad", ["ad"]))

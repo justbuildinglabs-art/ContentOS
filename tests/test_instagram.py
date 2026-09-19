@@ -133,6 +133,11 @@ class NormalizeReelTests(NoNetworkTestCase):
             },
         )
 
+    def test_flags_a_paid_partnership_from_the_scraper_label(self) -> None:
+        result = instagram.normalize_reel(_clip_item(paidPartnership=True))
+        self.assertIs(result["paid_partnership"], True)
+        self.assertEqual(result["paid_signals"], ["label:paid_partnership"])
+
     def test_flags_a_paid_partnership_from_caption_and_hashtags(self) -> None:
         result = instagram.normalize_reel(
             _clip_item(caption="New gear. Sponsored by Acme #ad", hashtags=["ad"])
