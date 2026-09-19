@@ -212,7 +212,7 @@ def next_steps(run_dir: Path, states: List[Dict[str, Any]]) -> List[str]:
         if state["status"] == "pass":
             count = len(_script_placeholders(state))
             if count:
-                ready.append(f"{brief_id} passed QA. Fill its {_lines_word(count)} with placeholders in {script}, then film it.")
+                ready.append(f"{brief_id} passed QA. Fill in {_lines_word(count)} of placeholders in {script}, then film it.")
             else:
                 ready.append(f"{brief_id} passed QA and is ready to film: {script}.")
         elif state.get("needs_human"):

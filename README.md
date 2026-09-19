@@ -22,6 +22,12 @@ Everything runs on your machine. You type `/contentos run` and read the report.
 - ffmpeg, optional. With it, the director reads eight keyframes per reel.
   Without it, it sees the cover image only and rates its own confidence lower.
   `brew install ffmpeg` on a Mac.
+- whisper-cpp, optional. With it, each selected reel is transcribed on your own
+  machine for free, so the director hears the tool names, numbers, and steps
+  that are only said out loud. `brew install whisper-cpp`, then put a model at
+  `~/.cache/contentos/whisper/ggml-base.en.bin` (or set `whisper_model` in
+  config). Without it, you can turn on the paid Apify transcript fallback with
+  `apify_transcripts` and `apify_transcript_usd_per_min` in config.
 
 ## Install
 
@@ -158,7 +164,8 @@ with real figures.
 About $0.67 of Apify credit for eight accounts at the default 30 reels each,
 and about $0.84 for ten. Both are one scrape of the reels plus one of the
 profiles: accounts times reels times $0.0027, plus $0.0027 per account. Nothing
-else in ContentOS costs money. The estimate is printed before anything is
+else in ContentOS costs money, unless you turn on the Apify transcript
+fallback, which is added to the estimate and to the cost cap. The estimate is printed before anything is
 spent, and a run stops on its own if the estimate goes over
 `apify_max_charge_usd` in your config.
 
@@ -172,7 +179,12 @@ spent, and a run stops on its own if the estimate goes over
 | `/contentos direct` | Stage 2 only: analyze each selected reel, find the patterns, rank the briefs |
 | `/contentos write B01 B02` | Stage 3 only: write the named briefs |
 | `/contentos qa B01` | Stage 4 only: review, one revision, then the report |
-| `/contentos status` | Where the latest run got to |
+| `/contentos status` | Where the latest run got to, and what to do next |
+| `/contentos report` | Write `report.md` and a `report.html` you can open in any browser |
+| `/contentos transcribe` | Transcribe an existing run's selected reels |
+| `/contentos intake B02` | Answer a brief's questions, then give a stuck brief one more revision |
+| `/contentos mark B01 posted <url>` | Record that a script was filmed, posted, or skipped |
+| `/contentos history` | One row per run: cost, briefs, passed, filmed, posted |
 | `/contentos diagnose` | Key, Python, ffmpeg, and your project state |
 
 ## Where files go
@@ -183,17 +195,21 @@ Your state lives in your own project, never in the plugin:
 <your project>/.contentos/
 ├── creator.md            # your profile: pillars, audience, voice, what you promote, payoff moments, claims, CTA, accounts
 ├── rules.md              # your corrections, one per line
+├── log.json              # what you filmed and posted, from `mark`
+├── history.md            # one row per run, from `history`
 ├── config.json           # niche accounts, format accounts, thresholds, cost cap, QA threshold
 ├── .env                  # optional Apify key, chmod 600
 ├── examples/<format>.md  # optional, your own gold script per format
 └── runs/<YYYYMMDD-HHMMSS>/
     ├── run.json  01-reels.json  01-profiles.json  02-outliers.json
     ├── videos/  frames/         # gitignored, they get large
+    ├── transcripts/<shortCode>.txt
     ├── prompts/                 # gitignored, the exact prompt each subagent got
     ├── 03-analyses/  03-patterns.md  03-briefs.json  briefs.md
+    ├── 04-intake/<brief-id>.md  04-facts/<brief-id>.md
     ├── 04-scripts/<brief-id>.r<N>.md
     ├── 05-qa/<brief-id>.r<N>.json
-    └── report.md
+    └── report.md  report.html
 ```
 
 `prompts/` is worth knowing about when an output surprises you. It holds the
@@ -206,7 +222,12 @@ out of version control.
 
 ## Getting better output over time
 
-Two files do this, and both are yours.
+Three things do this, and all are yours.
+
+**The `## Inventory` section of `creator.md`.** The tools, products, recipes,
+routines, or builds you really use, one per line, each with a number or proof
+when you have one. Scripts name these instead of "an AI tool" or "a protein
+shake". The intake questions before each script add to it over time.
 
 **`.contentos/rules.md`.** One correction per line. When you tell Claude that a
 word is wrong, or that you never want a certain hook, it offers to add the line

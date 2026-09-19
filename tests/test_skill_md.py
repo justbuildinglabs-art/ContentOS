@@ -100,6 +100,8 @@ SETUP_ANSWER_KEYS = [
     "hashtag_seeds",
     "competitors",
     "format_accounts",
+    "inventory",
+    "lead_magnet",
 ]
 
 # Names from the 0.1.x product-and-founder vocabulary. After 0.2.0 none
@@ -199,8 +201,9 @@ def _answer_keys_setup_reads() -> set:
     keys.update(setup_lib.LIST_SECTIONS.values())
     for mapping in setup_lib.BULLET_SECTIONS.values():
         keys.update(mapping.values())
-    # The offer block is rendered by hand, not through a section map.
-    keys.update({"offer", "offer_objection"})
+    # The offer block and the lead magnet line are rendered by hand, not
+    # through a section map.
+    keys.update({"offer", "offer_objection", "lead_magnet"})
     return keys
 
 
