@@ -31,6 +31,7 @@ import copy
 import json
 import unittest
 from contextlib import redirect_stdout
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -907,6 +908,90 @@ class RankBriefsTests(NoNetworkTestCase):
         self.assertEqual(
             [b["brief_id"] for b in briefs], ["B01", "B02", "B03", "B04", "B05"]
         )
+
+
+# ---------------------------------------------------------------------------
+# rank_briefs: 0.4.0 weekly ideas -- carried and format fill
+# ---------------------------------------------------------------------------
+
+WEEKLY_NOW = datetime(2026, 9, 16, tzinfo=timezone.utc)
+
+
+def _pair(sc: str, viral: float, ts: str = "2026-09-12T00:00:00+00:00"):
+    reel = _scored_reel(sc, viral_proof=viral, timestamp=ts)
+    analysis = director.coerce_analysis(
+        dict(_valid_analysis_raw(), brief_title=f"F {sc}", idea_title=f"I {sc}")
+    )
+    return reel, analysis
+
+
+def _carried(sc: str, viral: float, weeks: int) -> Dict[str, Any]:
+    reel, analysis = _pair(sc, viral, ts="2026-09-02T00:00:00+00:00")
+    return {
+        "reel": reel, "analysis": analysis, "weeks_carried": weeks, "first_run": "R0",
+        "analysis_path": f"/old/03-analyses/{sc}.json", "frames_dir": f"/old/frames/{sc}",
+    }
+
+
+class WeeklyRankTests(NoNetworkTestCase):
+    def test_strong_carried_idea_beats_weak_new_one(self) -> None:
+        reel, analysis = _pair("NEW1", 3.0)  # 6.2
+        with temp_project() as root:
+            briefs = director.rank_briefs(
+                {"NEW1": analysis}, [reel], 20, root,
+                carried=[_carried("OLD1", 10.0, 1)], now=WEEKLY_NOW,  # 8.65 - 1 = 7.65
+            )
+        self.assertEqual([b["shortCode"] for b in briefs], ["OLD1", "NEW1"])
+        old = briefs[0]
+        self.assertEqual((old["kind"], old["weeks_carried"], old["first_run"]), ("carried", 1, "R0"))
+        self.assertEqual(old["brief_score"], 7.65)
+        self.assertEqual(old["analysis_path"], "/old/03-analyses/OLD1.json")
+        self.assertEqual(old["frames_dir"], "/old/frames/OLD1")
+        self.assertEqual(old["days_old"], 14)
+
+    def test_weeks_carried_can_sink_an_idea(self) -> None:
+        reel, analysis = _pair("NEW1", 3.0)  # 6.2
+        with temp_project() as root:
+            briefs = director.rank_briefs(
+                {"NEW1": analysis}, [reel], 20, root,
+                carried=[_carried("OLD1", 4.0, 2)], now=WEEKLY_NOW,  # 6.55 - 2 = 4.55
+            )
+        self.assertEqual([b["shortCode"] for b in briefs], ["NEW1", "OLD1"])
+        self.assertEqual(briefs[1]["brief_score"], 4.55)
+
+    def test_fill_only_takes_leftover_slots_below_real_ideas(self) -> None:
+        reel, analysis = _pair("NEW1", 3.0)
+        fill = [
+            {"idea_title": "Fill A", "pillar": "P", "format_from": ["NEW1"], "angle": "Angle A",
+             "why": "W", "specifics": []},
+            {"idea_title": "Fill B", "pillar": "P", "format_from": ["MISSING"], "angle": "B",
+             "why": "W", "specifics": []},
+            {"idea_title": "Fill C", "pillar": "P", "format_from": ["NEW1"], "angle": "Angle C",
+             "why": "W", "specifics": []},
+        ]
+        with temp_project() as root:
+            briefs = director.rank_briefs({"NEW1": analysis}, [reel], 2, root, fill=fill, now=WEEKLY_NOW)
+        self.assertEqual([b["kind"] for b in briefs], ["new", "fill"])
+        filled = briefs[1]
+        self.assertEqual((filled["idea_title"], filled["adaptation"]), ("Fill A", "Angle A"))
+        for key in ("brief_score", "viral_proof", "score_scalable", "score_convertible",
+                    "score_fit", "days_old", "outlier_ratio"):
+            self.assertIsNone(filled[key], key)
+        self.assertEqual((filled["specifics"], filled["steps"]), ([], []))
+        self.assertEqual(filled["format"], analysis["format"])
+        self.assertEqual(filled["brief_title"], "F NEW1")
+        self.assertEqual([b["brief_id"] for b in briefs], ["B01", "B02"])
+
+    def test_new_brief_fields(self) -> None:
+        reel, analysis = _pair("NEW1", 3.0)
+        with temp_project() as root:
+            brief = director.rank_briefs({"NEW1": analysis}, [reel], 5, root, now=WEEKLY_NOW)[0]
+        self.assertEqual(
+            (brief["kind"], brief["weeks_carried"], brief["idea_title"], brief["days_old"],
+             brief["outlier_ratio"]),
+            ("new", 0, "I NEW1", 4, 4.0),
+        )
+        self.assertNotIn("first_run", brief)
 
 
 # ---------------------------------------------------------------------------

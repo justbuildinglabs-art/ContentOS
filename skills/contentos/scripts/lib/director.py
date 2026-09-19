@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -1001,19 +1002,152 @@ def _reel_source_kind(reel: Dict[str, Any]) -> str:
     return reel.get("source_kind") or instagram.SOURCE_KIND_NICHE
 
 
-def _candidate_sort_key(
-    pair: Tuple[Dict[str, Any], Dict[str, Any]]
-) -> Tuple[float, float, str]:
-    """The one sort key used everywhere in `rank_briefs`: `brief_score`
-    descending, then `outlier_ratio` descending, then `shortCode`
-    ascending. Shared by the initial candidate sort and the re-sort of
-    the taken list, so both orderings can never drift apart."""
-    reel, analysis = pair
+_Candidate = Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]
+
+
+def _new_meta(run_dir: Path, shortcode: str) -> Dict[str, Any]:
+    """The `meta` dict for a this-run candidate (new, or a fill idea's proof reel).
+
+    `kind` is `"new"` here; a fill candidate built from this starts the
+    same way (same `analysis_path`/`frames_dir` -- design spec, "Format
+    fill": a fill brief borrows those from its first `format_from`
+    analysis, which lives at this run's normal path) and then overrides
+    `kind` and adds its own `idea_title`/`adaptation`/`specifics`.
+    """
+    return {
+        "kind": "new",
+        "weeks_carried": 0,
+        "analysis_path": str((run_dir / "03-analyses" / f"{shortcode}.json").resolve()),
+        "frames_dir": str((run_dir / "frames" / shortcode).resolve()),
+    }
+
+
+def _effective_score(
+    reel: Dict[str, Any], analysis: Dict[str, Any], meta: Dict[str, Any]
+) -> float:
+    """`brief_score` minus 1.0 per week carried, floored at 0 (design spec, "Ranking").
+
+    A new idea's `meta["weeks_carried"]` is 0, so this is exactly
+    `brief_score(analysis, reel)` unchanged; a carried idea's score
+    drops 1.0 per earlier run it was already shown in, so a strong idea
+    from last week can still beat a weak new one, while enough weeks
+    eventually sink it. This is the one score both the sort key and
+    each non-fill brief's stored `brief_score` use, so a brief's
+    displayed score always matches the order it was ranked in.
+    """
+    return round(max(0.0, brief_score(analysis, reel) - 1.0 * meta["weeks_carried"]), 2)
+
+
+def _candidate_sort_key(candidate: _Candidate) -> Tuple[float, float, str]:
+    """The one sort key used everywhere in `rank_briefs`: effective `brief_score`
+    (`_effective_score`, which already applies a carried idea's per-week
+    penalty) descending, then `outlier_ratio` descending, then
+    `shortCode` ascending. Shared by the initial candidate sort and the
+    re-sort of the taken list, so both orderings can never drift apart.
+    Fill candidates never reach this key (they are appended after
+    sorting is done)."""
+    reel, analysis, meta = candidate
     return (
-        -brief_score(analysis, reel),
+        -_effective_score(reel, analysis, meta),
         -(reel.get("outlier_ratio") or 0),
         reel.get("shortCode") or "",
     )
+
+
+def _brief_dict(
+    index: int,
+    reel: Dict[str, Any],
+    analysis: Dict[str, Any],
+    meta: Dict[str, Any],
+    now: Optional[datetime],
+) -> Dict[str, Any]:
+    """Build one brief, shared by new, carried, and fill candidates alike.
+
+    `format`, `hook_type`, `emotion_lead`, `risk_flags`, `confidence`,
+    `brief_title`, `transferable_mechanism`, `why_it_worked`, and `avoid`
+    always come from `analysis` -- for a fill candidate that is the
+    borrowed `format_from[0]` analysis (design spec, "Format fill"), so
+    those fields are shared with a real brief for the same idea. `kind`,
+    `weeks_carried`, `analysis_path`, and `frames_dir` come from `meta`.
+    `source_url`/`ownerUsername`/`source_kind` always come from `reel`
+    (for fill, the proof reel matching `format_from[0]`).
+
+    A fill candidate (`meta["kind"] == "fill"`) instead takes its
+    `idea_title` and `adaptation` (the fill idea's `angle`) from `meta`,
+    its `specifics` from `meta` (copied, or `[]`), an empty `steps`, and
+    sets `brief_score`, `viral_proof`, `outlier_ratio`, `score_scalable`,
+    `score_convertible`, `score_fit`, and `days_old` to `None` -- there
+    is no analyzed reel behind it to score. A new or carried brief's
+    `idea_title` is `analysis["idea_title"]`, its `outlier_ratio` is
+    `reel.get("outlier_ratio")`, and its `days_old` is the whole days
+    from the source reel's `timestamp` to `now`, or `None` when `now` or
+    the timestamp is missing.
+    """
+    is_fill = meta["kind"] == "fill"
+
+    if is_fill:
+        idea_title = meta["idea_title"]
+        adaptation = meta["adaptation"]
+        specifics = [dict(item) for item in meta.get("specifics") or []]
+        steps: List[str] = []
+        score: Optional[float] = None
+        viral_proof: Optional[float] = None
+        outlier_ratio: Optional[float] = None
+        score_scalable: Optional[int] = None
+        score_convertible: Optional[int] = None
+        score_fit: Optional[int] = None
+        days_old: Optional[int] = None
+    else:
+        idea_title = analysis["idea_title"]
+        adaptation = analysis["adaptation"]
+        specifics = [dict(item) for item in analysis.get("specifics") or []]
+        steps = list(analysis.get("steps") or [])
+        score = _effective_score(reel, analysis, meta)
+        viral_proof = reel.get("viral_proof")
+        outlier_ratio = reel.get("outlier_ratio")
+        score_scalable = analysis["score_scalable"]
+        score_convertible = analysis["score_convertible"]
+        score_fit = analysis["score_fit"]
+        timestamp = reel.get("timestamp")
+        days_old = (now - instagram.parse_ts(timestamp)).days if now and timestamp else None
+
+    brief: Dict[str, Any] = {
+        "brief_id": f"B{index:02d}",
+        "shortCode": reel["shortCode"],
+        "kind": meta["kind"],
+        "weeks_carried": meta["weeks_carried"],
+        "idea_title": idea_title,
+        "brief_title": analysis["brief_title"],
+        "source_url": reel.get("url"),
+        "ownerUsername": reel.get("ownerUsername"),
+        "source_kind": _reel_source_kind(reel),
+        "format": analysis["format"],
+        "hook_type": analysis["hook_type"],
+        "emotion_lead": analysis["emotion_lead"],
+        "brief_score": score,
+        "viral_proof": viral_proof,
+        "outlier_ratio": outlier_ratio,
+        "score_scalable": score_scalable,
+        "score_convertible": score_convertible,
+        "score_fit": score_fit,
+        "risk_flags": analysis["risk_flags"],
+        "confidence": analysis["confidence"],
+        "adaptation": adaptation,
+        "avoid": analysis["avoid"],
+        "transferable_mechanism": analysis["transferable_mechanism"],
+        "why_it_worked": analysis["why_it_worked"],
+        "hypothesis": _hypothesis_line(analysis),
+        # Copies, so a brief edited later never reaches back into the
+        # analysis dict (or fill idea) it was built from.
+        "specifics": specifics,
+        "steps": steps,
+        "days_old": days_old,
+        "frames_dir": meta["frames_dir"],
+        "analysis_path": meta["analysis_path"],
+    }
+    if meta["kind"] == "carried":
+        brief["first_run"] = meta["first_run"]
+    return brief
 
 
 def rank_briefs(
@@ -1022,59 +1156,109 @@ def rank_briefs(
     n: int,
     run_dir: Path,
     max_format_briefs: int = 2,
+    carried: Optional[List[Dict[str, Any]]] = None,
+    fill: Optional[List[Dict[str, Any]]] = None,
+    now: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
-    """Rank analyzed reels into the top `n` briefs (design spec, "Stage 2 -- direct").
+    """Rank this run's ideas, last week's carried ones, and format fill into
+    the top `n` briefs (design spec, "0.4.0 changes", "Ranking" and
+    "Format fill").
 
     `analyses` maps shortCode to a coerced analysis dict (see
-    `coerce_analysis`); `reels` are `02-outliers.json`'s scored `selected`
-    reels. Only a reel with a matching entry in `analyses` is ranked; the
-    rest (never analyzed, or `analysis_failed`) are silently excluded.
+    `coerce_analysis`) for this run; `reels` are `02-outliers.json`'s
+    scored `selected` reels. Only a reel with a matching entry in
+    `analyses` is ranked as `"new"`; the rest (never analyzed, or
+    `analysis_failed`) are silently excluded.
 
-    Survivors sort by `brief_score` descending, then `outlier_ratio`
-    descending, then `shortCode` ascending (the existing tiebreak). The
-    sorted list is then walked once: a niche reel (`source_kind` "niche",
-    or missing) is always taken; a format reel is taken only while fewer
-    than `max_format_briefs` format reels have been taken so far, and is
-    otherwise set aside. Because the walk visits the list in score order,
-    both the taken list and the set-aside list stay in score order too.
-    If the walk alone did not fill `n` slots (the format cap left too few
-    eligible reels), the remaining slots are filled from the set-aside
-    format reels, best score first -- so `max_format_briefs` limits how
-    many format briefs are taken *freely*, never how many can appear when
-    niche reels run short. The taken list (walk plus any backfill) is
-    then re-sorted with the same key (`brief_score` descending, same
-    tiebreak), so a backfilled brief never sits below a lower-scoring
-    one just because it was appended last. `B01`, `B02`, ... are assigned
-    in this final, re-sorted order.
+    `carried` (from `ideas.carry_candidates`, with the caller having
+    already loaded each entry's analysis) is a list of
+    `{"reel": <snapshot>, "analysis": <coerced>, "weeks_carried": int,
+    "first_run": str, "analysis_path": str, "frames_dir": str}`. Each
+    becomes a `"carried"` candidate, scored the same way as a new one
+    except its effective score has `weeks_carried` subtracted (floored
+    at 0, see `_effective_score`) -- so a strong idea from an earlier
+    week can still beat a weak new one, while enough weeks eventually
+    sink it. New and carried candidates share one sort: effective
+    `brief_score` descending, then `outlier_ratio` descending, then
+    `shortCode` ascending (`_candidate_sort_key`). That sorted list is
+    then walked once: a niche reel (`source_kind` "niche", or missing)
+    is always taken; a format reel is taken only while fewer than
+    `max_format_briefs` format reels have been taken so far, and is
+    otherwise set aside. Because the walk visits the list in score
+    order, both the taken list and the set-aside list stay in score
+    order too. If the walk alone did not fill `n` slots (the format cap
+    left too few eligible candidates), the remaining slots are filled
+    from the set-aside format candidates, best score first -- so
+    `max_format_briefs` limits how many format briefs are taken
+    *freely*, never how many can appear when niche candidates run short.
+    The taken list (walk plus any backfill) is then re-sorted with the
+    same key, so a backfilled brief never sits below a lower-scoring one
+    just because it was appended last, and cut to `n`.
 
-    `run_dir` is not part of `analyses`/`reels` (neither carries a run
-    directory), but every brief's `frames_dir` and `analysis_path` must
-    be absolute paths (design spec), so it is required here to build
-    them: `run_dir/frames/<shortCode>` and
-    `run_dir/03-analyses/<shortCode>.json`.
+    Only when that leaves fewer than `n` briefs does `fill` (from
+    `director.load_fill`, a list of `{"idea_title", "pillar",
+    "format_from", "angle", "why", "specifics"}` dicts) come in, walked
+    in file order and appended after every new and carried brief: an
+    idea whose `format_from[0]` has no entry in `analyses`, or whose
+    reel is not in `reels`, is skipped; otherwise it borrows that
+    entry's analysis and reel (format, hook, emotion, risk flags,
+    confidence, mechanism, source fields, `analysis_path`, `frames_dir`)
+    and gets its own `idea_title`, `adaptation` (the fill `angle`), and
+    `specifics`, with `brief_score`, `viral_proof`, `outlier_ratio`, and
+    the three director scores all `None`. Fill briefs are never
+    re-sorted among themselves or against the real ones; the walk stops
+    as soon as `n` briefs exist.
+
+    Every brief gains `kind` (`"new"`, `"carried"`, or `"fill"`),
+    `weeks_carried` (0 for new and fill), `idea_title`, `outlier_ratio`
+    (`None` for fill), and `days_old` (whole days from the source reel's
+    `timestamp` to `now`, or `None` when `now` or the timestamp is
+    missing -- always `None` for fill, which has no single source reel).
+    A carried brief also gets `first_run`. `B01`, `B02`, ... are
+    assigned in the final order: sorted new/carried first, then fill.
+
+    `run_dir` is required to build `frames_dir`/`analysis_path` (both
+    must be absolute) for new and fill candidates:
+    `run_dir/frames/<shortCode>` and `run_dir/03-analyses/<shortCode>.json`.
+    A carried candidate keeps the paths its own dict already carries
+    instead (the run that first analyzed it, per the design spec: "A
+    carried idea keeps the analysis, frames, and reel snapshot from the
+    run that found it").
     """
     run_dir = Path(run_dir)
 
-    candidates: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    candidates: List[_Candidate] = []
     for reel in reels:
-        analysis = analyses.get(reel.get("shortCode"))
+        shortcode = reel.get("shortCode")
+        analysis = analyses.get(shortcode)
         if analysis is not None:
-            candidates.append((reel, analysis))
+            candidates.append((reel, analysis, _new_meta(run_dir, shortcode)))
+
+    for item in carried or []:
+        meta = {
+            "kind": "carried",
+            "weeks_carried": item["weeks_carried"],
+            "first_run": item["first_run"],
+            "analysis_path": item["analysis_path"],
+            "frames_dir": item["frames_dir"],
+        }
+        candidates.append((item["reel"], item["analysis"], meta))
 
     candidates.sort(key=_candidate_sort_key)
 
-    taken: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
-    skipped_format: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    taken: List[_Candidate] = []
+    skipped_format: List[_Candidate] = []
     format_taken = 0
-    for reel, analysis in candidates:
+    for candidate in candidates:
+        reel = candidate[0]
         if _reel_source_kind(reel) == instagram.SOURCE_KIND_FORMAT:
             if format_taken < max_format_briefs:
-                taken.append((reel, analysis))
+                taken.append(candidate)
                 format_taken += 1
             else:
-                skipped_format.append((reel, analysis))
+                skipped_format.append(candidate)
         else:
-            taken.append((reel, analysis))
+            taken.append(candidate)
 
     if len(taken) < n:
         taken.extend(skipped_format[: n - len(taken)])
@@ -1082,41 +1266,32 @@ def rank_briefs(
     # Re-sort so a backfilled brief (appended above, out of score order)
     # never sits below a lower-scoring one in the final numbering.
     taken.sort(key=_candidate_sort_key)
+    taken = taken[:n]
+
+    fill_candidates: List[_Candidate] = []
+    if len(taken) < n:
+        reels_by_code = {reel.get("shortCode"): reel for reel in reels}
+        for idea in fill or []:
+            if len(taken) + len(fill_candidates) >= n:
+                break
+            format_from = idea.get("format_from") or []
+            proof_shortcode = format_from[0] if format_from else None
+            proof_analysis = analyses.get(proof_shortcode) if proof_shortcode else None
+            proof_reel = reels_by_code.get(proof_shortcode) if proof_shortcode else None
+            if proof_analysis is None or proof_reel is None:
+                continue
+            meta = dict(
+                _new_meta(run_dir, proof_shortcode),
+                kind="fill",
+                idea_title=idea.get("idea_title"),
+                adaptation=idea.get("angle"),
+                specifics=idea.get("specifics") or [],
+            )
+            fill_candidates.append((proof_reel, proof_analysis, meta))
 
     briefs: List[Dict[str, Any]] = []
-    for index, (reel, analysis) in enumerate(taken[:n], start=1):
-        shortcode = reel["shortCode"]
-        briefs.append(
-            {
-                "brief_id": f"B{index:02d}",
-                "shortCode": shortcode,
-                "brief_title": analysis["brief_title"],
-                "source_url": reel.get("url"),
-                "ownerUsername": reel.get("ownerUsername"),
-                "source_kind": _reel_source_kind(reel),
-                "format": analysis["format"],
-                "hook_type": analysis["hook_type"],
-                "emotion_lead": analysis["emotion_lead"],
-                "brief_score": brief_score(analysis, reel),
-                "viral_proof": reel.get("viral_proof"),
-                "score_scalable": analysis["score_scalable"],
-                "score_convertible": analysis["score_convertible"],
-                "score_fit": analysis["score_fit"],
-                "risk_flags": analysis["risk_flags"],
-                "confidence": analysis["confidence"],
-                "adaptation": analysis["adaptation"],
-                "avoid": analysis["avoid"],
-                "transferable_mechanism": analysis["transferable_mechanism"],
-                "why_it_worked": analysis["why_it_worked"],
-                "hypothesis": _hypothesis_line(analysis),
-                # Copies, so a brief edited later never reaches back into
-                # the analysis dict it was ranked from.
-                "specifics": [dict(item) for item in analysis.get("specifics") or []],
-                "steps": list(analysis.get("steps") or []),
-                "frames_dir": str((run_dir / "frames" / shortcode).resolve()),
-                "analysis_path": str((run_dir / "03-analyses" / f"{shortcode}.json").resolve()),
-            }
-        )
+    for index, (reel, analysis, meta) in enumerate(taken + fill_candidates, start=1):
+        briefs.append(_brief_dict(index, reel, analysis, meta, now))
     return briefs
 
 
