@@ -354,3 +354,120 @@ class ReportCliTests(NoNetworkTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_CONTEXT_SCRIPT = """---
+brief_id: B01
+revision: 1
+---
+
+## Hook
+
+**Primary (approach: bold claim)**
+Spoken: [NEED NAME] now drafts the follow-ups you type by hand.
+On-screen text: [NEED NAME] drafts. You hit send.
+
+## Beats
+
+| t | [VISUAL CUE] | spoken / VO | on-screen text |
+| --- | --- | --- | --- |
+| 0-3s | Selfie, text card. | [NEED NAME] now drafts the follow-ups you type by hand. | [NEED NAME] drafts. You hit send. |
+| 3-8s | Inbox recording. [NEED SCREENSHOT] | New leads stacking up. | [NEED NUMBER] unread leads |
+
+## CTA
+
+**Primary (direct ask)**
+Comment REPLY. Setup took me [NEED NUMBER] minutes.
+
+## Production notes
+
+- [NEED NAME] is the tool the creator actually used.
+
+## What changed vs source
+
+- Allowed claims is empty, so counts stay [NEED NUMBER].
+"""
+
+
+class PlaceholderContextTests(NoNetworkTestCase):
+    def test_each_placeholder_carries_its_section_beat_and_line(self) -> None:
+        found = report.placeholder_contexts(_CONTEXT_SCRIPT)
+        wheres = [item["where"] for item in found]
+        # The hook lines reappear in the first beat row: listed once, both places named.
+        self.assertIn("Hook and Beats 0-3s, spoken", wheres)
+        self.assertIn("Hook and Beats 0-3s, on screen", wheres)
+        self.assertIn("Beats 3-8s, visual", wheres)
+        self.assertIn("Beats 3-8s, on screen", wheres)
+        self.assertIn("CTA", wheres)
+        beat_line = next(i for i in found if i["where"] == "Beats 3-8s, on screen")
+        self.assertEqual(beat_line["text"], "[NEED NUMBER] unread leads")
+        self.assertEqual(beat_line["tokens"], ["[NEED NUMBER]"])
+
+    def test_notes_sections_are_left_out_and_duplicates_collapse(self) -> None:
+        found = report.placeholder_contexts(_CONTEXT_SCRIPT)
+        self.assertFalse(any(i["where"].startswith("Production") for i in found))
+        self.assertFalse(any(i["where"].startswith("What changed") for i in found))
+        texts = [i["text"] for i in found]
+        self.assertEqual(len(texts), len(set(texts)))
+
+    def test_a_script_with_no_sections_still_reports_its_placeholders(self) -> None:
+        found = report.placeholder_contexts("Just a line with [NEED DATE] in it.\n")
+        self.assertEqual([i["tokens"] for i in found], [["[NEED DATE]"]])
+
+
+class ReadableReportTests(NoNetworkTestCase):
+    def test_report_opens_with_what_to_do_next(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            text = report.render_report(run_dir)
+        head = text.split("## Summary")[0]
+        self.assertIn("## What to do next", head)
+        self.assertIn("B01", head)  # passed: fill and film
+        self.assertIn("B04", head)  # needs a human: intake then revision 2
+        self.assertIn("intake", head)
+        self.assertIn("B05", head)  # pending: write it
+        self.assertNotIn("—", text)
+
+    def test_report_prints_per_score_lines_from_the_latest_qa(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _write_qa(
+                run_dir, "B01", 0, "pass",
+                scores={"hook_scroll_stop": 9, "body_specificity": 6},
+                checks={"not_generic": "fail", "cta_present": "pass"},
+            )
+            text = report.render_report(run_dir)
+        section = text.split("## Scores")[1].split("\n## ")[0]
+        self.assertIn("B01", section)
+        self.assertIn("hook_scroll_stop 9", section)
+        self.assertIn("body_specificity 6", section)
+        self.assertIn("failed checks: not_generic", section)
+
+    def test_placeholders_section_shows_where_each_one_sits(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            path = agents.script_path(run_dir, "B01", 0)
+            path.write_text(_CONTEXT_SCRIPT, encoding="utf-8")
+            text = report.render_report(run_dir)
+        section = text.split("## Placeholders to fill")[1].split("\n## ")[0]
+        self.assertIn("Beats 3-8s, on screen: [NEED NUMBER] unread leads", section)
+
+    def test_script_paths_are_relative_to_the_run(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            text = report.render_report(run_dir)
+        self.assertIn("04-scripts/B01.r0.md", text)
+        self.assertNotIn(str(run_dir), text.split("## Briefs")[1].split("\n## ")[0])
+
+
+class StatusTextTests(NoNetworkTestCase):
+    def test_status_text_is_a_short_readable_summary(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            text = report.render_status_text(run_dir)
+        self.assertIn(run_dir.name, text)
+        self.assertIn("B01", text)
+        self.assertIn("needs_human", text)
+        self.assertIn("Next:", text)
+        self.assertNotIn("{", text)
+        self.assertNotIn("—", text)
