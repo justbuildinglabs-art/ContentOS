@@ -347,6 +347,8 @@ class WriterAndQaAgentTests(NoNetworkTestCase):
         roles = {match.group(1) for match in matches if match}
         self.assertEqual(roles, {"Primary", "Backup"})
 
+        self.assertIn("`kind` is `fill`", writer_body)
+
         qa_body = _body(QA_AGENT)
         qa_prose = _collapse(qa_body)
         qa_schema = director.load_schema("qa")

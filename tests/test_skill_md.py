@@ -396,6 +396,20 @@ class SkillBodyTests(NoNetworkTestCase):
         self.assertIn("unless too few niche reels survived analysis", section)
         self.assertIn("fills the remaining slots from the format briefs", section)
 
+    def test_weekly_picking_and_auto_scripts(self) -> None:
+        text = SKILL_MD.read_text(encoding="utf-8")
+        for needle in (
+            "`Top 3`",
+            "`Top 5`",
+            "`All <n>`",
+            "auto_scripts",
+            "03-fill.json",
+            "no new outliers",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+        self.assertNotIn("take the top `briefs`", text)
+
     def test_skill_preflight_checks_creator_md(self) -> None:
         body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
 

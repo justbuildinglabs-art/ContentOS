@@ -163,7 +163,8 @@ them. When there is no run at all, say so and offer `/contentos research`.
 no network. The reels come from four sample accounts, so the creator's own
 competitors show as `empty` in the per-account table. Say so once, so nobody
 reads it as a scrape that failed. `--yes` skips the spend confirmation.
-`--auto` skips the brief question and takes the top `briefs` from config.
+`--auto` skips the brief question and takes the top `auto_scripts` briefs
+(default 3).
 
 ## The setup flow
 
@@ -280,6 +281,10 @@ dispatching a subagent:
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" rank --project "$PWD" --run <run_id> --mock
 ```
+
+If research selected no reels (no new outliers this week), skip the director
+loop and the synthesis and go straight to `rank`. It lists last weeks'
+unpicked ideas.
 
 4. **Director loop.** Loop 1 below, one dispatch per selected reel.
 5. **Synthesis.** Loop 2 below, one dispatch for the whole run.
@@ -412,9 +417,12 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <ru
 
 Dispatch `contentos:content-director` at `synth.md` between them. It writes
 `03-patterns.md`: proven hooks, recurring formats, saturated angles, a
-structural recommendation, and a language bank. On exit 7 the file is missing a
-heading; append the problems with the same recipe, using `<name>` = `synth`,
-re-dispatch once, then carry on either way.
+structural recommendation, and a language bank. When the prompt asks for it,
+it also writes `03-fill.json`, a set of format fill ideas built from this
+week's proven formats and the creator's own pillars. The same
+`verify --stage synth` checks both files. On exit 7 a file is missing a
+heading or does not match its schema; append the problems with the same
+recipe, using `<name>` = `synth`, re-dispatch once, then carry on either way.
 `rank` does not need this file, so a failed synthesis is not a reason to stop.
 
 ### Loop 3: writer, one per chosen brief
@@ -479,26 +487,40 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <ru
 
 ## Choosing briefs
 
-After `rank`, read `<run_dir>/briefs.md` and show the creator the ranked list:
-the id, the title, the format, the hook type, and the brief score. Each brief
-also names its source kind, `niche` or `format`. A niche brief comes from an
-account in their own niche and is scored on topic fit. A format brief comes
-from a format account in another niche and is scored on how cleanly the
-mechanism transfers. At most `max_format_briefs` of the ranked briefs (2 by
-default) come from format accounts, unless too few niche reels survived analysis
-to fill the list. Then `rank` fills the remaining slots from the format briefs
-it had set aside, best score first, and the list can be mostly or entirely
-format briefs. Read each brief's source line rather than assuming the split.
-Then ask with AskUserQuestion, options `All <n> briefs`, `Top 3`, `Top 1`, and
-let them type specific ids such as `B02 B05` through Other.
+After `rank`, read `<run_dir>/briefs.md`. It opens with the numbered list from
+`# This week's ideas`: one line per brief, its kind, the idea title, and the
+proof behind it. Show that list to the creator as it is written.
 
-With `--auto`, skip the question and take the top `briefs` from
-`.contentos/config.json` (default 5).
+Every brief is one of three kinds:
 
-`rank` already cuts the list to `briefs` before it writes `briefs.md`, so `All
-<n> briefs` never offers more than that, and `--auto` takes all of them. To
-choose from a longer list, raise `briefs` in `.contentos/config.json` and run
-`rank` again.
+- **New.** A reel this run just analyzed. The proof is its own numbers: the
+  account, how many times it beat that account's usual plays, and how old the
+  source reel is.
+- **Carried over.** An idea from an earlier week that nobody picked yet. The
+  proof names which week it first showed up.
+- **Format fill.** A format that worked this week, applied to one of the
+  creator's own pillars. There is no source reel behind it yet, so the proof
+  says which account's hook it borrows instead.
+
+Each brief also names its source kind, `niche` or `format`. A niche brief
+comes from an account in their own niche and is scored on topic fit. A format
+brief comes from a format account in another niche and is scored on how
+cleanly the mechanism transfers. At most `max_format_briefs` of the ranked
+briefs (2 by default) come from format accounts, unless too few niche reels
+survived analysis to fill the list. Then `rank` fills the remaining slots from
+the format briefs it had set aside, best score first, and the list can be
+mostly or entirely format briefs. Read each brief's source line rather than
+assuming the split.
+
+Then ask with AskUserQuestion, options `Top 3`, `Top 5`, and `All <n>`, and let
+them type specific ids such as `B02 B07` through Other.
+
+With `--auto`, skip the question and take the top `auto_scripts` briefs from
+`.contentos/config.json` (default 3).
+
+`rank` already cuts the list to `briefs` (default 20) before it writes
+`briefs.md`, so `All <n>` never offers more than that. To choose from a longer
+list, raise `briefs` in `.contentos/config.json` and run `rank` again.
 
 ## Offering a rule
 

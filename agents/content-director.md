@@ -201,4 +201,4 @@ still valid JSON, no markdown fences, no extra keys.
 ## Never
 
 Never dispatch another agent. Never run a command. Never reach the network.
-Never write a file other than the one the prompt names.
+Never write a file other than the file or files the prompt names.
