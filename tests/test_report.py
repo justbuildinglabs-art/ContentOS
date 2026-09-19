@@ -512,6 +512,34 @@ class ReadableCliTests(NoNetworkTestCase):
             self.assertIn("https://www.instagram.com/p/X/", history_path.read_text(encoding="utf-8"))
 
 
+def _make_b05_a_fill_brief(run_dir: Path) -> None:
+    """Turn B05 into a fill brief whose topic differs from its proof reel's title."""
+    doc = store.read_json(run_dir / "03-briefs.json")
+    brief = next(item for item in doc["briefs"] if item["brief_id"] == "B05")
+    brief.update({"kind": "fill", "idea_title": "My own Sunday week card"})
+    store.write_json_atomic(run_dir / "03-briefs.json", doc)
+
+
+class FillTitleTests(NoNetworkTestCase):
+    def test_report_titles_a_fill_brief_by_its_idea_title(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _make_b05_a_fill_brief(run_dir)
+            text = report.render_report(run_dir)
+        table = text.split("## Briefs")[1].split("\n## ")[0]
+        self.assertIn("| B05 | My own Sunday week card | pending | - |", table)
+        self.assertNotIn("Pending brief", table)
+        self.assertIn("| B01 | Pass brief | pass | pass |", table)
+
+    def test_status_titles_a_fill_brief_by_its_idea_title(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _make_b05_a_fill_brief(run_dir)
+            by_id = {state["brief_id"]: state for state in report.status(run_dir)["briefs"]}
+        self.assertEqual(by_id["B05"]["title"], "My own Sunday week card")
+        self.assertEqual(by_id["B01"]["title"], "Pass brief")
+
+
 class FinalRevisionNextStepTests(NoNetworkTestCase):
     def test_needs_human_after_revision_2_never_offers_another_revision(self) -> None:
         with temp_project() as project:

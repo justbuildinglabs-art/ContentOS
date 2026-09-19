@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from lib import agents, store
+from lib import agents, director, store
 
 # Sections whose placeholders only repeat or explain the ones in the lines
 # the creator films; listing them again would double the to-do list.
@@ -285,7 +285,7 @@ def render_report(run_dir: Path) -> str:
     run_dir = Path(run_dir)
     run_data = store.read_json(run_dir / "run.json")
     briefs = _briefs(run_dir)
-    titles = {brief["brief_id"]: brief.get("brief_title", "") for brief in briefs}
+    titles = {brief["brief_id"]: director.display_title(brief) for brief in briefs}
     states = _brief_states(run_dir)
 
     lines: List[str] = [f"# ContentOS report: {run_data.get('run_id')}", ""]

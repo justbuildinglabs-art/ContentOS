@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from lib import report, store
+from lib import director, report, store
 
 # brief_score weights, from the design spec's "Stage 2 -- direct" (and
 # lib/director.py's brief_score). Used only to draw the score bar.
@@ -256,7 +256,7 @@ def _brief_section(run_dir: Path, brief: Dict[str, Any], state: Dict[str, Any]) 
         f"<p class='eyebrow'>{_e(brief_id)} · {_e(brief.get('format', '-'))} · {_e(brief.get('hook_type', '-'))} hook"
         f" · {_e(brief.get('source_kind', 'niche'))} source</p>"
     )
-    parts.append(f"<h3>{_e(brief.get('brief_title', ''))}</h3>")
+    parts.append(f"<h3>{_e(director.display_title(brief))}</h3>")
     if brief.get("source_url"):
         parts.append(
             f"<p class='small'>Source: <a href='{_e(brief['source_url'])}'>@{_e(brief.get('ownerUsername', ''))}"
@@ -419,7 +419,7 @@ def render_report_html(run_dir: Path) -> str:
             score = brief.get("brief_score")
             rows.append(
                 f"<tr><td><a href='#{_e(brief.get('brief_id'))}'>{_e(brief.get('brief_id'))}</a></td>"
-                f"<td>{_e(brief.get('brief_title', ''))}</td><td>{_status_pill(state)}</td>"
+                f"<td>{_e(director.display_title(brief))}</td><td>{_status_pill(state)}</td>"
                 f"<td class='num'>{_e(f'{score:.2f}' if isinstance(score, (int, float)) else '-')}</td>"
                 f"<td>{_score_bar(brief)}</td></tr>"
             )

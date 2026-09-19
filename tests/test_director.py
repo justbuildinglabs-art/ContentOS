@@ -994,6 +994,21 @@ class WeeklyRankTests(NoNetworkTestCase):
         self.assertNotIn("first_run", brief)
 
 
+class DisplayTitleTests(NoNetworkTestCase):
+    def test_idea_title_first_then_brief_title(self) -> None:
+        self.assertEqual(
+            director.display_title({"idea_title": "Your own week card", "brief_title": "Tool claim"}),
+            "Your own week card",
+        )
+        self.assertEqual(director.display_title({"brief_title": "Tool claim"}), "Tool claim")
+        self.assertEqual(
+            director.display_title({"idea_title": None, "brief_title": "Tool claim"}), "Tool claim"
+        )
+        self.assertEqual(director.display_title({"idea_title": "", "brief_title": "Tool claim"}), "Tool claim")
+        self.assertEqual(director.display_title({}), "")
+        self.assertEqual(director.display_title({"brief_title": None}), "")
+
+
 # ---------------------------------------------------------------------------
 # render_briefs_md: digest
 # ---------------------------------------------------------------------------

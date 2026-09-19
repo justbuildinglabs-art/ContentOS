@@ -98,6 +98,19 @@ class ReportHtmlTests(NoNetworkTestCase):
     def test_no_em_dashes(self) -> None:
         self.assertNotIn("—", self._render())
 
+    def test_a_fill_brief_is_titled_by_its_idea_title(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _enrich_briefs(run_dir)
+            doc = store.read_json(run_dir / "03-briefs.json")
+            doc["briefs"][4].update({"kind": "fill", "idea_title": "My own Sunday week card"})
+            store.write_json_atomic(run_dir / "03-briefs.json", doc)
+            html = report_html.render_report_html(run_dir)
+        self.assertIn("<h3>My own Sunday week card</h3>", html)
+        self.assertIn("<td>My own Sunday week card</td>", html)
+        self.assertNotIn("<h3>Pending brief</h3>", html)
+        self.assertNotIn("<td>Pending brief</td>", html)
+
     def test_a_run_with_no_briefs_still_renders(self) -> None:
         with temp_project() as project:
             config_dir = store.contentos_dir(project)

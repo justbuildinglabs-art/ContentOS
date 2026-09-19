@@ -1295,6 +1295,18 @@ def rank_briefs(
     return briefs
 
 
+def display_title(brief: Dict[str, Any]) -> str:
+    """The title a creator sees for `brief`: `idea_title`, else `brief_title`, else "".
+
+    A fill brief borrows its proof reel's `brief_title`, so titling it
+    by `brief_title` would give it the proof reel's name. A 0.3.0 brief
+    has no `idea_title`, so it falls back to `brief_title`. `briefs.md`,
+    `report.md`, `report.html`, `status`, and the intake header all
+    title a brief through this one function.
+    """
+    return brief.get("idea_title") or brief.get("brief_title") or ""
+
+
 def _kind_label(brief: Dict[str, Any]) -> str:
     """The digest/section kind label for `brief`.
 
@@ -1340,9 +1352,9 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
     brief: `i. <id> · <kind label> · <idea_title>. <proof>` (see
     `_kind_label`, `_digest_proof`).
 
-    Each `## <id>: <idea_title>` section (falling back to `brief_title`
-    when `idea_title` is missing -- a 0.3.0 `03-briefs.json` has
-    neither `idea_title` nor `kind`) opens with `- Kind: <label>` (plus
+    Each `## <id>: <idea_title>` section (`display_title`, which falls
+    back to `brief_title` when `idea_title` is missing -- a 0.3.0
+    `03-briefs.json` has neither `idea_title` nor `kind`) opens with `- Kind: <label>` (plus
     ` (first shown in <first_run>)` for a carried idea) and `- Source
     format: <brief_title>`, then the existing plain-language lines, in
     this order: the source (with its niche/format kind), format/hook/
@@ -1358,7 +1370,7 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
     """
     lines: List[str] = ["# This week's ideas"]
     for index, brief in enumerate(briefs, start=1):
-        idea_title = brief.get("idea_title") or brief.get("brief_title", "")
+        idea_title = display_title(brief)
         lines.append(
             f"{index}. {brief['brief_id']} · {_kind_label(brief)} · {idea_title}. "
             f"{_digest_proof(brief)}"
@@ -1369,7 +1381,7 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
     for brief in briefs:
         specifics = brief.get("specifics") or []
         steps = brief.get("steps") or []
-        idea_title = brief.get("idea_title") or brief.get("brief_title", "")
+        idea_title = display_title(brief)
         label = _kind_label(brief)
         lines.append(f"## {brief['brief_id']}: {idea_title}")
         lines.append("")
