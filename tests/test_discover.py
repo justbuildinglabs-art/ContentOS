@@ -147,6 +147,8 @@ class MockDiscoverTests(NoNetworkTestCase):
         result = json.loads(result_line[len("RESULT "):])
         self.assertEqual(result["candidates"], 4)
         self.assertIn("@focusfern", out)
+        self.assertNotIn("best reel 0 plays", out)
+        self.assertIn("@webwillow  52,000 followers  no reel seen under your hashtags", out)
         self.assertNotIn("—", out)
 
     def test_works_before_setup_and_with_no_competitors_yet(self) -> None:

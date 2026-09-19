@@ -317,10 +317,12 @@ def _print_table(candidates: List[Dict[str, Any]], dropped: List[Dict[str, str]]
     for index, row in enumerate(candidates, start=1):
         followers = "?" if row["followers"] is None else f"{row['followers']:,}"
         found = ", ".join(row["sources"]) or "-"
-        print(
-            f"{index:>2}. @{row['handle']}  {followers} followers  "
-            f"best reel {row['best_plays']:,} plays  found via {found}"
+        reel = (
+            f"best reel {row['best_plays']:,} plays"
+            if row["reels_seen"]
+            else "no reel seen under your hashtags"
         )
+        print(f"{index:>2}. @{row['handle']}  {followers} followers  {reel}  found via {found}")
     if not candidates:
         print("None. Try broader hashtags.")
     if dropped:

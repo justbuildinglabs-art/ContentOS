@@ -99,6 +99,18 @@ to 5 accounts from any niche whose formats travel. It writes
 fill in by hand. Those sections are what make the scripts sound like you, so
 they are worth an hour.
 
+You do not need to know your competitors. When setup asks for accounts, say
+"find them for me". Claude proposes hashtags and keywords for your niche,
+searches the web for creators when it can, and runs one small scrape to see
+who is getting the most plays under those hashtags. Every account it shows you
+was checked: it exists and it is public. You pick 3 to 8, and you can always
+type in accounts you already know. This costs about $0.30 to $0.80 once, and
+you see the estimate before anything is spent. To redo it later:
+
+```
+/contentos discover
+```
+
 ```
 /contentos run
 ```
@@ -193,6 +205,13 @@ spent, and a run stops on its own if the estimate goes over
 `apify_max_charge_usd` in your config. A week's cost is one run: running it
 weekly does not cost more than running it any other time.
 
+Reels a brand paid for are left out of your ideas, because bought reach
+teaches the wrong lesson. A reel counts as a paid partnership when Instagram's
+own label is set, when its caption or hashtags say so (`#ad`, "sponsored by"),
+or when the reel says so on screen or out loud. The report lists what was left
+out. To keep them, set `exclude_paid_partnerships` to `false` in
+`.contentos/config.json`.
+
 If your project was set up before 0.4.0, `.contentos/config.json` still pins
 `lookback_days: 90` and `briefs: 5`. Change them to 14 and 20 to get the
 weekly list, or delete both lines to pick up the new defaults. Projects
@@ -204,6 +223,7 @@ runs that you never picked do not carry over.
 | command | what it does |
 | --- | --- |
 | `/contentos setup` | Interview, then write `creator.md`, `config.json`, and `rules.md` |
+| `/contentos discover` | Find accounts in your niche from hashtags, keywords, and a web search, then save the ones you pick |
 | `/contentos run` | All four stages, end to end. `--auto` skips the brief question and scripts only the top `auto_scripts` ideas (default 3), `--yes` skips the spend question, `--mock` uses fixtures |
 | `/contentos research` | Stage 1 only: scrape, score, select, download, keyframes |
 | `/contentos direct` | Stage 2 only: analyze each selected reel, find the patterns, rank the briefs |

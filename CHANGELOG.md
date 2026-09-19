@@ -5,6 +5,42 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-19
+
+### Added
+
+- Creator discovery. `/contentos discover`, and "find them for me" during
+  setup, finds accounts in your niche so you do not have to know your
+  competitors. It scrapes recent reels under the hashtags you agree on, runs a
+  profile search per keyword, and takes handles from a web search when Claude
+  has one. A final profile check drops any account that does not exist or is
+  private, so an invented handle never reaches your list. Accounts are ranked
+  by their best reel and how many of your hashtags they showed up under, with
+  a bonus for small accounts. Results land in `.contentos/discovery.json`. It
+  works before setup, costs about $0.30 to $0.80 once, and goes through the
+  same estimate, confirmation, and cost cap as research. New settings:
+  `discover_reels_per_hashtag` (30), `discover_candidates` (25), and
+  `discover_min_followers` (1000, applied to keyword and web finds only).
+- `contentos.py accounts --competitors a,b,c [--format-accounts d,e]` replaces
+  the account lists in `config.json` and `creator.md` of a project that is
+  already set up, and touches nothing else. Typing handles by hand in setup
+  works as before.
+- Paid partnership filter. Research excludes a reel as `paid_partnership` when
+  Instagram's own paid partnership label is set on the scraped reel, or when
+  its caption or hashtags disclose it (`#ad`, `#sponsored`, "sponsored by",
+  "in partnership with", and the like). `#adventure` and `#advice` never
+  match. The content-director also flags a reel that discloses on screen or
+  out loud, and `rank` leaves it out and lists it in `report.md` under
+  "Skipped: paid partnership". The reel still counts toward its account's
+  baseline. Set `exclude_paid_partnerships` to `false` to keep them.
+
+### Changed
+
+- The analysis schema gains an optional `paid_partnership` object. Older
+  analyses without it still validate and rank.
+- `03-briefs.json` gains `skipped_paid`, and the `rank` summary gains a
+  `skipped_paid` count.
+
 ## [0.4.0] - 2026-09-19
 
 ### Added
