@@ -471,3 +471,42 @@ class StatusTextTests(NoNetworkTestCase):
         self.assertIn("Next:", text)
         self.assertNotIn("{", text)
         self.assertNotIn("—", text)
+
+
+class ReadableCliTests(NoNetworkTestCase):
+    def test_report_html_flag_writes_both_files(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            code, out, err = _main(["report", "--run", run_dir.name, "--html", "--project", str(project)])
+            self.assertEqual(code, codes.EXIT_OK, err)
+            paths = out.strip().splitlines()
+            self.assertEqual(paths, [str((run_dir / "report.md").resolve()), str((run_dir / "report.html").resolve())])
+            self.assertTrue((run_dir / "report.html").read_text(encoding="utf-8").startswith("<!doctype html>"))
+
+    def test_status_text_flag(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            code, out, err = _main(["status", "--run", "latest", "--text", "--project", str(project)])
+        self.assertEqual(code, codes.EXIT_OK, err)
+        self.assertTrue(out.startswith(f"Run {run_dir.name}"))
+
+    def test_mark_and_history(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            code, out, err = _main([
+                "mark", "--run", run_dir.name, "--brief", "B01", "--state", "posted",
+                "--url", "https://www.instagram.com/p/X/", "--project", str(project),
+            ])
+            self.assertEqual(code, codes.EXIT_OK, err)
+            self.assertEqual(json.loads(out)["state"], "posted")
+
+            code, _out, err = _main(["mark", "--run", run_dir.name, "--brief", "B99", "--state", "posted",
+                                     "--project", str(project)])
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertIn("B99", err)
+
+            code, out, err = _main(["history", "--project", str(project)])
+            self.assertEqual(code, codes.EXIT_OK, err)
+            history_path = Path(out.strip())
+            self.assertEqual(history_path.name, "history.md")
+            self.assertIn("https://www.instagram.com/p/X/", history_path.read_text(encoding="utf-8"))

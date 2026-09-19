@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import log2
 from statistics import median
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from lib import instagram
 
@@ -45,6 +45,7 @@ REASON_NO_BASELINE = "no_baseline"
 REASON_OUTSIDE_LOOKBACK = "outside_lookback"
 REASON_BELOW_MIN_PLAYS = "below_min_plays"
 REASON_PER_ACCOUNT_CAP = "per_account_cap"
+REASON_ALREADY_BRIEFED = "already_briefed"
 
 
 @dataclass
@@ -252,7 +253,12 @@ def _exclusion_reason(
     return None
 
 
-def select_outliers(reels: List[Dict[str, Any]], cfg: Dict[str, Any], now: datetime) -> Selection:
+def select_outliers(
+    reels: List[Dict[str, Any]],
+    cfg: Dict[str, Any],
+    now: datetime,
+    already_briefed: Optional[Set[str]] = None,
+) -> Selection:
     """Filter, rank, and split already-scored reels into a Selection.
 
     `reels` must already carry the keys `score_reel` adds. `now` is a
@@ -277,8 +283,13 @@ def select_outliers(reels: List[Dict[str, Any]], cfg: Dict[str, Any], now: datet
 
     excluded: List[Dict[str, str]] = []
     survivors: List[Dict[str, Any]] = []
+    briefed = already_briefed or set()
     for reel in reels:
         reason = _exclusion_reason(reel, cfg, cutoff)
+        # A reel an earlier run already briefed would win again every
+        # week inside the lookback window (design spec 0.3.0, phase 2).
+        if reason is None and reel.get("shortCode") in briefed:
+            reason = REASON_ALREADY_BRIEFED
         if reason is None:
             survivors.append(reel)
         else:

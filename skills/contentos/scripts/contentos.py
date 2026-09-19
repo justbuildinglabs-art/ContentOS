@@ -3,7 +3,7 @@
 The deterministic half of the four-stage pipeline (design spec, "Stage
 1" through "Stage 4"): `diagnose`, `setup`, `research`, `frames`,
 `transcribe`, `direct-prompt`, `synth-prompt`, `rank`, `write-prompt`, `qa-prompt`,
-`verify`, `report`, `status`, `sync-plugin-key`. The SKILL.md
+`verify`, `report`, `status`, `sync-plugin-key`, `mark`, `history`. The SKILL.md
 orchestrator dispatches the `contentos:content-director`,
 `contentos:script-writer`, and `contentos:qa-reviewer` subagents around
 these commands; nothing here calls a model.
@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from lib import (
-    agents, apify, codes, direct, env, frames, report, research, setup, store, transcribe,
+    agents, apify, codes, direct, env, frames, history, report, report_html, research, setup,
+    store, transcribe,
 )
 
 SUBCOMMANDS = [
@@ -46,6 +47,8 @@ SUBCOMMANDS = [
     "report",
     "status",
     "sync-plugin-key",
+    "mark",
+    "history",
 ]
 
 
@@ -439,6 +442,8 @@ def _report_handler(args: argparse.Namespace) -> int:
     report_path = run_dir / "report.md"
     report_path.write_text(report.render_report(run_dir), encoding="utf-8")
     print(report_path.resolve())
+    if args.html:
+        print(report_html.write_report_html(run_dir).resolve())
     return codes.EXIT_OK
 
 
@@ -450,7 +455,32 @@ def _status_handler(args: argparse.Namespace) -> int:
     except store.RunNotFound as exc:
         print(str(exc), file=sys.stderr)
         return codes.EXIT_USAGE
-    print(json.dumps(report.status(run_dir), indent=2))
+    if args.text:
+        print(report.render_status_text(run_dir), end="")
+    else:
+        print(json.dumps(report.status(run_dir), indent=2))
+    return codes.EXIT_OK
+
+
+def _mark_handler(args: argparse.Namespace) -> int:
+    """Record that a brief was filmed, posted, or skipped in `.contentos/log.json`."""
+    project_dir = args.project.resolve()
+    try:
+        entry = history.mark(project_dir, args.run, args.brief, args.state, url=args.url)
+    except (store.RunNotFound, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    print(json.dumps(entry))
+    return codes.EXIT_OK
+
+
+def _history_handler(args: argparse.Namespace) -> int:
+    """Write `.contentos/history.md`, one row per run, and print its path."""
+    project_dir = args.project.resolve()
+    path = store.contentos_dir(project_dir) / "history.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(history.render_history(project_dir), encoding="utf-8")
+    print(path.resolve())
     return codes.EXIT_OK
 
 
@@ -493,6 +523,8 @@ HANDLERS["qa-prompt"] = _qa_prompt_handler
 HANDLERS["report"] = _report_handler
 HANDLERS["status"] = _status_handler
 HANDLERS["sync-plugin-key"] = _sync_plugin_key_handler
+HANDLERS["mark"] = _mark_handler
+HANDLERS["history"] = _history_handler
 
 
 def is_stub(name: str) -> bool:
@@ -531,6 +563,15 @@ def build_parser() -> argparse.ArgumentParser:
             "write-prompt", "qa-prompt", "report", "status",
         ):
             sub.add_argument("--run", required=True)
+        if name == "report":
+            sub.add_argument("--html", action="store_true")
+        if name == "status":
+            sub.add_argument("--text", action="store_true")
+        if name == "mark":
+            sub.add_argument("--run", required=True)
+            sub.add_argument("--brief", required=True)
+            sub.add_argument("--state", required=True, choices=list(history.LOG_STATES))
+            sub.add_argument("--url", default=None)
         if name == "direct-prompt":
             sub.add_argument("--shortcode", required=True)
         if name in ("write-prompt", "qa-prompt"):

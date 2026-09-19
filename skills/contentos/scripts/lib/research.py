@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from lib import apify, frames, instagram, outliers, store, transcribe, video
+from lib import apify, frames, history, instagram, outliers, store, transcribe, video
 from lib.env import Keys
 from lib.http import HTTPError
 
@@ -422,7 +422,8 @@ def run_research(
     )
     baselines = outliers.compute_baselines(reels, cfg["min_reels_for_median"])
     scored = _score_all(reels, profiles, baselines, cfg)
-    selection = outliers.select_outliers(scored, cfg, now)
+    briefed = history.briefed_shortcodes(project, exclude_run_id=run_dir.name)
+    selection = outliers.select_outliers(scored, cfg, now, already_briefed=briefed)
 
     account_warnings = [
         f"{handle}: {status}"
