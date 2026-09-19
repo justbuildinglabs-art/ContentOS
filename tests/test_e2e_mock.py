@@ -44,7 +44,7 @@ from tests.helpers import PRE_WEEKLY_CONFIG, NoNetworkTestCase, REPO_ROOT, temp_
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
 import contentos  # noqa: E402
-from lib import codes  # noqa: E402
+from lib import codes, store  # noqa: E402
 
 FIXTURES_DIR = REPO_ROOT / "fixtures"
 SETUP_ANSWERS_FIXTURE = FIXTURES_DIR / "setup-answers.sample.json"
@@ -275,6 +275,37 @@ class PipelineNeverTouchesNetworkTests(NoNetworkTestCase):
 
             self.assertFalse(urlopen_mock.called)
             self.assertFalse(opener_mock.called)
+
+
+class WeeklyMockTests(NoNetworkTestCase):
+    def test_two_weeks_carry_the_unscripted_idea(self) -> None:
+        with temp_project() as project, mock.patch.dict(os.environ, _NO_GLOBAL_ENV):
+            _require_ok(*_main(["setup", "--project", str(project), "--answers-file",
+                                str(SETUP_ANSWERS_FIXTURE)]), "setup")
+            _require_ok(*_main(["research", "--project", str(project), "--mock", "--yes"]), "week 1 research")
+            code, out, err = _main(["rank", "--project", str(project), "--run", "latest", "--mock"])
+            _require_ok(code, out, err, "week 1 rank")
+            week1 = json.loads(out)
+            self.assertEqual((week1["new"], week1["carried"]), (2, 0))
+            self.assertEqual(week1["fill"], 3)
+            _require_ok(*_main(["verify", "--project", str(project), "--run", "latest", "--stage", "synth"]),
+                        "week 1 verify synth")
+            week1_dir = store.resolve_run(project, "latest")
+            script = week1_dir / "04-scripts" / "B01.r0.md"
+            script.parent.mkdir(parents=True)
+            shutil.copyfile(SCRIPT_FIXTURE, script)
+            text = (week1_dir / "briefs.md").read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("# This week's ideas"))
+            self.assertIn("Format fill, less proven", text)
+
+            _require_ok(*_main(["research", "--project", str(project), "--mock", "--yes"]), "week 2 research")
+            code, out, err = _main(["rank", "--project", str(project), "--run", "latest", "--mock"])
+            _require_ok(code, out, err, "week 2 rank")
+            week2 = json.loads(out)
+            self.assertEqual((week2["new"], week2["carried"], week2["fill"]), (0, 1, 0))
+            week2_dir = store.resolve_run(project, "latest")
+            self.assertNotEqual(week2_dir, week1_dir)
+            self.assertIn("Carried over, week 2", (week2_dir / "briefs.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
