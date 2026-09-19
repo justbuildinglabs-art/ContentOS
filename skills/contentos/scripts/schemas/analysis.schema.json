@@ -88,6 +88,14 @@
     "steps": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "paid_partnership": {
+      "type": "object",
+      "properties": {
+        "detected": { "type": "boolean" },
+        "evidence": { "type": "string" }
+      },
+      "required": ["detected", "evidence"]
     }
   },
   "required": [

@@ -208,6 +208,14 @@ def _research_section(run_dir: Path, run_data: Dict[str, Any]) -> str:
     for reason, count in sorted(reasons.items(), key=lambda item: -item[1]):
         funnel.append(f"<li>minus <b>{count}</b> {_e(labels.get(reason, reason))}</li>")
     funnel.append(f"<li><b>{_e(research.get('selected', '?'))}</b> outliers kept and analyzed</li>")
+    paid = report.skipped_paid(run_dir)
+    if paid:
+        owners = ", ".join(f"@{item['ownerUsername']}" for item in paid if item.get("ownerUsername"))
+        funnel.append(
+            f"<li>minus <b>{len(paid)}</b> left out after analysis as paid partnerships"
+            + (f" ({_e(owners)})" if owners else "")
+            + "</li>"
+        )
 
     profiles_doc = _read(run_dir / "01-profiles.json")
     profiles = profiles_doc.get("profiles", profiles_doc) if isinstance(profiles_doc, dict) else profiles_doc

@@ -287,7 +287,7 @@ _ANALYSIS_ENUMS = {
 # Analysis properties that are optional on purpose (design spec, "0.3.0
 # changes": older analyses without them must still validate and rank;
 # "0.4.0 changes": idea_title falls back to brief_title when absent).
-_OPTIONAL_ANALYSIS_PROPERTIES = {"specifics", "steps", "idea_title"}
+_OPTIONAL_ANALYSIS_PROPERTIES = {"specifics", "steps", "idea_title", "paid_partnership"}
 
 _QA_ENUMS = {"verdict": ["pass", "revise", "reject"]}
 _QA_ENUMS.update({f"checks.{name}": ["pass", "fail", "na"] for name in _QA_CHECK_NAMES})
@@ -573,6 +573,7 @@ class CoerceAnalysisTests(NoNetworkTestCase):
         ]
         valid["steps"] = ["Open the app", "Tap the streak"]
         valid["idea_title"] = "The four-times habit callout"
+        valid["paid_partnership"] = {"detected": True, "evidence": "caption: #ad"}
         coerced = director.coerce_analysis(valid)
         self.assertEqual(coerced, valid)
 
@@ -583,7 +584,10 @@ class CoerceAnalysisTests(NoNetworkTestCase):
         self.assertEqual(coerced["specifics"], [])
         self.assertEqual(coerced["steps"], [])
         # idea_title is also new (0.4.0) and falls back to brief_title.
-        expected = dict(old_style, specifics=[], steps=[], idea_title=old_style["brief_title"])
+        expected = dict(
+            old_style, specifics=[], steps=[], idea_title=old_style["brief_title"],
+            paid_partnership={"detected": False, "evidence": ""},
+        )
         self.assertEqual(coerced, expected)
         self.assertEqual(director.validate_analysis(coerced), [])
 
@@ -632,6 +636,27 @@ class IdeaTitleTests(NoNetworkTestCase):
         self.assertEqual(director.validate_analysis(coerced), [])
         blank = director.coerce_analysis(dict(raw, idea_title="   "))
         self.assertEqual(blank["idea_title"], "Tool claim, 3 steps")
+
+
+class PaidPartnershipAnalysisTests(NoNetworkTestCase):
+    def test_malformed_values_become_not_detected(self) -> None:
+        for value in (None, "yes", True, [], {"detected": "true"}, {"evidence": "x"}):
+            with self.subTest(value=value):
+                coerced = director.coerce_analysis(dict(_valid_analysis_raw(), paid_partnership=value))
+                self.assertEqual(coerced["paid_partnership"], {"detected": False, "evidence": ""})
+                self.assertEqual(director.validate_analysis(coerced), [])
+
+    def test_detected_keeps_stripped_evidence(self) -> None:
+        raw = dict(_valid_analysis_raw(), paid_partnership={"detected": True, "evidence": "  frame 2: AD  ", "x": 1})
+        self.assertEqual(
+            director.coerce_analysis(raw)["paid_partnership"],
+            {"detected": True, "evidence": "frame 2: AD"},
+        )
+
+    def test_is_paid_partnership_reads_a_coerced_or_raw_analysis(self) -> None:
+        self.assertTrue(director.is_paid_partnership({"paid_partnership": {"detected": True, "evidence": ""}}))
+        self.assertFalse(director.is_paid_partnership({"paid_partnership": {"detected": False, "evidence": ""}}))
+        self.assertFalse(director.is_paid_partnership({}))
 
 
 # ---------------------------------------------------------------------------
@@ -1476,6 +1501,21 @@ class DirectorPromptTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, rules)
         self.assertNotIn("—", prompt)
+
+    def test_director_prompt_asks_for_the_paid_partnership_check(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = _write_run_dir(project_dir, "AAA001")
+            schema = director.load_schema("analysis")
+            prompt = director.build_director_prompt(
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
+            )
+
+        self.assertIn("paid_partnership", schema["properties"])
+        self.assertNotIn("paid_partnership", schema["required"])
+        rules = prompt.split("## Rules", 1)[1].split("## Output schema", 1)[0]
+        for phrase in ("paid_partnership", "discount code", "transcript", "evidence"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, rules)
 
 
 class DirectorPromptRealRunTests(NoNetworkTestCase):

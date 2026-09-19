@@ -136,6 +136,19 @@ class ReportHtmlTests(NoNetworkTestCase):
         self.assertIn("minus <b>1</b> paid partnerships", html)
         self.assertNotIn("paid_partnership", html)
 
+    def test_funnel_counts_reels_the_director_left_out_as_paid(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            doc = store.read_json(run_dir / "03-briefs.json")
+            doc["skipped_paid"] = [
+                {"shortCode": "PAID1", "ownerUsername": "acme", "evidence": "<b>use code</b>"}
+            ]
+            store.write_json_atomic(run_dir / "03-briefs.json", doc)
+            html = report_html.render_report_html(run_dir)
+        self.assertIn("minus <b>1</b> left out after analysis as paid partnerships (@acme)", html)
+        # Numbers and handles only: the director's evidence quotes scraped text.
+        self.assertNotIn("use code", html)
+
     def test_a_run_with_no_briefs_still_renders(self) -> None:
         with temp_project() as project:
             config_dir = store.contentos_dir(project)

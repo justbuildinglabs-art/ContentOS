@@ -956,6 +956,60 @@ class RankTests(NoNetworkTestCase):
             self.assertEqual(json.loads(out)["run_id"], run_dir.name)
 
 
+class RankPaidPartnershipTests(NoNetworkTestCase):
+    def _flag(self, run_dir: Path, shortcode: str) -> None:
+        path = _copy_analysis(run_dir, shortcode)
+        doc = store.read_json(path)
+        doc["paid_partnership"] = {"detected": True, "evidence": "On screen: use code DANA"}
+        store.write_json_atomic(path, doc)
+
+    def _project_with_analyses(self, project: Path) -> Path:
+        _write_project(project)
+        run_dir = _mock_research(project)
+        for shortcode in ANALYZED_SHORTCODES:
+            _copy_analysis(run_dir, shortcode)
+        return run_dir
+
+    def test_a_flagged_analysis_is_left_out_and_recorded(self) -> None:
+        with temp_project() as project:
+            run_dir = self._project_with_analyses(project)
+            self._flag(run_dir, "DWN006")
+
+            code, out, _err = _main(["rank", "--project", str(project), "--run", "latest"])
+
+            self.assertEqual(code, codes.EXIT_OK)
+            doc = store.read_json(run_dir / "03-briefs.json")
+            self.assertNotIn("DWN006", [brief["shortCode"] for brief in doc["briefs"]])
+            self.assertEqual(
+                doc["skipped_paid"],
+                [{"shortCode": "DWN006", "ownerUsername": _reel(run_dir, "DWN006")["ownerUsername"],
+                  "evidence": "On screen: use code DANA"}],
+            )
+            self.assertEqual(json.loads(out)["skipped_paid"], 1)
+
+    def test_a_flagged_analysis_is_kept_when_the_filter_is_off(self) -> None:
+        with temp_project() as project:
+            run_dir = self._project_with_analyses(project)
+            self._flag(run_dir, "DWN006")
+            config_path = store.contentos_dir(project) / "config.json"
+            config = store.read_json(config_path)
+            config["exclude_paid_partnerships"] = False
+            store.write_json_atomic(config_path, config)
+
+            code, _out, _err = _main(["rank", "--project", str(project), "--run", "latest"])
+
+            self.assertEqual(code, codes.EXIT_OK)
+            doc = store.read_json(run_dir / "03-briefs.json")
+            self.assertIn("DWN006", [brief["shortCode"] for brief in doc["briefs"]])
+            self.assertEqual(doc["skipped_paid"], [])
+
+    def test_nothing_flagged_records_an_empty_list(self) -> None:
+        with temp_project() as project:
+            run_dir = self._project_with_analyses(project)
+            _main(["rank", "--project", str(project), "--run", "latest"])
+            self.assertEqual(store.read_json(run_dir / "03-briefs.json")["skipped_paid"], [])
+
+
 def _carried_entry(
     shortcode: str,
     analysis_path: Path,

@@ -110,6 +110,15 @@ a frame, and for every line of the transcript.
   small: a price, a rep count, or a setting is exactly what the writer needs.
 - `steps`: the method the reel teaches, in order, one short step per entry.
   Leave it empty when the reel teaches no method.
+- `paid_partnership`: did a brand pay for this reel? Instagram's own "Paid
+  partnership" label is part of the app, not the video, so you will never see
+  it in a frame. Look for what is in your inputs: on-screen text like "AD" or
+  "sponsored", a discount code or "use my code", a disclosure in the caption,
+  or one spoken in the transcript. Set `detected` to true only when you can
+  quote it, and put the quote and where you found it in `evidence`, like
+  `frame 2: use code DANA`. A product that is only shown or named is not
+  enough. Otherwise `detected` is false and `evidence` is an empty string. A
+  detected reel is left out of the creator's ideas, so do not guess.
 
 What specifics look like, by niche (`specificity.md` has the full table):
 
