@@ -197,6 +197,7 @@ def _research_section(run_dir: Path, run_data: Dict[str, Any]) -> str:
     ratio = cfg.get("min_outlier_ratio")
     ratio_text = f"{ratio:g}" if isinstance(ratio, (int, float)) else "?"
     labels = {
+        "paid_partnership": "paid partnerships",
         "outside_lookback": f"older than {cfg.get('lookback_days', '?')} days",
         "below_min_plays": f"under {cfg.get('min_plays', '?')} plays",
         "below_min_ratio": f"below {ratio_text}x their usual",

@@ -119,6 +119,8 @@ class NormalizeReelTests(NoNetworkTestCase):
                     "artistName": "SproutApp",
                     "musicId": "1",
                 },
+                "paid_partnership": False,
+                "paid_signals": [],
             },
         )
         self.assertEqual(
@@ -127,8 +129,16 @@ class NormalizeReelTests(NoNetworkTestCase):
                 "shortCode", "url", "ownerUsername", "timestamp", "caption", "hashtags",
                 "mentions", "plays", "plays_source", "likes", "comments", "duration_s",
                 "videoUrl", "displayUrl", "isPinned", "latestComments", "musicInfo",
+                "paid_partnership", "paid_signals",
             },
         )
+
+    def test_flags_a_paid_partnership_from_caption_and_hashtags(self) -> None:
+        result = instagram.normalize_reel(
+            _clip_item(caption="New gear. Sponsored by Acme #ad", hashtags=["ad"])
+        )
+        self.assertIs(result["paid_partnership"], True)
+        self.assertEqual(result["paid_signals"], ["hashtag:ad", "caption:sponsored by"])
 
     def test_defaults_and_url_fallback_on_a_sparse_item(self) -> None:
         sparse = {

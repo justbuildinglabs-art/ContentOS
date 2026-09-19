@@ -49,6 +49,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "min_specifics": 3,
     # 0.4.0: the weekly ideas list (design spec, "0.4.0 changes").
     "min_outlier_ratio": 2.0,
+    "exclude_paid_partnerships": True,
     "carry_weeks": 2,
     "fill_ideas": 8,
     "auto_scripts": 3,
@@ -216,6 +217,8 @@ def _validate_config(config: Dict[str, Any]) -> None:
 
     if config.get("transcripts") not in TRANSCRIPT_MODES:
         raise ConfigError('transcripts must be one of "auto", "local", "apify", "off"')
+    if not isinstance(config.get("exclude_paid_partnerships"), bool):
+        raise ConfigError("exclude_paid_partnerships must be true or false")
     if not isinstance(config.get("apify_transcripts"), bool):
         raise ConfigError("apify_transcripts must be true or false")
     if not isinstance(config.get("whisper_model"), str):
