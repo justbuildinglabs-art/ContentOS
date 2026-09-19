@@ -142,12 +142,14 @@ transfers to one of her pillars. A synthesis pass writes `03-patterns.md`: the
 proven hooks across the set, the recurring formats, the saturated angles, and a
 language bank taken from the comments.
 
-Ranking writes `briefs.md`. B01 reads: source, a dev creator's "one command
-replaced my whole morning routine" screen demo, the one research found at 11x
-its account's own baseline; adaptation, the same reveal structure with a
-coding-agent skill running end to end as the payoff; hypothesis, "If we ...
-using the ... hook, we expect above-baseline plays because ...". At most two
-of the five briefs come from format accounts. Mara picks three.
+Ranking writes `briefs.md`, opening with a numbered "This week's ideas" list
+of up to 20 ideas, each tagged New, Carried over, or Format fill. B01 is New:
+idea title, "one command replaced my whole morning routine"; source, a dev
+creator's screen demo research found at 11x its account's own baseline;
+adaptation, the same reveal structure with a coding-agent skill running end
+to end as the payoff; hypothesis, "If we ... using the ... hook, we expect
+above-baseline plays because ...". At most two of the twenty ideas come from
+format accounts. Mara picks three.
 
 For each brief the writer produces a shoot-ready script: two hooks under 25
 words that take different approaches, a beats table with visual cues and
@@ -159,6 +161,16 @@ and that the payoff is real. One revision round is allowed. `report.md` lists
 the scripts, their scores, and the `[NEED NUMBER]` placeholders Mara fills in
 with real figures.
 
+## Running it every week
+
+ContentOS is built to run once a week against the same watch list. Each run
+gives you up to 20 ranked ideas: New ones found this week, ideas Carried over
+from a run you have not picked from yet (for up to two more weeks before they
+drop off), and Format fill ideas when there are not enough real outliers to
+fill the list. Pick what you want to script and leave the rest. Nothing is
+lost between runs; a ledger in `.contentos/ideas.json` keeps track of what
+each idea is and how long it has been waiting.
+
 ## What a run costs
 
 About $0.67 of Apify credit for eight accounts at the default 30 reels each,
@@ -167,7 +179,12 @@ profiles: accounts times reels times $0.0027, plus $0.0027 per account. Nothing
 else in ContentOS costs money, unless you turn on the Apify transcript
 fallback, which is added to the estimate and to the cost cap. The estimate is printed before anything is
 spent, and a run stops on its own if the estimate goes over
-`apify_max_charge_usd` in your config.
+`apify_max_charge_usd` in your config. A week's cost is one run: running it
+weekly does not cost more than running it any other time.
+
+If your project was set up before 0.4.0, `.contentos/config.json` still pins
+`lookback_days: 90` and `briefs: 5`. Change them to 14 and 20 to get the
+weekly list, or delete both lines to pick up the new defaults.
 
 ## Commands
 

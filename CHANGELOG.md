@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-19
+
+### Added
+
+- A weekly ideas list. `rank` now writes up to `briefs` (default 20) ideas per
+  run instead of cutting to a handful, each tagged New, Carried over (for up
+  to `carry_weeks`, default 2, more weeks), or Format fill. A ledger in
+  `.contentos/ideas.json` remembers every idea across runs, so nothing you
+  have not picked yet just disappears.
+- `idea_title`, a short topic-first name for each idea, shown ahead of the
+  source account.
+- `auto_scripts`: `--auto` now writes the top `auto_scripts` (default 3)
+  ideas instead of every brief in the run.
+- `briefs.md` opens with `# This week's ideas`, a numbered digest of the
+  whole list, before the per-idea sections.
+
+### Changed
+
+- The outlier window is 14 days (`lookback_days`), not 90. A creator runs
+  ContentOS once a week, and a 90-day window was hiding how few reels that
+  actually covers.
+- A new floor, `min_outlier_ratio` (default 2.0), drops reels that do not
+  clear twice their account's usual plays, on top of the existing
+  `min_plays` floor.
+- The per-account cap (`max_per_account`) is now soft: a busy account's
+  extra outliers rank after every account's capped reels instead of being
+  dropped outright, so a real outlier still beats an empty slot on the list.
+
+### Upgrade note
+
+Projects set up before 0.4.0 pin `lookback_days: 90` and `briefs: 5` in
+`.contentos/config.json`. Change them to 14 and 20 for the weekly list.
+
 ## [0.3.0] - 2026-09-18
 
 ### Added
