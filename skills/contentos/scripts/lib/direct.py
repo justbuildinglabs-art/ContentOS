@@ -695,7 +695,7 @@ def run_rank(
 
     ledger = ideas.load_ledger(project)
     ideas.forget_run(ledger, run_dir.name)
-    ideas.close_entries(project, ledger, cfg["carry_weeks"])
+    ideas.close_entries(project, ledger, run_dir.name, cfg["carry_weeks"])
     carried = [] if cfg["carry_weeks"] == 0 else _load_carried(analyses, ledger, run_dir.name, log)
     fill = director.load_fill(run_dir) if analyses and cfg["fill_ideas"] > 0 else []
 

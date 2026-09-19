@@ -31,8 +31,10 @@ def _reel(shortcode: str) -> Dict[str, Any]:
 
 
 def _run(project: Path, run_id: str) -> Path:
+    """A run folder `history.list_runs` counts: it has a `run.json`."""
     run_dir = store.run_dir(project, run_id)
     run_dir.mkdir(parents=True)
+    store.write_json_atomic(run_dir / "run.json", {"run_id": run_id})
     return run_dir
 
 
@@ -93,17 +95,18 @@ class LedgerTests(NoNetworkTestCase):
     def test_close_entries(self) -> None:
         with temp_project() as project:
             store.contentos_dir(project).mkdir(parents=True)
-            r1, r2, r3 = "20260901-090000", "20260908-090000", "20260915-090000"
-            for run_id in (r1, r2, r3):
+            r1, r2, r3, r4 = "20260901-090000", "20260908-090000", "20260915-090000", "20260922-090000"
+            for run_id in (r1, r2, r3, r4):
                 _run(project, run_id)
             ledger = {"version": 1, "ideas": {}}
             ideas.record_briefs(
                 ledger, r1,
-                [_brief("B01", "SCR"), _brief("B02", "SKP"), _brief("B03", "OLD"), _brief("B04", "OPN")],
-                {sc: _reel(sc) for sc in ("SCR", "SKP", "OLD", "OPN")},
+                [_brief("B01", "SCR"), _brief("B02", "SKP"), _brief("B03", "OLD")],
+                {sc: _reel(sc) for sc in ("SCR", "SKP", "OLD")},
             )
-            ideas.record_briefs(ledger, r2, [_brief("B01", "OLD", kind="carried")], {})
-            ideas.record_briefs(ledger, r3, [_brief("B01", "OLD", kind="carried")], {})
+            # OLD is first shown in r1 and never again (r2 and r3 cut it
+            # from a full list); OPN is first shown in r2.
+            ideas.record_briefs(ledger, r2, [_brief("B01", "OPN")], {"OPN": _reel("OPN")})
             script = store.run_dir(project, r1) / "04-scripts" / "B01.r0.md"
             script.parent.mkdir(parents=True)
             script.write_text("# script\n", encoding="utf-8")
@@ -111,10 +114,61 @@ class LedgerTests(NoNetworkTestCase):
                 json.dumps({"briefs": {f"{r1}/B02": {"state": "skipped"}}}), encoding="utf-8"
             )
 
-            ideas.close_entries(project, ledger, carry_weeks=2)
+            ideas.close_entries(project, ledger, r4, carry_weeks=2)
 
+            # SCR and SKP are old enough to expire too; a script or a
+            # mark takes precedence.
             closed = {sc: entry["closed"] for sc, entry in ledger["ideas"].items()}
             self.assertEqual(closed, {"SCR": "scripted", "SKP": "skipped", "OLD": "expired", "OPN": None})
+
+    def test_an_idea_cut_from_the_list_still_expires(self) -> None:
+        with temp_project() as project:
+            store.contentos_dir(project).mkdir(parents=True)
+            r1, r2, r3 = "20260901-090000", "20260908-090000", "20260915-090000"
+            for run_id in (r1, r2, r3):
+                _run(project, run_id)
+            ledger = {"version": 1, "ideas": {}}
+            ideas.record_briefs(ledger, r1, [_brief("B01", "AAA")], {"AAA": _reel("AAA")})
+            # r2's list was full of better ideas: AAA was not shown.
+            ideas.record_briefs(ledger, r2, [_brief("B01", "BBB")], {"BBB": _reel("BBB")})
+
+            ideas.close_entries(project, ledger, r3, carry_weeks=1)
+
+            self.assertEqual(ledger["ideas"]["AAA"]["shown"], [{"run_id": r1, "brief_id": "B01"}])
+            self.assertEqual(ledger["ideas"]["AAA"]["closed"], "expired")
+            self.assertIsNone(ledger["ideas"]["BBB"]["closed"])
+
+    def test_expiry_counts_only_runs_between_first_run_and_the_ranked_run(self) -> None:
+        with temp_project() as project:
+            store.contentos_dir(project).mkdir(parents=True)
+            r1, r2, r3, r4 = "20260901-090000", "20260908-090000", "20260915-090000", "20260922-090000"
+            for run_id in (r1, r3, r4):
+                _run(project, run_id)
+            # A folder with no run.json is not a run.
+            store.run_dir(project, r2).mkdir(parents=True)
+            ledger = {"version": 1, "ideas": {}}
+            ideas.record_briefs(ledger, r1, [_brief("B01", "AAA")], {"AAA": _reel("AAA")})
+
+            # Ranking r4: only r3 sits between r1 and r4, so AAA stays open.
+            ideas.close_entries(project, ledger, r4, carry_weeks=2)
+            self.assertIsNone(ledger["ideas"]["AAA"]["closed"])
+
+            # Re-ranking an older run never counts the runs after it.
+            ideas.close_entries(project, ledger, r3, carry_weeks=1)
+            self.assertIsNone(ledger["ideas"]["AAA"]["closed"])
+
+    def test_carry_weeks_zero_expires_every_open_idea(self) -> None:
+        with temp_project() as project:
+            store.contentos_dir(project).mkdir(parents=True)
+            r1, r2 = "20260901-090000", "20260908-090000"
+            for run_id in (r1, r2):
+                _run(project, run_id)
+            ledger = {"version": 1, "ideas": {}}
+            ideas.record_briefs(ledger, r1, [_brief("B01", "AAA")], {"AAA": _reel("AAA")})
+
+            ideas.close_entries(project, ledger, r2, carry_weeks=0)
+
+            self.assertEqual(ledger["ideas"]["AAA"]["closed"], "expired")
 
     def test_save_then_load_round_trips(self) -> None:
         with temp_project() as project:

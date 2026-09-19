@@ -845,6 +845,27 @@ class RankTests(NoNetworkTestCase):
             briefs2 = store.read_json(run2 / "03-briefs.json")["briefs"]
             self.assertNotIn(b02["shortCode"], [brief["shortCode"] for brief in briefs2])
 
+    def test_every_run_since_first_shown_counts_toward_expiry(self) -> None:
+        # Final review R1: expiry counts runs after the idea's first run
+        # and before the one being ranked, shown there or not. Week 2 is
+        # researched but never ranked, and it still counts.
+        with temp_project() as project:
+            _write_project(project)
+            config_path = store.contentos_dir(project) / "config.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["carry_weeks"] = 1
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            _mock_research(project)
+            code, _out, err = _main(["rank", "--project", str(project), "--run", "latest", "--mock"])
+            self.assertEqual(code, codes.EXIT_OK, err)
+            _mock_research(project)
+            _mock_research(project)
+
+            code, out, err = _main(["rank", "--project", str(project), "--run", "latest"])
+
+            self.assertEqual(code, codes.EXIT_USAGE, out)
+            self.assertIn("no valid analysis in 03-analyses/", err)
+
     # -- Final review I1: never renumber briefs that have scripts or marks --
 
     def _ranked_run(self, project: Path) -> Path:

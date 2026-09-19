@@ -57,7 +57,14 @@ def forget_run(ledger: Dict[str, Any], run_id: str) -> None:
             del ledger["ideas"][key]
 
 
-def _closed_reason(project: Path, entry: Dict[str, Any], log: Dict[str, Any], carry_weeks: int) -> Any:
+def _closed_reason(
+    project: Path,
+    entry: Dict[str, Any],
+    log: Dict[str, Any],
+    run_ids: List[str],
+    run_id: str,
+    carry_weeks: int,
+) -> Any:
     for pair in entry.get("shown", []):
         run_dir = store.run_dir(project, pair["run_id"])
         if run_dir.is_dir() and agents.latest_script_revision(run_dir, pair["brief_id"]) is not None:
@@ -66,17 +73,28 @@ def _closed_reason(project: Path, entry: Dict[str, Any], log: Dict[str, Any], ca
         state = log["briefs"].get(f"{pair['run_id']}/{pair['brief_id']}", {}).get("state")
         if state in _LOG_CLOSES:
             return state
-    if len(entry.get("shown", [])) >= carry_weeks + 1:
+    first_run = entry.get("first_run")
+    first_run = first_run if isinstance(first_run, str) else ""
+    if sum(1 for other in run_ids if first_run < other < run_id) >= carry_weeks:
         return "expired"
     return None
 
 
-def close_entries(project: Path, ledger: Dict[str, Any], carry_weeks: int) -> None:
-    """Close each open entry from scripts, `log.json` marks, and how many runs showed it."""
+def close_entries(project: Path, ledger: Dict[str, Any], run_id: str, carry_weeks: int) -> None:
+    """Close each open entry from scripts, `log.json` marks, and its age in runs.
+
+    `run_id` is the run being ranked. Past a script or a mark, an open
+    entry expires once at least `carry_weeks` runs (folders with a
+    `run.json`, `history.list_runs`) sit strictly between its
+    `first_run` and `run_id`, whether or not those runs showed it. So an
+    idea a full list cut still expires on time, and `carry_weeks` 0
+    expires every open entry.
+    """
     log = history.load_log(project)
+    run_ids = [run_dir.name for run_dir in history.list_runs(project)]
     for entry in ledger["ideas"].values():
         if entry.get("closed") is None:
-            entry["closed"] = _closed_reason(project, entry, log, carry_weeks)
+            entry["closed"] = _closed_reason(project, entry, log, run_ids, run_id, carry_weeks)
 
 
 def carry_candidates(ledger: Dict[str, Any], run_id: str) -> List[Dict[str, Any]]:
