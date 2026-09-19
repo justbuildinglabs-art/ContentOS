@@ -1030,6 +1030,36 @@ class DigestTests(NoNetworkTestCase):
         self.assertIn("- Source format: Tool claim, 3 steps", lines)
         self.assertNotIn("—", text)
 
+    def test_a_genuinely_0_3_0_brief_renders_as_new_with_fallbacks(self) -> None:
+        # A real 0.3.0 03-briefs.json brief: no `kind`, `idea_title`, `outlier_ratio`,
+        # or `days_old` keys at all (not even set to None) -- these four are all
+        # 0.4.0 additions. Every other key here is one 0.3.0 already had, including
+        # a numeric `brief_score` (so the Scores: line still prints).
+        brief = {
+            "brief_id": "B01", "source_url": "https://y", "ownerUsername": "oldacct",
+            "source_kind": "niche", "format": "talking_head", "hook_type": "story_open",
+            "emotion_lead": "hope", "brief_score": 5.0, "viral_proof": 3.0,
+            "score_convertible": 5, "score_scalable": 5, "score_fit": 5,
+            "risk_flags": ["none"], "confidence": "medium", "transferable_mechanism": "M",
+            "why_it_worked": "W.", "adaptation": "A", "avoid": "V", "specifics": [],
+            "steps": [], "frames_dir": "/f", "brief_title": "Old-style brief title",
+        }
+        for key in ("kind", "idea_title", "outlier_ratio", "days_old", "first_run"):
+            self.assertNotIn(key, brief, key)
+
+        text = director.render_briefs_md([brief])
+        lines = text.splitlines()
+
+        self.assertEqual(lines[0], "# This week's ideas")
+        # kind absent -> New; idea_title absent -> falls back to brief_title in the
+        # digest line; outlier_ratio and days_old absent -> proof is a bare "@owner.".
+        self.assertIn("1. B01 · New · Old-style brief title. @oldacct.", lines)
+        # idea_title absent -> falls back to brief_title in the `##` heading too.
+        self.assertIn("## B01: Old-style brief title", lines)
+        self.assertIn("- Kind: New.", lines)
+        self.assertIn("- Source format: Old-style brief title", lines)
+        self.assertNotIn("—", text)
+
 
 # ---------------------------------------------------------------------------
 # render_briefs_md
