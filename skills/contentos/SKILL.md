@@ -24,7 +24,7 @@ reads them.
 | stage | command | outputs |
 | --- | --- | --- |
 | 1. research | `research` | `run.json`, `01-reels.json`, `01-profiles.json`, `02-outliers.json`, downloaded videos, keyframes |
-| 2. direct | `direct-prompt`, `synth-prompt`, `rank` | `03-analyses/<shortCode>.json`, `03-patterns.md`, `03-briefs.json`, `briefs.md` |
+| 2. direct | `direct-prompt`, `synth-prompt`, `rank` | `03-analyses/<shortCode>.json`, `03-patterns.md`, `03-fill.json`, `03-briefs.json`, `briefs.md` |
 | 3. write | `write-prompt` | `04-scripts/<brief-id>.r<N>.md` |
 | 4. qa | `qa-prompt` | `05-qa/<brief-id>.r<N>.json`, then `report.md` |
 
@@ -274,9 +274,11 @@ got a transcript (the `transcripts` counts in `RESULT`), and name any account
 that came back `private`, `not_found`, or `empty`. Reels already briefed in an
 earlier run are skipped as `already_briefed`, so each week brings new sources.
 
-**In `--mock`, skip steps 4 and 5** and run this at step 6 instead. It seeds the
-fixture analyses and `03-patterns.md`, so a mock run reaches briefs without
-dispatching a subagent:
+**In `--mock`, skip steps 4 and 5** and run this at step 6 instead. It seeds
+the fixture analyses and `03-patterns.md`, so a mock run reaches briefs
+without dispatching a subagent. It also seeds `03-fill.json` from the
+fixture, but only when the run has an analysis for one of the fixture's
+`format_from` reels:
 
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" rank --project "$PWD" --run <run_id> --mock
@@ -423,7 +425,8 @@ week's proven formats and the creator's own pillars. The same
 `verify --stage synth` checks both files. On exit 7 a file is missing a
 heading or does not match its schema; append the problems with the same
 recipe, using `<name>` = `synth`, re-dispatch once, then carry on either way.
-`rank` does not need this file, so a failed synthesis is not a reason to stop.
+`rank` needs neither file, so a failed synthesis is not a reason to stop.
+Without `03-fill.json`, the list just has no format fill.
 
 ### Loop 3: writer, one per chosen brief
 
@@ -497,7 +500,9 @@ Every brief is one of three kinds:
   account, how many times it beat that account's usual plays, and how old the
   source reel is.
 - **Carried over.** An idea from an earlier week that nobody picked yet. The
-  proof names which week it first showed up.
+  proof reads just like a new idea's. The kind label says which week of
+  carrying it is, and the brief's detail section below names the run that
+  first showed it.
 - **Format fill.** A format that worked this week, applied to one of the
   creator's own pillars. There is no source reel behind it yet, so the proof
   says which account's hook it borrows instead.
