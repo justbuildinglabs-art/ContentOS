@@ -24,6 +24,11 @@ ACTOR_ID = "apify~instagram-scraper"
 # confirmed against the live API in the live smoke before being trusted.
 ACTOR_RUNS_PATH = "/acts/apify~instagram-scraper/runs"
 PRICE_PER_RESULT = 0.0027
+# 0.3.0 transcripts fallback (lib/transcribe.py). A separate actor from
+# the scraper above; paid per minute of video, priced by config
+# `apify_transcript_usd_per_min`.
+TRANSCRIPT_ACTOR_ID = "apify~instagram-reel-scraper"
+TRANSCRIPT_ACTOR_RUNS_PATH = f"/acts/{TRANSCRIPT_ACTOR_ID}/runs"
 RUN_TERMINAL = {"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"}
 
 
@@ -53,18 +58,57 @@ def build_details_input(handles: List[str]) -> dict:
     }
 
 
+def build_transcript_input(reel_urls: List[str]) -> dict:
+    """Build the `apify~instagram-reel-scraper` input for the transcript fallback.
+
+    UNVERIFIED: this input shape has not been checked against the live
+    actor yet. It must be confirmed in the live smoke test before it is
+    trusted (see references/stages.md). Everything that depends on the
+    actor's input lives here, so a fix touches only this function.
+    The reel URLs go in `username`, which the actor documents as
+    accepting profile or reel URLs; `resultsLimit` 1 asks for the reel
+    itself, not the account's other reels.
+    """
+    return {
+        "username": list(reel_urls),
+        "resultsLimit": 1,
+        "includeTranscript": True,
+    }
+
+
 @dataclass
 class CostEstimate:
-    """Apify cost estimate for one research run (spec Stage 1, step 1)."""
+    """Apify cost estimate for one research run (spec Stage 1, step 1).
+
+    `transcripts_usd` is the 0.3.0 paid transcript fallback; it is 0.0
+    unless the caller says that path will run (`lib/transcribe.py`'s
+    `estimate_usd`), and it is already inside `total_usd`.
+    """
 
     reels_usd: float
     details_usd: float
     total_usd: float
     max_items: int
+    transcripts_usd: float = 0.0
+
+
+def estimate_transcripts_cost(
+    top_k_videos: int, max_video_seconds: float, usd_per_min: float
+) -> float:
+    """Worst-case cost of the Apify transcript fallback, rounded to 4 decimals.
+
+    Design spec "0.3.0 changes": `top_k_videos x max_video_seconds/60 x
+    apify_transcript_usd_per_min`, so every selected reel is priced as
+    if it were as long as the longest reel research will download.
+    """
+    return round(top_k_videos * (max_video_seconds / 60.0) * usd_per_min, 4)
 
 
 def estimate_cost(
-    n_accounts: int, reels_per_account: int, price: float = PRICE_PER_RESULT
+    n_accounts: int,
+    reels_per_account: int,
+    price: float = PRICE_PER_RESULT,
+    transcripts_usd: float = 0.0,
 ) -> CostEstimate:
     """Estimate the Apify cost for scraping `n_accounts` competitor accounts.
 
@@ -72,15 +116,18 @@ def estimate_cost(
     across every account (the reels run), `details_usd` is one result
     per account (the details run returns exactly one profile each).
     `max_items` is the `maxItems` cap `start_run` passes for the reels
-    run. USD values are rounded to 4 decimals.
+    run. `transcripts_usd` (default 0.0) is added to `total_usd` as is,
+    so it counts against `apify_max_charge_usd` like the rest. USD
+    values are rounded to 4 decimals.
     """
     raw_reels = n_accounts * reels_per_account * price
     raw_details = n_accounts * price
     return CostEstimate(
         reels_usd=round(raw_reels, 4),
         details_usd=round(raw_details, 4),
-        total_usd=round(raw_reels + raw_details, 4),
+        total_usd=round(raw_reels + raw_details + transcripts_usd, 4),
         max_items=n_accounts * reels_per_account,
+        transcripts_usd=round(transcripts_usd, 4),
     )
 
 
@@ -226,17 +273,20 @@ def start_run(
     max_items: int,
     timeout_s: float,
     transport: Transport,
+    runs_path: str = ACTOR_RUNS_PATH,
 ) -> RunRef:
     """Start one Apify actor run and return its initial `RunRef`.
 
     Design spec Apify facts: `maxTotalChargeUsd`/`maxItems`/`timeout`
     cap the run's cost and runtime; `waitForFinish=0` returns
     immediately instead of blocking on the sync endpoint (which 408s at
-    300 s and must never be used).
+    300 s and must never be used). `runs_path` picks the actor; it
+    defaults to the scraper, and the transcript fallback passes
+    `TRANSCRIPT_ACTOR_RUNS_PATH`.
     """
     response = transport.request_json(
         "POST",
-        f"{API_BASE}{ACTOR_RUNS_PATH}",
+        f"{API_BASE}{runs_path}",
         headers={"Authorization": f"Bearer {token}"},
         json_body=actor_input,
         params={

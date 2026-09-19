@@ -13,8 +13,9 @@ Every command is `python3 skills/contentos/scripts/contentos.py <command> --proj
 
 | stage | command | inputs | outputs |
 | --- | --- | --- | --- |
-| research | `research [--yes] [--estimate-only] [--no-download] [--resume <id>]` | `.contentos/config.json`, the Apify key or `--mock` | `run.json`, `01-reels.json`, `01-profiles.json`, `02-outliers.json`, the downloaded videos and frames |
+| research | `research [--yes] [--estimate-only] [--no-download] [--resume <id>]` | `.contentos/config.json`, the Apify key or `--mock` | `run.json`, `01-reels.json`, `01-profiles.json`, `02-outliers.json`, the downloaded videos, frames, and transcripts |
 | frames | `frames --run <id> [--refresh-expired]` | `02-outliers.json`, the downloaded videos | `frames/<shortCode>/`, an updated `02-outliers.json` |
+| transcribe | `transcribe --run <id> [--mock]` | `02-outliers.json`, the downloaded videos | `transcripts/<shortCode>.txt`, an updated `02-outliers.json` |
 | direct | `direct-prompt --run <id> --shortcode <sc>` | one selected reel's frames and metadata, `creator.md`, the director references | a dispatch prompt on stdout; the subagent writes `03-analyses/<sc>.json` |
 | direct | `verify --run <id> --stage direct --shortcode <sc>` | `03-analyses/<sc>.json` | the file coerced in place, `analysis_status` recorded on the reel |
 | direct | `synth-prompt --run <id>` | every analysis, `creator.md` | a dispatch prompt on stdout; the subagent writes `03-patterns.md` |
@@ -39,6 +40,7 @@ Creator state lives in the creator's own project, never inside this plugin:
     ├── 02-outliers.json          # scored reels, selected top-K, backfill pool, exclusions, video/frames status
     ├── videos/<shortCode>.mp4    # gitignored
     ├── frames/<shortCode>/f01.jpg ... f08.jpg  (+ cover.jpg)
+    ├── transcripts/<shortCode>.txt   # one "[m:ss] text" line per segment
     ├── 03-analyses/<shortCode>.json
     ├── 03-patterns.md            # proven hooks, recurring formats, saturated angles to avoid
     ├── 03-briefs.json  briefs.md
@@ -86,9 +88,39 @@ runs `contentos.py sync-plugin-key`, which copies the key to
 `~/.config/contentos/plugin-option.env` (chmod 600). `diagnose` reports it as
 `apify_source: "plugin_option"`. The full `diagnose` key map is `apify`,
 `apify_source`, `project_dir`, `creator_md`, `rules_md`, `config_json`,
-`python`, `ffmpeg`, `skill_root`, `env_perms_ok`, `warnings`, `mock`, and
+`python`, `ffmpeg`, `whisper`, `whisper_model`, `skill_root`, `env_perms_ok`, `warnings`, `mock`, and
 `apify_live`.
 Live smoke: Instagram CDN status for an expired signed URL: pending (expected 403)
+
+## Transcripts
+
+`research` transcribes each selected reel right after its frames, and
+`transcribe --run <id>` fills in a run that has none. Each reel gets a
+`transcript_status` in `02-outliers.json`: `ok`, `apify`, `none`, or
+`failed`. Only `lib/transcribe.py` touches whisper.
+
+- Backends, in order, under config `transcripts` (`auto` by default):
+  local whisper-cpp (`whisper-cli`, or `whisper-cpp`, on PATH) with a ggml
+  model, then Apify's `apify~instagram-reel-scraper` with
+  `includeTranscript`, only when `apify_transcripts` is true. `local` uses
+  only the first, `apify` only the second, `off` neither.
+- Model path: config `whisper_model`, else env `CONTENTOS_WHISPER_MODEL`,
+  else `~/.cache/contentos/whisper/ggml-base.en.bin`. ffmpeg pulls the
+  audio out as 16 kHz mono first.
+- Cost: local is free. The Apify path is paid, estimated as
+  `top_k_videos x max_video_seconds/60 x apify_transcript_usd_per_min`.
+  That shows up as `transcripts_usd` in the research estimate, is added to
+  `total_usd` only when the Apify path would run, and counts against
+  `apify_max_charge_usd`.
+- Without whisper-cpp and without `apify_transcripts`, every status is
+  `none` and nothing fails. `--mock` copies `fixtures/transcripts/<sc>.txt`
+  when one exists.
+
+Live smoke: the Apify transcript actor's input shape
+(`apify.build_transcript_input`) and its output field name: unverified,
+pending. The code tries `transcript`, then `transcriptText`, then
+`transcription`, then `transcripts`, and writes `[0:00]` when the actor
+gives no timestamps.
 
 ## Sources
 

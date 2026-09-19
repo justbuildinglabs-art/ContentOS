@@ -2,7 +2,7 @@
 
 The deterministic half of the four-stage pipeline (design spec, "Stage
 1" through "Stage 4"): `diagnose`, `setup`, `research`, `frames`,
-`direct-prompt`, `synth-prompt`, `rank`, `write-prompt`, `qa-prompt`,
+`transcribe`, `direct-prompt`, `synth-prompt`, `rank`, `write-prompt`, `qa-prompt`,
 `verify`, `report`, `status`, `sync-plugin-key`. The SKILL.md
 orchestrator dispatches the `contentos:content-director`,
 `contentos:script-writer`, and `contentos:qa-reviewer` subagents around
@@ -27,13 +27,16 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from lib import agents, apify, codes, direct, env, frames, report, research, setup, store
+from lib import (
+    agents, apify, codes, direct, env, frames, report, research, setup, store, transcribe,
+)
 
 SUBCOMMANDS = [
     "diagnose",
     "setup",
     "research",
     "frames",
+    "transcribe",
     "direct-prompt",
     "synth-prompt",
     "rank",
@@ -220,6 +223,34 @@ def _frames_handler(args: argparse.Namespace) -> int:
             fixtures_dir=research.FIXTURES_DIR,
         )
     except (store.ConfigError, store.RunNotFound, frames.OutliersMissing) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    print(json.dumps(result))
+    return codes.EXIT_OK
+
+
+def _transcribe_handler(args: argparse.Namespace) -> int:
+    """Backfill transcripts for one run's selected reels, like `frames` does.
+
+    Prints the JSON summary `transcribe.run_transcribe` returns and exits
+    0; a reel that could not be transcribed is a status in that summary,
+    never an error. `--mock` copies fixture transcripts and never runs
+    whisper or calls Apify. An unresolvable `--run`, a run with no
+    `02-outliers.json` yet, or a bad config exits 2, message on stderr.
+    """
+    project_dir = args.project.resolve()
+    try:
+        cfg = store.load_config(project_dir)
+        keys = env.resolve_keys(project_dir)
+        result = transcribe.run_transcribe(
+            project_dir,
+            args.run,
+            cfg,
+            keys.apify,
+            mock=args.mock,
+            fixtures_dir=research.FIXTURES_DIR,
+        )
+    except (store.ConfigError, store.RunNotFound, transcribe.OutliersMissing) as exc:
         print(str(exc), file=sys.stderr)
         return codes.EXIT_USAGE
     print(json.dumps(result))
@@ -445,6 +476,7 @@ HANDLERS["diagnose"] = _diagnose_handler
 HANDLERS["setup"] = _setup_handler
 HANDLERS["research"] = _research_handler
 HANDLERS["frames"] = _frames_handler
+HANDLERS["transcribe"] = _transcribe_handler
 HANDLERS["direct-prompt"] = _direct_prompt_handler
 HANDLERS["synth-prompt"] = _synth_prompt_handler
 HANDLERS["rank"] = _rank_handler
@@ -484,6 +516,8 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "frames":
             sub.add_argument("--run", required=True)
             sub.add_argument("--refresh-expired", action="store_true")
+        if name == "transcribe":
+            sub.add_argument("--run", required=True)
         if name in (
             "direct-prompt", "synth-prompt", "rank", "verify",
             "write-prompt", "qa-prompt", "report", "status",
