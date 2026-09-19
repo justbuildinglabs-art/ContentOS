@@ -42,11 +42,11 @@ SKILL_MD = SKILL_DIR / "SKILL.md"
 README = REPO_ROOT / "README.md"
 
 ARGUMENT_HINT = (
-    "setup | run [--auto] [--yes] | research | direct | write [B01 B02] | "
+    "setup | discover | run [--auto] [--yes] | research | direct | write [B01 B02] | "
     "qa [B01] | status | diagnose [--mock]"
 )
 ALLOWED_TOOLS = (
-    "Bash, Read, Write, Glob, AskUserQuestion, "
+    "Bash, Read, Write, Glob, AskUserQuestion, WebSearch, "
     "Agent(contentos:content-director, contentos:script-writer, contentos:qa-reviewer)"
 )
 

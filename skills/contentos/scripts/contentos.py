@@ -28,13 +28,15 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from lib import (
-    agents, apify, codes, direct, env, frames, history, report, report_html, research, setup,
-    store, transcribe,
+    agents, apify, codes, direct, discover, env, frames, history, report, report_html, research,
+    setup, store, transcribe,
 )
 
 SUBCOMMANDS = [
     "diagnose",
     "setup",
+    "discover",
+    "accounts",
     "research",
     "frames",
     "transcribe",
@@ -195,6 +197,61 @@ def _research_handler(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return exc.exit_code
     except (store.ConfigError, store.RunNotFound) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    return codes.EXIT_OK
+
+
+def _split_list(value: Optional[str]) -> List[str]:
+    """Split a comma-separated flag value; a missing flag is an empty list."""
+    return [part for part in (value or "").split(",")]
+
+
+def _accounts_handler(args: argparse.Namespace) -> int:
+    """Replace the competitor and format-account lists of a set-up project (0.5.0)."""
+    format_accounts = None if args.format_accounts is None else _split_list(args.format_accounts)
+    try:
+        result = setup.run_accounts(
+            args.project.resolve(), _split_list(args.competitors), format_accounts
+        )
+    except setup.SetupError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    print(json.dumps(result, indent=2))
+    return codes.EXIT_OK
+
+
+def _discover_handler(args: argparse.Namespace) -> int:
+    """Find accounts for the creator from hashtags, keywords, and web handles (0.5.0).
+
+    Works before `setup` has run. Exit codes are the research stage's:
+    the estimate goes to stdout as indented JSON whenever an error
+    carries one, and the message to stderr.
+    """
+    project_dir = args.project.resolve()
+    try:
+        cfg = store.load_discovery_config(project_dir)
+        keys = env.resolve_keys(project_dir)
+        discover.run_discover(
+            project_dir,
+            cfg,
+            keys,
+            hashtags=_split_list(args.hashtags),
+            keywords=_split_list(args.keywords),
+            handles_file=args.handles_file,
+            mock=args.mock,
+            yes=args.yes,
+            estimate_only=args.estimate_only,
+        )
+    except research.ResearchError as exc:
+        if exc.payload is not None:
+            print(json.dumps(exc.payload, indent=2))
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    except discover.DiscoverError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    except store.ConfigError as exc:
         print(str(exc), file=sys.stderr)
         return codes.EXIT_USAGE
     return codes.EXIT_OK
@@ -559,6 +616,8 @@ HANDLERS: Dict[str, Callable[[argparse.Namespace], int]] = {
 }
 HANDLERS["diagnose"] = _diagnose_handler
 HANDLERS["setup"] = _setup_handler
+HANDLERS["discover"] = _discover_handler
+HANDLERS["accounts"] = _accounts_handler
 HANDLERS["research"] = _research_handler
 HANDLERS["frames"] = _frames_handler
 HANDLERS["transcribe"] = _transcribe_handler
@@ -596,6 +655,15 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "setup":
             sub.add_argument("--answers-file", type=Path, required=True)
             sub.add_argument("--force", action="store_true")
+        if name == "accounts":
+            sub.add_argument("--competitors", required=True)
+            sub.add_argument("--format-accounts", default=None)
+        if name == "discover":
+            sub.add_argument("--hashtags", required=True)
+            sub.add_argument("--keywords", default=None)
+            sub.add_argument("--handles-file", type=Path, default=None)
+            sub.add_argument("--yes", action="store_true")
+            sub.add_argument("--estimate-only", action="store_true")
         if name == "research":
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")

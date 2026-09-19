@@ -29,7 +29,7 @@ from tests.helpers import NoNetworkTestCase, REPO_ROOT, SKILL_DIR, temp_project
 # so these imports must come after it.
 import contentos  # noqa: E402
 from lib import setup as setup_lib  # noqa: E402
-from lib import store  # noqa: E402
+from lib import codes, store  # noqa: E402
 
 REFERENCES_DIR = SKILL_DIR / "references"
 CREATOR_TEMPLATE = REFERENCES_DIR / "creator-template.md"
@@ -772,6 +772,93 @@ class SetupTests(NoNetworkTestCase):
             self.assertEqual(result["mode"], "mock")
             self.assertGreater(result["selected"], 0)
             self.assertTrue((Path(result["run_dir"]) / "02-outliers.json").exists())
+
+
+class AccountsCommandTests(NoNetworkTestCase):
+    def _set_up(self, project: Path) -> None:
+        code, _out, err = _main(
+            ["setup", "--project", str(project), "--answers-file", str(SAMPLE_ANSWERS), "--mock"]
+        )
+        self.assertEqual(code, codes.EXIT_OK, err)
+
+    def test_replaces_both_lists_and_keeps_everything_else(self) -> None:
+        with temp_project() as project:
+            self._set_up(project)
+            config_dir = store.contentos_dir(project)
+            config = store.read_json(config_dir / "config.json")
+            config["briefs"] = 7
+            store.write_json_atomic(config_dir / "config.json", config)
+            before = (config_dir / "creator.md").read_text(encoding="utf-8")
+
+            code, out, _err = _main(
+                ["accounts", "--project", str(project),
+                 "--competitors", "@FocusFern,https://www.instagram.com/planwithpia/,focusfern",
+                 "--format-accounts", "webwillow,planwithpia"]
+            )
+
+            self.assertEqual(code, codes.EXIT_OK)
+            self.assertEqual(
+                json.loads(out),
+                {"competitors": ["focusfern", "planwithpia"], "format_accounts": ["webwillow"]},
+            )
+            config = store.load_config(project)
+            self.assertEqual(config["competitors"], ["focusfern", "planwithpia"])
+            self.assertEqual(config["format_accounts"], ["webwillow"])
+            self.assertEqual(config["briefs"], 7)
+
+            after = (config_dir / "creator.md").read_text(encoding="utf-8")
+            self.assertEqual(_section(after, "Competitors"), "- focusfern\n- planwithpia")
+            self.assertEqual(_section(after, "Format accounts"), "- webwillow")
+            self.assertEqual(_headings(after), _headings(before))
+            for heading in _headings(before):
+                if heading not in ("Competitors", "Format accounts"):
+                    self.assertEqual(_section(after, heading), _section(before, heading))
+
+    def test_format_accounts_are_kept_when_the_flag_is_absent(self) -> None:
+        with temp_project() as project:
+            self._set_up(project)
+            kept = store.load_config(project)["format_accounts"]
+            before = (store.contentos_dir(project) / "creator.md").read_text(encoding="utf-8")
+
+            code, _out, _err = _main(
+                ["accounts", "--project", str(project), "--competitors", "focusfern"]
+            )
+
+            self.assertEqual(code, codes.EXIT_OK)
+            self.assertEqual(store.load_config(project)["format_accounts"], kept)
+            after = (store.contentos_dir(project) / "creator.md").read_text(encoding="utf-8")
+            self.assertEqual(_section(after, "Format accounts"), _section(before, "Format accounts"))
+
+    def test_an_empty_format_list_clears_it(self) -> None:
+        with temp_project() as project:
+            self._set_up(project)
+            _main(["accounts", "--project", str(project), "--competitors", "focusfern",
+                   "--format-accounts", ""])
+            self.assertEqual(store.load_config(project)["format_accounts"], [])
+            after = (store.contentos_dir(project) / "creator.md").read_text(encoding="utf-8")
+            self.assertEqual(_section(after, "Format accounts"), setup_lib.NO_FORMAT_ACCOUNTS_LINE)
+
+    def test_refuses_and_changes_nothing(self) -> None:
+        with temp_project() as project:
+            self._set_up(project)
+            config_path = store.contentos_dir(project) / "config.json"
+            before = config_path.read_text(encoding="utf-8")
+            for competitors in (" , ", "https://www.tiktok.com/@someone"):
+                with self.subTest(competitors=competitors):
+                    code, _out, err = _main(
+                        ["accounts", "--project", str(project), "--competitors", competitors]
+                    )
+                    self.assertEqual(code, codes.EXIT_USAGE)
+                    self.assertTrue(err.strip())
+                    self.assertEqual(config_path.read_text(encoding="utf-8"), before)
+
+    def test_refuses_before_setup(self) -> None:
+        with temp_project() as project:
+            code, _out, err = _main(
+                ["accounts", "--project", str(project), "--competitors", "focusfern"]
+            )
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertIn("setup", err)
 
 
 if __name__ == "__main__":

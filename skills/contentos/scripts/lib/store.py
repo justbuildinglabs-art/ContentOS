@@ -53,6 +53,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "carry_weeks": 2,
     "fill_ideas": 8,
     "auto_scripts": 3,
+    # 0.5.0: creator discovery (lib/discover.py; design spec, "0.5.0 changes").
+    "discover_reels_per_hashtag": 30,
+    "discover_candidates": 25,
+    "discover_min_followers": 1000,
 }
 
 TRANSCRIPT_MODES = ("auto", "local", "apify", "off")
@@ -62,7 +66,11 @@ TRANSCRIPT_MODES = ("auto", "local", "apify", "off")
 # greater than 0: max_format_briefs (no format-account briefs at all),
 # carry_weeks (no carrying ideas forward), and fill_ideas (no filling the
 # list up to `briefs`).
-_COUNT_KEYS_ALLOWING_ZERO = ("max_format_briefs", "carry_weeks", "fill_ideas")
+_COUNT_KEYS_ALLOWING_ZERO = (
+    "max_format_briefs", "carry_weeks", "fill_ideas",
+    # 0.5.0: 0 keeps every keyword and web candidate, whatever its size.
+    "discover_min_followers",
+)
 
 # Every DEFAULT_CONFIG key whose default is a plain number (this excludes
 # "competitors" and "format_accounts", both lists, "video_source", a
@@ -95,6 +103,8 @@ _NUMERIC_CONFIG_KEYS = tuple(
 # in an ffmpeg filter string, `baseline_lookback_days` in Apify's
 # "<n> days") are formatted into text, which a float survives.
 _INT_CONFIG_KEYS = (
+    "discover_reels_per_hashtag",
+    "discover_candidates",
     "reels_per_account",
     "min_reels_for_median",
     "top_k_videos",
@@ -280,6 +290,30 @@ def load_config(project: Path) -> Dict[str, Any]:
         handle for handle in config["format_accounts"] if handle.lower() not in competitors
     ]
 
+    return config
+
+
+def load_discovery_config(project: Path) -> Dict[str, Any]:
+    """The config `discover` runs on: usable before `setup` has ever run.
+
+    Discovery is how a creator finds their competitors, so it cannot
+    require them. A missing `config.json` means DEFAULT_CONFIG; an
+    existing one is merged and validated like `load_config`, except that
+    an empty or absent `competitors` list is allowed. An unreadable or
+    malformed file is still a ConfigError.
+    """
+    config_path = contentos_dir(project) / "config.json"
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    if config_path.exists():
+        try:
+            overrides = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ConfigError(f"invalid .contentos/config.json: {exc}") from exc
+        if not isinstance(overrides, dict):
+            raise ConfigError("invalid .contentos/config.json: must be a JSON object")
+        config.update(overrides)
+    # Validate everything else exactly as load_config does.
+    _validate_config(dict(config, competitors=config.get("competitors") or ["_"]))
     return config
 
 
