@@ -2,8 +2,8 @@
 
 The deterministic half of the four-stage pipeline (design spec, "Stage
 1" through "Stage 4"): `diagnose`, `setup`, `research`, `frames`,
-`direct-prompt`, `synth-prompt`, `rank`, `write-prompt`, `qa-prompt`,
-`verify`, `report`, `status`, `sync-plugin-key`. The SKILL.md
+`direct-prompt`, `synth-prompt`, `rank`, `intake`, `write-prompt`,
+`qa-prompt`, `verify`, `report`, `status`, `sync-plugin-key`. The SKILL.md
 orchestrator dispatches the `contentos:content-director`,
 `contentos:script-writer`, and `contentos:qa-reviewer` subagents around
 these commands; nothing here calls a model.
@@ -37,6 +37,7 @@ SUBCOMMANDS = [
     "direct-prompt",
     "synth-prompt",
     "rank",
+    "intake",
     "write-prompt",
     "qa-prompt",
     "verify",
@@ -280,7 +281,8 @@ def _verify_write(project_dir: Path, args: argparse.Namespace) -> int:
         return codes.EXIT_VERIFY
     print(
         f"ok {path.resolve()} words={check.word_count} "
-        f"read_time_s={check.read_time_s} placeholders={len(check.placeholders)}"
+        f"read_time_s={check.read_time_s} placeholders={len(check.placeholders)} "
+        f"placeholder_ratio={agents.placeholder_ratio(len(check.placeholders), check.word_count)}"
     )
     return codes.EXIT_OK
 
@@ -305,11 +307,26 @@ def _verify_qa(project_dir: Path, args: argparse.Namespace) -> int:
     return codes.EXIT_OK
 
 
+def _verify_facts(project_dir: Path, args: argparse.Namespace) -> int:
+    """`verify --stage facts`: every bullet in `04-facts/<B>.md` has an https source."""
+    if not args.brief:
+        print("verify --stage facts needs --brief", file=sys.stderr)
+        return codes.EXIT_USAGE
+    run_dir = store.resolve_run(project_dir, args.run)
+    path = agents.facts_path(run_dir, args.brief)
+    problems, count = agents.verify_facts(path)
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return codes.EXIT_VERIFY
+    print(f"ok {path.resolve()} facts={count}")
+    return codes.EXIT_OK
+
+
 def _verify_handler(args: argparse.Namespace) -> int:
     """Verify one stage's output file, printing `ok <path> ...` or its problems.
 
     `direct` and `synth` are Stage 2's own checks (`lib/direct.py`);
-    `write` and `qa` are Stage 3/4's (`lib/agents.py`).
+    `facts`, `write`, and `qa` are Stage 3/4's (`lib/agents.py`).
     """
     project_dir = args.project.resolve()
     try:
@@ -321,6 +338,8 @@ def _verify_handler(args: argparse.Namespace) -> int:
             path = direct.verify_synth(project_dir, args.run)
             print(f"ok {path}")
             return codes.EXIT_OK
+        if args.stage == "facts":
+            return _verify_facts(project_dir, args)
         if args.stage == "write":
             return _verify_write(project_dir, args)
         return _verify_qa(project_dir, args)
@@ -335,12 +354,34 @@ def _verify_handler(args: argparse.Namespace) -> int:
         return codes.EXIT_USAGE
 
 
+def _intake_handler(args: argparse.Namespace) -> int:
+    """Print the intake question list for one brief (stdout, exit 0).
+
+    The orchestrator asks the creator these questions and writes the
+    answers to `runs/<id>/04-intake/<B>.md`. An unresolvable run or a
+    brief not in `03-briefs.json` exits 2, message on stderr.
+    """
+    project_dir = args.project.resolve()
+    try:
+        run_dir = store.resolve_run(project_dir, args.run)
+        text = agents.intake_questions(project_dir, run_dir, args.brief)
+    except store.RunNotFound as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    except agents.AgentsError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    print(text)
+    return codes.EXIT_OK
+
+
 def _write_prompt_handler(args: argparse.Namespace) -> int:
     """Print the `script-writer` dispatch prompt for one brief.
 
     Every refusal (`agents.AgentsError`) carries its own exit code: 2
-    for an unresolvable run, a brief not in `03-briefs.json`, or a
-    missing `creator.md`.
+    for an unresolvable run, a brief not in `03-briefs.json`, a
+    missing `creator.md`, a revision past 2, or a revision 2 the brief
+    has not unlocked (it must be needs_human and have intake answers).
     """
     project_dir = args.project.resolve()
     try:
@@ -448,6 +489,7 @@ HANDLERS["frames"] = _frames_handler
 HANDLERS["direct-prompt"] = _direct_prompt_handler
 HANDLERS["synth-prompt"] = _synth_prompt_handler
 HANDLERS["rank"] = _rank_handler
+HANDLERS["intake"] = _intake_handler
 HANDLERS["verify"] = _verify_handler
 HANDLERS["write-prompt"] = _write_prompt_handler
 HANDLERS["qa-prompt"] = _qa_prompt_handler
@@ -485,17 +527,19 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--run", required=True)
             sub.add_argument("--refresh-expired", action="store_true")
         if name in (
-            "direct-prompt", "synth-prompt", "rank", "verify",
+            "direct-prompt", "synth-prompt", "rank", "intake", "verify",
             "write-prompt", "qa-prompt", "report", "status",
         ):
             sub.add_argument("--run", required=True)
         if name == "direct-prompt":
             sub.add_argument("--shortcode", required=True)
+        if name == "intake":
+            sub.add_argument("--brief", required=True)
         if name in ("write-prompt", "qa-prompt"):
             sub.add_argument("--brief", required=True)
             sub.add_argument("--revision", type=int, default=None)
         if name == "verify":
-            sub.add_argument("--stage", required=True, choices=["direct", "synth", "write", "qa"])
+            sub.add_argument("--stage", required=True, choices=["direct", "synth", "facts", "write", "qa"])
             sub.add_argument("--shortcode", default=None)
             sub.add_argument("--brief", default=None)
             sub.add_argument("--revision", type=int, default=None)

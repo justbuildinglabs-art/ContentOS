@@ -618,6 +618,63 @@ class SetupTests(NoNetworkTestCase):
             )
             self.assertTrue(_section(creator, "One-liner").endswith("TODO: fill this in."))
 
+    def test_setup_inventory_fills_the_inventory_section(self) -> None:
+        answers = dict(FULL_ANSWERS)
+        answers["inventory"] = [
+            "Notion weekly template, used every Sunday since 2024",
+            "  ",
+            "Paper habit card, 31 squares",
+        ]
+        with temp_project() as project:
+            result = setup_lib.run_setup(project, answers, REFERENCES_DIR)
+            creator = Path(result["creator_md"]).read_text(encoding="utf-8")
+
+            headings = _headings(creator)
+            self.assertIn("Inventory", headings)
+            self.assertEqual(headings.index("Inventory"), headings.index("Proof assets") + 1)
+            self.assertEqual(
+                _section(creator, "Inventory"),
+                "- Notion weekly template, used every Sunday since 2024\n"
+                "- Paper habit card, 31 squares",
+            )
+            self.assertNotIn("Inventory", result["todo_sections"])
+
+    def test_setup_without_inventory_leaves_it_todo(self) -> None:
+        with temp_project() as project:
+            result = setup_lib.run_setup(project, dict(FULL_ANSWERS), REFERENCES_DIR)
+            creator = Path(result["creator_md"]).read_text(encoding="utf-8")
+            self.assertIn("Inventory", result["todo_sections"])
+            self.assertTrue(_section(creator, "Inventory").endswith(setup_lib.TODO_LINE))
+
+    def test_setup_lead_magnet_is_appended_to_allowed_claims(self) -> None:
+        answers = dict(FULL_ANSWERS)
+        answers["lead_magnet"] = "  a one-page weekly reset checklist  "
+        with temp_project() as project:
+            result = setup_lib.run_setup(project, answers, REFERENCES_DIR)
+            creator = Path(result["creator_md"]).read_text(encoding="utf-8")
+            self.assertEqual(
+                _section(creator, "Allowed claims"),
+                "- Setting up the weekly plan takes under 10 minutes\n"
+                "- The CTA guide: a one-page weekly reset checklist",
+            )
+
+        # A lead magnet alone answers Allowed claims.
+        answers = dict(MINIMAL_ANSWERS, lead_magnet="the free template pack")
+        with temp_project() as project:
+            result = setup_lib.run_setup(project, answers, REFERENCES_DIR)
+            creator = Path(result["creator_md"]).read_text(encoding="utf-8")
+            self.assertEqual(
+                _section(creator, "Allowed claims"), "- The CTA guide: the free template pack"
+            )
+            self.assertNotIn("Allowed claims", result["todo_sections"])
+
+        # A blank lead magnet adds nothing.
+        answers = dict(FULL_ANSWERS, lead_magnet="   ")
+        with temp_project() as project:
+            result = setup_lib.run_setup(project, answers, REFERENCES_DIR)
+            creator = Path(result["creator_md"]).read_text(encoding="utf-8")
+            self.assertNotIn("The CTA guide", creator)
+
     def test_setup_rejects_a_bad_answers_file_or_no_competitors(self) -> None:
         with temp_project() as project:
             missing = project / "nope.json"

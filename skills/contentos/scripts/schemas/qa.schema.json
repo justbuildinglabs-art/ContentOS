@@ -18,12 +18,14 @@
         "not_a_clone": { "type": "string", "enum": ["pass", "fail", "na"] },
         "cta_present": { "type": "string", "enum": ["pass", "fail", "na"] },
         "brand_voice": { "type": "string", "enum": ["pass", "fail", "na"] },
-        "ai_tells": { "type": "string", "enum": ["pass", "fail", "na"] }
+        "ai_tells": { "type": "string", "enum": ["pass", "fail", "na"] },
+        "not_generic": { "type": "string", "enum": ["pass", "fail", "na"] },
+        "facts_sourced": { "type": "string", "enum": ["pass", "fail", "na"] }
       },
       "required": [
         "hook_first_3s", "hook_matches_brief", "payoff_present", "consistent_with_profile",
         "no_fabricated_claims", "no_fake_testimonial", "no_restricted_claims", "not_a_clone",
-        "cta_present", "brand_voice", "ai_tells"
+        "cta_present", "brand_voice", "ai_tells", "not_generic", "facts_sourced"
       ]
     },
     "scores": {
@@ -37,6 +39,7 @@
         "body_argument_clarity": { "type": "integer", "minimum": 1, "maximum": 10 },
         "body_emotional_arc": { "type": "integer", "minimum": 1, "maximum": 10 },
         "body_proof_density": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "body_specificity": { "type": "integer", "minimum": 1, "maximum": 10 },
         "body_pacing": { "type": "integer", "minimum": 1, "maximum": 10 },
         "cta_action_clarity": { "type": "integer", "minimum": 1, "maximum": 10 },
         "cta_friction": { "type": "integer", "minimum": 1, "maximum": 10 },
@@ -46,7 +49,8 @@
       "required": [
         "hook_scroll_stop", "hook_specificity", "hook_emotional_charge", "hook_voice_match",
         "hook_differentiation", "body_argument_clarity", "body_emotional_arc", "body_proof_density",
-        "body_pacing", "cta_action_clarity", "cta_friction", "cta_momentum", "cta_urgency"
+        "body_specificity", "body_pacing", "cta_action_clarity", "cta_friction", "cta_momentum",
+        "cta_urgency"
       ]
     },
     "length_check": {

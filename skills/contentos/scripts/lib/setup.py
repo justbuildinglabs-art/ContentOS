@@ -90,10 +90,17 @@ LIST_SECTIONS = {
     "Allowed claims": "allowed_claims",
     "Forbidden claims": "forbidden_claims",
     "Proof assets": "proof_assets",
+    "Inventory": "inventory",
     "Hashtag seeds": "hashtag_seeds",
     COMPETITORS_HEADING: "competitors",
     FORMAT_ACCOUNTS_HEADING: "format_accounts",
 }
+
+# The `## ` heading the `lead_magnet` answer lands under, and the prefix
+# it carries there. A lead magnet is something the creator really hands
+# out, so the writer may name it as fact in a CTA.
+ALLOWED_CLAIMS_HEADING = "Allowed claims"
+LEAD_MAGNET_PREFIX = "The CTA guide: "
 
 # Sections the template writes as labeled sub-bullets. The setup
 # interview only asks for some of them, so each label either carries the
@@ -384,6 +391,10 @@ def _render_section(
             items = normalize_format_accounts(answers.get(LIST_SECTIONS[heading]), competitors)
         else:
             items = _answer_list(answers, LIST_SECTIONS[heading])
+        if heading == ALLOWED_CLAIMS_HEADING:
+            lead_magnet = _answer_text(answers, "lead_magnet")
+            if lead_magnet:
+                items.append(LEAD_MAGNET_PREFIX + lead_magnet)
         if items:
             return ["## " + heading] + ["- " + item for item in items], True
         if heading == FORMAT_ACCOUNTS_HEADING:

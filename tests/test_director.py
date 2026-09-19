@@ -209,13 +209,14 @@ def _valid_analysis_raw() -> Dict[str, Any]:
 _QA_CHECK_NAMES = (
     "hook_first_3s", "hook_matches_brief", "payoff_present", "consistent_with_profile",
     "no_fabricated_claims", "no_fake_testimonial", "no_restricted_claims", "not_a_clone",
-    "cta_present", "brand_voice", "ai_tells",
+    "cta_present", "brand_voice", "ai_tells", "not_generic", "facts_sourced",
 )
 
 _QA_SCORE_NAMES = (
     "hook_scroll_stop", "hook_specificity", "hook_emotional_charge", "hook_voice_match",
     "hook_differentiation", "body_argument_clarity", "body_emotional_arc", "body_proof_density",
-    "body_pacing", "cta_action_clarity", "cta_friction", "cta_momentum", "cta_urgency",
+    "body_specificity", "body_pacing", "cta_action_clarity", "cta_friction", "cta_momentum",
+    "cta_urgency",
 )
 
 
