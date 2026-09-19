@@ -525,7 +525,9 @@ mostly or entirely format briefs. Read each brief's source line rather than
 assuming the split.
 
 Then ask with AskUserQuestion, options `Top 3`, `Top 5`, and `All <n>`, and let
-them type specific ids such as `B02 B07` through Other.
+them type specific ids such as `B02 B07` through Other. Offer `Top 5` only when
+the list has more than 5 ideas, and `Top 3` only when it has more than 3, so no
+two options pick the same briefs.
 
 With `--auto`, skip the question and take the top `auto_scripts` briefs from
 `.contentos/config.json` (default 3).
@@ -606,7 +608,10 @@ ContentOS is built to run once a week in the same project folder.
    `contentos.py mark --run <run_id> --brief B01 --state posted --url <post url>`.
    The states are `filmed`, `posted`, and `skipped`.
 2. Each week, `/contentos run`. Research skips any source reel an earlier run
-   already briefed, so the briefs are new.
+   already briefed, so every new idea is a reel the creator has not seen.
+   Ideas they have not picked yet come back as carried over, for up to
+   `carry_weeks` more runs (2 by default). `mark --state skipped` on a brief
+   stops that idea from carrying over.
 3. `contentos.py history` writes `.contentos/history.md`: one row per run with
    the cost, the briefs, how many passed, and how many were filmed and posted.
 4. When a creator answers an intake question with a fact they will reuse, such

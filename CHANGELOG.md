@@ -10,10 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A weekly ideas list. `rank` now writes up to `briefs` (default 20) ideas per
-  run instead of cutting to a handful, each tagged New, Carried over (for up
-  to `carry_weeks`, default 2, more weeks), or Format fill. A ledger in
-  `.contentos/ideas.json` remembers every idea across runs, so nothing you
-  have not picked yet just disappears.
+  run instead of cutting to a handful, each tagged New, Carried over, or
+  Format fill.
+- Carry-over. An idea you have not picked comes back for up to two more weeks
+  (`carry_weeks`, default 2), then expires. `carry_weeks` 0 turns carry-over
+  off. `mark --state skipped` stops an idea from coming back. A new ledger,
+  `.contentos/ideas.json`, remembers every idea across runs.
+- Format fill. The synthesis also writes `03-fill.json` in each run: up to
+  `fill_ideas` (default 8) ideas that apply a format that worked this week to
+  one of your pillars. They only take slots left after every real idea.
+  `fill_ideas` 0 turns format fill off.
 - `idea_title`, a short topic-first name for each idea, shown ahead of the
   source account.
 - `auto_scripts`: `--auto` now writes the top `auto_scripts` (default 3)
@@ -32,11 +38,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The per-account cap (`max_per_account`) is now soft: a busy account's
   extra outliers rank after every account's capped reels instead of being
   dropped outright, so a real outlier still beats an empty slot on the list.
+- `rank` will not re-rank a run that already has a script or a mark, because
+  a re-rank renumbers the briefs and the script or mark would land on the
+  wrong idea. `rank --force` re-ranks anyway.
+- "What to do next" in `report.md` and `status --text` sums up the ideas with
+  no script yet in one line instead of listing each one.
+- `report.md`, `report.html`, `status`, and the intake questions title each
+  brief by its idea title, so a format fill idea no longer shows its proof
+  reel's title.
 
 ### Upgrade note
 
 Projects set up before 0.4.0 pin `lookback_days: 90` and `briefs: 5` in
 `.contentos/config.json`. Change them to 14 and 20 for the weekly list.
+Projects upgrading from 0.3.0 start with an empty ideas ledger, so earlier
+unpicked briefs do not carry over.
 
 ## [0.3.0] - 2026-09-18
 

@@ -410,6 +410,16 @@ class SkillBodyTests(NoNetworkTestCase):
                 self.assertIn(needle, text)
         self.assertNotIn("take the top `briefs`", text)
 
+        # Final review M6: offer each top-N only when it cuts the list,
+        # name the way to stop an idea carrying over, and drop the stale
+        # promise that every brief is new.
+        prose = _collapse(text)
+        self.assertIn("`Top 5` only when the list has more than 5 ideas", prose)
+        self.assertIn("`Top 3` only when it has more than 3", prose)
+        self.assertIn("`mark --state skipped`", prose)
+        self.assertIn("stops that idea from carrying over", prose)
+        self.assertNotIn("so the briefs are new", prose)
+
     def test_a_fill_brief_gets_facts_about_its_own_topic(self) -> None:
         # Final review I3: a fill brief's topic is its own idea, not the
         # proof reel's, so the fact sheet must be researched from it.
@@ -540,6 +550,43 @@ class ReadmeTests(NoNetworkTestCase):
         for phrase in ("payoff", "creator profile"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, prose.lower())
+
+
+class WeeklyReleaseNoteTests(NoNetworkTestCase):
+    """Final review D1, D2, M7: the 0.4.0 settings and files, stated plainly."""
+
+    def _changelog_040(self) -> str:
+        text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        return _collapse(text.split("## [0.4.0]", 1)[1].split("\n## [", 1)[0])
+
+    def test_readme_and_changelog_state_the_weekly_settings_and_files(self) -> None:
+        readme = _collapse(README.read_text(encoding="utf-8"))
+        for name, prose in (("README", readme), ("CHANGELOG", self._changelog_040())):
+            for phrase in (
+                "`fill_ideas`", "default 8", "`fill_ideas` 0 turns format fill off",
+                "after every real idea",
+                "`carry_weeks`", "default 2", "`carry_weeks` 0 turns carry-over off",
+                "03-fill.json", ".contentos/ideas.json",
+                "start with an empty ideas ledger",
+            ):
+                with self.subTest(doc=name, phrase=phrase):
+                    self.assertIn(phrase, prose)
+            with self.subTest(doc=name):
+                self.assertNotIn("—", prose)
+
+    def test_readme_auto_row_names_auto_scripts(self) -> None:
+        text = README.read_text(encoding="utf-8")
+        row = next(line for line in text.splitlines() if line.startswith("| `/contentos run` |"))
+        self.assertIn("`auto_scripts`", row)
+        self.assertIn("default 3", row)
+
+    def test_readme_walkthrough_matches_the_rank_rule(self) -> None:
+        text = README.read_text(encoding="utf-8")
+        walkthrough = _collapse(text.split("## How a run looks", 1)[1].split("\n## ", 1)[0])
+        self.assertNotIn("At most two of the twenty ideas come from format accounts", walkthrough)
+        self.assertNotIn("one command replaced my whole morning routine", walkthrough)
+        self.assertIn("`max_format_briefs`", walkthrough)
+        self.assertIn("when niche ideas run short", walkthrough)
 
 
 def _key_command(text: str) -> List[str]:
