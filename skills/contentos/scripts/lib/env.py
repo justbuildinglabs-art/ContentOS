@@ -232,9 +232,25 @@ def diagnose(
     on disk) and passed in rather than imported here, so this module
     never imports contentos.py. Whatever is passed is rendered as a
     string, so the key is always present with type str.
+
+    `whisper` says whether a whisper-cpp binary is on PATH;
+    `whisper_model` is the model file transcripts would use (config
+    `whisper_model`, else env, else the default path), or None when
+    there is none on disk. Both come from `lib/transcribe.py`, the only
+    module that knows about whisper. An unreadable or invalid config
+    just means no configured model path here: diagnose never fails.
     """
+    # Imported here, not at the top: transcribe -> video -> apify is a
+    # long chain for the key-resolution helpers every command imports.
+    from lib import store, transcribe
+
     keys = resolve_keys(project_dir, environ)
     contentos_dir = project_dir / ".contentos"
+    try:
+        cfg = store.load_config(project_dir)
+    except Exception:  # noqa: BLE001 -- diagnose reports, it never fails
+        cfg = {}
+    model = transcribe.find_model(cfg, environ)
 
     return {
         "apify": bool(keys.apify),
@@ -245,6 +261,8 @@ def diagnose(
         "config_json": (contentos_dir / "config.json").exists(),
         "python": platform.python_version(),
         "ffmpeg": shutil.which("ffmpeg") is not None,
+        "whisper": transcribe.find_whisper() is not None,
+        "whisper_model": str(model) if model is not None else None,
         "skill_root": str(skill_root),
         "env_perms_ok": not keys.warnings,
         "warnings": keys.warnings,

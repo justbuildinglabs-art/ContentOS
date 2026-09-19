@@ -308,6 +308,8 @@ class DiagnoseCliTests(NoNetworkTestCase):
             "config_json": bool,
             "python": str,
             "ffmpeg": bool,
+            "whisper": bool,
+            "whisper_model": (str, type(None)),
             "skill_root": str,
             "env_perms_ok": bool,
             "warnings": list,

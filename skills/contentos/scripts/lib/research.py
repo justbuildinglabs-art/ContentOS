@@ -7,13 +7,15 @@ reviewed for this pipeline: `lib/apify.py` (REST client, cost estimate,
 `score_reel`, `select_outliers`), `lib/video.py` (`download_selected`,
 spec step 7 -- video + cover downloads with backfill), `lib/frames.py`
 (`frames_for_selected`, spec step 8 -- keyframes for the
-content-director subagent), and `lib/store.py` (run directory
-bookkeeping). See the design spec's "Stage 1 -- research" section for
+content-director subagent), `lib/transcribe.py` (`transcripts_for_selected`,
+0.3.0 -- a transcript per selected reel, right after keyframes), and
+`lib/store.py` (run directory bookkeeping). See the design spec's "Stage 1 -- research" section for
 the full step-by-step flow this module drives and "Config defaults"
-for the config keys read here. `no_download`, when true, skips both
-`download_selected` and `frames_for_selected`, so every
-`selected`/`backfill` reel's `video_status`/`frames_status` stay
-`"pending"` and the `videos`/`frames` summaries are both `None`.
+for the config keys read here. `no_download`, when true, skips
+`download_selected`, `frames_for_selected`, and
+`transcripts_for_selected`, so every `selected`/`backfill` reel's
+`video_status`/`frames_status`/`transcript_status` stay `"pending"` and
+the `videos`/`frames`/`transcripts` summaries are all `None`.
 
 `contentos.py`'s `research` subcommand is the only caller; it loads
 config with `store.load_config`, resolves keys with `env.resolve_keys`,
@@ -30,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from lib import apify, frames, instagram, outliers, store, video
+from lib import apify, frames, instagram, outliers, store, transcribe, video
 from lib.env import Keys
 from lib.http import HTTPError
 
@@ -142,6 +144,7 @@ def _estimate_payload(estimate: apify.CostEstimate, cfg: Dict[str, Any], n_accou
         "reels_per_account": cfg["reels_per_account"],
         "reels_usd": estimate.reels_usd,
         "details_usd": estimate.details_usd,
+        "transcripts_usd": estimate.transcripts_usd,
         "total_usd": estimate.total_usd,
         "max_items": estimate.max_items,
         "cap_usd": cap,
@@ -260,7 +263,7 @@ def _score_all(
 
 def _pending(reel: Dict[str, Any]) -> Dict[str, Any]:
     """A copy of `reel` carrying the download/keyframe placeholders."""
-    return dict(reel, video_status=PENDING, frames_status=PENDING)
+    return dict(reel, video_status=PENDING, frames_status=PENDING, transcript_status=PENDING)
 
 
 def _baselines_payload(
@@ -344,11 +347,13 @@ def run_research(
 ) -> Dict[str, Any]:
     """Run Stage 1 end to end, including keyframes, and return the RESULT summary.
 
-    `no_download`, when true, skips `video.download_selected` and
-    `frames.frames_for_selected` entirely: every `selected`/`backfill`
-    reel's `video_status`/`frames_status` stay `"pending"` (as
-    `_pending` first wrote them) and the returned/recorded `videos`/
-    `frames` summaries are both `None`. Raises a `ResearchError`
+    `no_download`, when true, skips `video.download_selected`,
+    `frames.frames_for_selected`, and
+    `transcribe.transcripts_for_selected` entirely: every
+    `selected`/`backfill` reel's `video_status`/`frames_status`/
+    `transcript_status` stay `"pending"` (as `_pending` first wrote them)
+    and the returned/recorded `videos`/`frames`/`transcripts` summaries
+    are all `None`. Raises a `ResearchError`
     subclass for every condition the CLI maps to a non-zero exit code
     (cost cap, confirmation, missing key, upstream failure).
     `store.ConfigError`/`store.RunNotFound` propagate unchanged, for the
@@ -362,7 +367,12 @@ def run_research(
     # interleaved, or reordered.
     accounts: List[str] = list(cfg["competitors"]) + list(cfg["format_accounts"])
 
-    estimate = apify.estimate_cost(len(accounts), cfg["reels_per_account"])
+    # 0.3.0: the paid transcript fallback is priced in only when it would
+    # actually run (lib/transcribe.py's `estimate_usd`), so it counts
+    # against apify_max_charge_usd through the same gate below.
+    estimate = apify.estimate_cost(
+        len(accounts), cfg["reels_per_account"], transcripts_usd=transcribe.estimate_usd(cfg)
+    )
     payload = _estimate_payload(estimate, cfg, len(accounts))
     _check_gates(payload, mock, yes, estimate_only, keys)
 
@@ -442,6 +452,7 @@ def run_research(
     # step 8 below -- there is no video yet for ffmpeg to read.
     videos_summary: Optional[Dict[str, int]] = None
     frames_summary: Optional[Dict[str, int]] = None
+    transcripts_summary: Optional[Dict[str, int]] = None
     if not no_download:
         video_report = video.download_selected(
             run_dir, outliers_doc, cfg, mock, fixtures_dir=FIXTURES_DIR, log=log
@@ -464,6 +475,21 @@ def run_research(
         for frame_status in frame_statuses.values():
             frames_summary[frame_status] = frames_summary.get(frame_status, 0) + 1
 
+        # 0.3.0: a transcript per selected reel, right after keyframes.
+        # Never raises for one reel; rewrites 02-outliers.json itself.
+        log("transcribing selected reels")
+        transcript_statuses = transcribe.transcripts_for_selected(
+            run_dir,
+            outliers_doc,
+            cfg,
+            mock=mock,
+            fixtures_dir=FIXTURES_DIR,
+            token=keys.apify if (keys and keys.apify) else None,
+            transport=transport,
+            log=log,
+        )
+        transcripts_summary = transcribe.count(transcript_statuses)
+
     status = STATUS_PARTIAL if run_warnings else STATUS_OK
     finished_at = datetime.now(timezone.utc).isoformat()
     updated = store.update_run(
@@ -479,9 +505,16 @@ def run_research(
                 "excluded": len(selection.excluded),
                 "videos": videos_summary,
                 "frames": frames_summary,
+                "transcripts": transcripts_summary,
             }
         },
-        costs={"apify": {"estimate_usd": estimate.total_usd, "max_items": estimate.max_items}},
+        costs={
+            "apify": {
+                "estimate_usd": estimate.total_usd,
+                "transcripts_usd": estimate.transcripts_usd,
+                "max_items": estimate.max_items,
+            }
+        },
         warnings=warnings,
     )
 
@@ -500,6 +533,7 @@ def run_research(
         "excluded": len(selection.excluded),
         "videos": videos_summary,
         "frames": frames_summary,
+        "transcripts": transcripts_summary,
         "warnings": updated.get("warnings", warnings),
     }
     print("RESULT " + json.dumps(result))
