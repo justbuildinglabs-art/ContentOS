@@ -48,7 +48,7 @@
 - Test: `tests/test_store.py`
 
 **Interfaces:**
-- Produces: config keys `lookback_days` (14), `briefs` (20), `min_outlier_ratio` (2.0), `carry_weeks` (2), `fill_ideas` (8), `auto_scripts` (3). `tests.helpers.PRE_WEEKLY_CONFIG = {"lookback_days": 90, "min_outlier_ratio": 1.0, "briefs": 5}`.
+- Produces: config keys `lookback_days` (14), `briefs` (20), `min_outlier_ratio` (2.0), `carry_weeks` (2), `fill_ideas` (8), `auto_scripts` (3). `tests.helpers.PRE_WEEKLY_CONFIG = {"lookback_days": 90, "min_outlier_ratio": 0.5, "briefs": 5}`.
 
 - [ ] **Step 1: Write the failing tests** in `tests/test_store.py` (new class at the end, same imports as the module):
 
@@ -125,7 +125,9 @@ Run: `python3 -m unittest discover -s tests` → exactly these 10 fail (pinned b
 # The 0.3.0 selection and brief count. Fixture reels span April to
 # September and their small accounts give blended ratios near 1.3, so
 # tests that check the original five-brief fixture story pin these.
-PRE_WEEKLY_CONFIG = {"lookback_days": 90, "min_outlier_ratio": 1.0, "briefs": 5}
+# 0.5 keeps the ratio floor inert: the lowest fixture reel with enough
+# plays is at 0.92 (config validation forbids 0).
+PRE_WEEKLY_CONFIG = {"lookback_days": 90, "min_outlier_ratio": 0.5, "briefs": 5}
 ```
 
   - `tests/test_research.py`, `tests/test_frames.py`, `tests/test_transcribe.py`: import `PRE_WEEKLY_CONFIG` and change each `_write_config` body to write `json.dumps(dict(PRE_WEEKLY_CONFIG, **overrides))`. Update the docstring to "`PRE_WEEKLY_CONFIG` overlaid with `overrides`".
@@ -165,7 +167,7 @@ PRE_WEEKLY_CONFIG = {"lookback_days": 90, "min_outlier_ratio": 1.0, "briefs": 5}
     return cfg
 ```
 
-  In `test_fixture_outliers_selected`, replace both uses of `DEFAULT_CONFIG` with `fixture_cfg = _cfg(min_outlier_ratio=1.0)`. Replace the comment "outside the 90-day lookback" with "outside the lookback".
+  In `test_fixture_outliers_selected`, replace both uses of `DEFAULT_CONFIG` with `fixture_cfg = _cfg(min_outlier_ratio=0.5)`. Replace the comment "outside the 90-day lookback" with "outside the lookback".
 
 - [ ] **Step 2: Write the failing tests** (new class):
 
@@ -270,7 +272,7 @@ class WeeklySelectionTests(NoNetworkTestCase):
 - Test: `tests/test_ideas.py`
 
 **Interfaces:**
-- Consumes: `store.contentos_dir`, `store.read_json`, `store.write_json_atomic`, `store.run_dir`, `history.load_log`, `agents.brief_state`.
+- Consumes: `store.contentos_dir`, `store.read_json`, `store.write_json_atomic`, `store.run_dir`, `history.load_log`, `agents.latest_script_revision`.
 - Produces:
   - `ledger_path(project: Path) -> Path`
   - `load_ledger(project: Path) -> Dict[str, Any]`, always `{"version": 1, "ideas": {...}}`
@@ -477,7 +479,7 @@ def forget_run(ledger: Dict[str, Any], run_id: str) -> None:
 def _closed_reason(project: Path, entry: Dict[str, Any], log: Dict[str, Any], carry_weeks: int) -> Any:
     for pair in entry.get("shown", []):
         run_dir = store.run_dir(project, pair["run_id"])
-        if run_dir.is_dir() and agents.brief_state(run_dir, pair["brief_id"])["revision"] is not None:
+        if run_dir.is_dir() and agents.latest_script_revision(run_dir, pair["brief_id"]) is not None:
             return "scripted"
     for pair in entry.get("shown", []):
         state = log["briefs"].get(f"{pair['run_id']}/{pair['brief_id']}", {}).get("state")

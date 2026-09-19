@@ -56,7 +56,7 @@ A creator runs ContentOS once a week against the same watch list. The first live
 
 - `{"version": 1, "ideas": {<shortCode>: entry}}`, one entry per outlier idea ever shown. Entry: `idea_title`, `brief_title`, `first_run`, `shown` (a list of `{run_id, brief_id}` in run order), `analysis_path` and `frames_dir` (absolute), `reel` (a snapshot of the scored reel: `shortCode`, `url`, `ownerUsername`, `source_kind`, `timestamp`, `plays`, `outlier_ratio`, `viral_proof`), and `closed` (null, or one of `scripted`, `filmed`, `posted`, `skipped`, `expired`).
 - Only `rank` writes it, after `03-briefs.json`. Ranking the same run again first removes that run's `shown` pairs (and any entry left with none), so a re-rank never double-counts a week. Format fill ideas (below) are not in the ledger and never carry over; each week's synthesis makes fresh ones.
-- At the start of `rank`, each open entry is closed from what other runs recorded: `scripted` when any `shown` pair has a script (`agents.brief_state(...)["revision"]` is not null), `filmed`, `posted`, or `skipped` from that pair's latest `log.json` state, and `expired` once it has been shown in `carry_weeks + 1` runs (`carry_weeks` default 2, an integer 0 or more; 0 turns carry-over off). Weeks are counted in runs, so two runs in one week count as two.
+- At the start of `rank`, each open entry is closed from what other runs recorded: `scripted` when any `shown` pair has a script (`agents.latest_script_revision` is not null), `filmed`, `posted`, or `skipped` from that pair's latest `log.json` state, and `expired` once it has been shown in `carry_weeks + 1` runs (`carry_weeks` default 2, an integer 0 or more; 0 turns carry-over off). Weeks are counted in runs, so two runs in one week count as two.
 - An unreadable or missing ledger is treated as empty, like `log.json`.
 
 **Ranking (`rank`, `director.rank_briefs`)**
@@ -88,7 +88,7 @@ A creator runs ContentOS once a week against the same watch list. The first live
 **Setup and existing projects**
 
 - Setup writes the full default config, so new projects get `lookback_days` 14 and `briefs` 20. Projects set up before 0.4.0 pin 90 and 5; the README and CHANGELOG tell the creator to change both. Nothing rewrites a creator's config.
-- The fixture reels are unchanged. Under the defaults a mock run selects the two fixture reels that clear 2x inside 14 days (`HAB005`, `DWN006`), and the rest of the list comes from `fixtures/fill.sample.json`. A second mock run in the same project finds no new outliers and lists the unscripted one as carried over. Tests that check the 0.3.0 five-brief story pin `lookback_days` 90, `min_outlier_ratio` 1.0, and `briefs` 5 in their project config.
+- The fixture reels are unchanged. Under the defaults a mock run selects the two fixture reels that clear 2x inside 14 days (`HAB005`, `DWN006`), and the rest of the list comes from `fixtures/fill.sample.json`. A second mock run in the same project finds no new outliers and lists the unscripted one as carried over. Tests that check the 0.3.0 five-brief story pin `lookback_days` 90, `min_outlier_ratio` 0.5 (inert for the fixtures), and `briefs` 5 in their project config.
 
 Weekly cost is unchanged: the scrape is the same, director dispatches equal the new selected reels (at most `top_k_videos`), and synthesis stays one dispatch. Writer and QA dispatches follow the creator's picks. Still later: merging near-duplicate ideas, a watch-list health table, per-account reel counts for daily posters, and a scheduled weekly run.
 
