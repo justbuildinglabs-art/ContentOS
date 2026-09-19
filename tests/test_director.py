@@ -364,6 +364,7 @@ class SchemaShapeTests(NoNetworkTestCase):
         for schema, optional in (
             (analysis_schema, _OPTIONAL_ANALYSIS_PROPERTIES),
             (qa_schema, set()),
+            (director.load_schema("fill"), set()),
         ):
             self.assertEqual(schema.get("$schema"), "http://json-schema.org/draft-07/schema#")
             self.assertEqual(schema.get("type"), "object")
@@ -1404,6 +1405,56 @@ class VerifyPatternsTests(NoNetworkTestCase):
             out_of_order_file.write_text(out_of_order_text, encoding="utf-8")
             errors = director.verify_patterns(out_of_order_file)
             self.assertTrue(errors)
+
+
+# ---------------------------------------------------------------------------
+# verify_fill / load_fill
+# ---------------------------------------------------------------------------
+
+
+class FillTests(NoNetworkTestCase):
+    def _run_dir(self, root: Path, analyses=("HAB005",)) -> Path:
+        run_dir = root / "run"
+        (run_dir / "03-analyses").mkdir(parents=True)
+        for sc in analyses:
+            (run_dir / "03-analyses" / f"{sc}.json").write_text("{}", encoding="utf-8")
+        return run_dir
+
+    def test_missing_fill_is_fine(self) -> None:
+        with temp_project() as root:
+            run_dir = self._run_dir(root)
+            self.assertEqual(director.verify_fill(run_dir), [])
+            self.assertEqual(director.load_fill(run_dir), [])
+
+    def test_fill_must_match_schema_and_borrow_analyzed_reels(self) -> None:
+        with temp_project() as root:
+            run_dir = self._run_dir(root)
+            idea = {"idea_title": "T", "pillar": "P", "format_from": ["NOPE"], "angle": "A", "why": "W", "specifics": []}
+            (run_dir / "03-fill.json").write_text(json.dumps({"ideas": [idea]}), encoding="utf-8")
+            problems = director.verify_fill(run_dir)
+            self.assertTrue(any("NOPE" in p for p in problems), problems)
+            self.assertEqual(director.load_fill(run_dir), [])
+            (run_dir / "03-fill.json").write_text(json.dumps({"ideas": [{"idea_title": "T"}]}), encoding="utf-8")
+            self.assertTrue(director.verify_fill(run_dir))
+
+    def test_valid_fill_loads(self) -> None:
+        with temp_project() as root:
+            run_dir = self._run_dir(root)
+            idea = {"idea_title": "T", "pillar": "P", "format_from": ["HAB005"], "angle": "A", "why": "W", "specifics": []}
+            (run_dir / "03-fill.json").write_text(json.dumps({"ideas": [idea]}), encoding="utf-8")
+            self.assertEqual(director.verify_fill(run_dir), [])
+            self.assertEqual(director.load_fill(run_dir), [idea])
+
+    def test_synth_prompt_asks_for_fill(self) -> None:
+        with temp_project() as root:
+            run_dir = self._run_dir(root)
+            creator = root / "creator.md"
+            creator.write_text("# Creator\n", encoding="utf-8")
+            prompt = director.build_synth_prompt(run_dir, REFERENCES_DIR, creator, fill_ideas=5)
+            self.assertIn(str((run_dir / "03-fill.json").resolve()), prompt)
+            self.assertIn("at most 5", prompt)
+            none = director.build_synth_prompt(run_dir, REFERENCES_DIR, creator, fill_ideas=0)
+            self.assertNotIn("03-fill.json", none)
 
 
 if __name__ == "__main__":

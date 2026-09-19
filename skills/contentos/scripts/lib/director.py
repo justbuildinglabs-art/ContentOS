@@ -713,8 +713,21 @@ _HEADING_DESCRIPTIONS = {
     ),
 }
 
+# The six schemas/fill.schema.json keys, one line each, worded from the
+# design spec's "0.4.0 changes", "Format fill" bullet.
+_FILL_KEY_LINES = [
+    "- idea_title: the creator's topic, 12 words or fewer.",
+    "- pillar: one of creator.md's pillars, copied as written from its ## Pillars section.",
+    "- format_from: one or more shortCodes from this run's analyses whose format and hook it borrows.",
+    "- angle: what the creator's reel says and shows, the 10 to 20 percent change.",
+    "- why: why this format suits this pillar.",
+    "- specifics: the analysis shape. May be [].",
+]
 
-def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) -> str:
+
+def build_synth_prompt(
+    run_dir: Path, references_dir: Path, creator_md: Path, fill_ideas: int = 8
+) -> str:
     """The dispatch prompt for the one set-level `03-patterns.md` synthesis.
 
     Lists every `03-analyses/*.json` file (sorted, absolute paths) plus
@@ -723,6 +736,13 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) ->
     on what belongs under it, so the subagent can copy the heading text
     verbatim into `03-patterns.md` (what `verify_patterns` later checks
     for); states the output path and the `WROTE`/`FAILED` contract.
+
+    When `fill_ideas > 0` (design spec, "0.4.0 changes", "Format fill"),
+    a `## Fill ideas` section before `## Rules` also asks for
+    `03-fill.json`: at most `fill_ideas` ideas, each with the six
+    `schemas/fill.schema.json` keys, and the `## Output` section names
+    that second path too. `fill_ideas == 0` (a creator turning format
+    fill off) leaves both out entirely.
     """
     run_dir = Path(run_dir)
     references_dir = Path(references_dir)
@@ -731,6 +751,7 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) ->
     analyses_dir = run_dir / "03-analyses"
     analysis_paths = sorted(analyses_dir.glob("*.json"))
     output_path = run_dir / "03-patterns.md"
+    fill_path = run_dir / "03-fill.json"
 
     lines: List[str] = [_HANDOFF_SYNTH, _HANDOFF_SYNTH_NOTE, ""]
 
@@ -754,6 +775,25 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) ->
         lines.append(_HEADING_DESCRIPTIONS[heading])
         lines.append("")
 
+    if fill_ideas > 0:
+        lines.append("## Fill ideas")
+        lines.append("")
+        lines.append(
+            f"Also write {fill_path.resolve()}: a JSON object with one key, "
+            f"\"ideas\", a list of at most {fill_ideas} format fill ideas. A "
+            "format fill idea takes a format that worked this week and "
+            "applies it to one of this creator's pillars, so the list still "
+            "reaches its full length when there are not enough real outliers. "
+            "Each idea needs exactly these keys:"
+        )
+        lines.append("")
+        lines.extend(_FILL_KEY_LINES)
+        lines.append("")
+        lines.append(
+            "A fill idea must not repeat a topic the analyses above already cover."
+        )
+        lines.append("")
+
     lines.append("## Rules")
     lines.append("")
     lines.append("- No em dashes.")
@@ -765,6 +805,8 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) ->
     lines.append("## Output")
     lines.append("")
     lines.append(f"Write the synthesis to exactly this path: {output_path.resolve()}")
+    if fill_ideas > 0:
+        lines.append(f"Then write the fill ideas to exactly this path: {fill_path.resolve()}")
     lines.append(_OUTPUT_CONTRACT_LINE)
 
     return "\n".join(lines)
@@ -807,6 +849,80 @@ def verify_patterns(path: Path) -> List[str]:
         errors.append("required headings are present but out of order")
 
     return errors
+
+
+# ---------------------------------------------------------------------------
+# verify_fill / load_fill
+# ---------------------------------------------------------------------------
+
+
+def verify_fill(run_dir: Path) -> List[str]:
+    """Problems with this run's `03-fill.json`: missing is fine, malformed is not.
+
+    A missing file is not a problem (design spec, "0.4.0 changes",
+    "Format fill": "A missing file is fine, so older runs still verify
+    and rank") -- this returns `[]` so an older run, or a week with
+    `fill_ideas: 0`, verifies exactly like before. Otherwise: unreadable
+    JSON is one problem; the parsed object must validate against
+    `schemas/fill.schema.json` (`validate_against` handles every keyword
+    the schema uses -- `minLength`, nested `items`, `required`); and,
+    since the schema only knows `format_from` as an array of strings, an
+    idea whose `format_from` is empty, or names a shortCode with no
+    `03-analyses/<shortCode>.json` in this run, adds one more problem
+    line naming that idea by its 1-based position.
+    """
+    run_dir = Path(run_dir)
+    fill_path = run_dir / "03-fill.json"
+    if not fill_path.exists():
+        return []
+
+    try:
+        doc = json.loads(fill_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        return [f"{fill_path}: cannot read as JSON: {exc}"]
+
+    errors = validate_against(load_schema("fill"), doc)
+
+    ideas = doc.get("ideas") if isinstance(doc, dict) else None
+    if isinstance(ideas, list):
+        analyses_dir = run_dir / "03-analyses"
+        for index, idea in enumerate(ideas):
+            if not isinstance(idea, dict):
+                continue
+            format_from = idea.get("format_from")
+            if not isinstance(format_from, list) or not format_from:
+                errors.append(f"fill idea {index + 1}: format_from is empty")
+                continue
+            for shortcode in format_from:
+                if isinstance(shortcode, str) and not (analyses_dir / f"{shortcode}.json").exists():
+                    errors.append(
+                        f"fill idea {index + 1}: format_from {shortcode} has no analysis in this run"
+                    )
+
+    return errors
+
+
+def load_fill(run_dir: Path) -> List[Dict[str, Any]]:
+    """This run's format fill ideas, or `[]` when there are none or any are invalid.
+
+    `[]` when `03-fill.json` is missing (the common case: most weeks
+    have enough real outliers), unreadable, or `verify_fill` finds any
+    problem with it -- a fill list ranking cannot trust in part is
+    treated the same as no fill list at all. Otherwise the file's own
+    `ideas` list.
+    """
+    run_dir = Path(run_dir)
+    fill_path = run_dir / "03-fill.json"
+    if not fill_path.exists() or verify_fill(run_dir):
+        return []
+
+    try:
+        doc = json.loads(fill_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+
+    ideas = doc.get("ideas") if isinstance(doc, dict) else None
+    return ideas if isinstance(ideas, list) else []
 
 
 # ---------------------------------------------------------------------------

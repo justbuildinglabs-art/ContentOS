@@ -297,10 +297,14 @@ def _synth_prompt_handler(args: argparse.Namespace) -> int:
     """Print the one set-level synthesis dispatch prompt for `03-patterns.md`."""
     project_dir = args.project.resolve()
     try:
-        prompt = direct.run_synth_prompt(project_dir, args.run, references_dir())
+        cfg = store.load_config(project_dir)
+        prompt = direct.run_synth_prompt(project_dir, args.run, references_dir(), cfg=cfg)
     except direct.DirectError as exc:
         print(str(exc), file=sys.stderr)
         return exc.exit_code
+    except store.ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
     print(prompt)
     return codes.EXIT_OK
 

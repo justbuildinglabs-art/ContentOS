@@ -50,6 +50,7 @@ from lib import codes, director, store
 FIXTURES_DIR = Path(__file__).resolve().parents[4] / "fixtures"
 ANALYSES_FIXTURES_SUBDIR = "analyses"
 PATTERNS_FIXTURE_NAME = "patterns.sample.md"
+FILL_FIXTURE_NAME = "fill.sample.json"
 
 # frames_status values a reel can be analyzed from. Anything else
 # (`pending`, `failed`, `no_video`) means the director would have no
@@ -241,12 +242,22 @@ def run_direct_prompt(
     )
 
 
-def run_synth_prompt(project: Path, run_ref: str, references_dir: Path) -> str:
+def run_synth_prompt(
+    project: Path,
+    run_ref: str,
+    references_dir: Path,
+    cfg: Optional[Dict[str, Any]] = None,
+) -> str:
     """The `synth-prompt --run <id>` prompt text for the one synthesis dispatch.
 
     Refuses with exit 2 when the run does not resolve, when
     `03-analyses/` holds no `*.json` files yet (there is nothing to
-    synthesize from), or when `creator.md` is missing.
+    synthesize from), or when `creator.md` is missing. `cfg` is threaded
+    in from the CLI handler (`contentos.py` loads it with
+    `store.load_config`), the same convention `agents.write_prompt`/
+    `agents.qa_prompt` use; a caller with none gets `store.DEFAULT_CONFIG`.
+    Only `cfg["fill_ideas"]` is read, to cap the synthesis dispatch's
+    `## Fill ideas` section (design spec, "0.4.0 changes").
     """
     run_dir = _resolve_run(project, run_ref)
     analyses = sorted((run_dir / "03-analyses").glob("*.json"))
@@ -256,7 +267,10 @@ def run_synth_prompt(project: Path, run_ref: str, references_dir: Path) -> str:
             codes.EXIT_USAGE,
         )
     creator_md = _creator_md(project)
-    return director.build_synth_prompt(run_dir, Path(references_dir), creator_md)
+    cfg = cfg if cfg is not None else store.DEFAULT_CONFIG
+    return director.build_synth_prompt(
+        run_dir, Path(references_dir), creator_md, fill_ideas=cfg["fill_ideas"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -349,16 +363,19 @@ def verify_direct(project: Path, run_ref: str, shortcode: Optional[str]) -> Path
 
 
 def verify_synth(project: Path, run_ref: str) -> Path:
-    """Check this run's `03-patterns.md` for the five required headings.
+    """Check this run's `03-patterns.md` and, when present, `03-fill.json`.
 
     Delegates to `director.verify_patterns` (missing file, empty file,
-    a missing heading, or headings out of order) and raises a
-    `DirectError` with exit code 7 carrying one line per problem.
-    Returns the patterns path on success.
+    a missing heading, or headings out of order) for the patterns half,
+    and `director.verify_fill` (a missing `03-fill.json` is fine; an
+    existing one must match `schemas/fill.schema.json` and every
+    `format_from` shortCode must have an analysis in this run) for the
+    fill half. Raises a `DirectError` with exit code 7 carrying every
+    problem from both checks. Returns the patterns path on success.
     """
     run_dir = _resolve_run(project, run_ref)
     patterns_path = run_dir / "03-patterns.md"
-    problems = director.verify_patterns(patterns_path)
+    problems = director.verify_patterns(patterns_path) + director.verify_fill(run_dir)
     if problems:
         raise DirectError("\n".join(problems), codes.EXIT_VERIFY)
     return patterns_path
@@ -375,7 +392,7 @@ def _seed_mock_analyses(
     fixtures_dir: Path,
     log: Callable[[str], None],
 ) -> None:
-    """Copy the committed fixture analyses and patterns into this run.
+    """Copy the committed fixture analyses, patterns, and fill into this run.
 
     `rank --mock` is what makes a demo run reach `briefs.md` with no
     subagent in the loop: every `selected` reel that has a
@@ -384,6 +401,14 @@ def _seed_mock_analyses(
     `03-patterns.md`. Both copies skip anything already on disk, so a
     real analysis from an actual dispatch is never overwritten by a
     fixture.
+
+    `fixtures/fill.sample.json` becomes `03-fill.json` the same way, but
+    only when at least one of its ideas' `format_from` shortCodes now has
+    an analysis in this run -- otherwise the fixture's own
+    `format_from` references would fail `verify_fill`, and (design spec,
+    "0.4.0 changes", "Format fill") a mock week with no new outliers
+    should have no fill at all, matching a real run where the skill
+    skips the synthesis dispatch entirely.
     """
     analyses_dir = run_dir / "03-analyses"
     fixtures_analyses = Path(fixtures_dir) / ANALYSES_FIXTURES_SUBDIR
@@ -404,6 +429,23 @@ def _seed_mock_analyses(
     if patterns_source.exists() and not patterns_dest.exists():
         shutil.copyfile(patterns_source, patterns_dest)
         log("seeded the fixture 03-patterns.md (mock)")
+
+    fill_dest = run_dir / "03-fill.json"
+    fill_source = Path(fixtures_dir) / FILL_FIXTURE_NAME
+    if fill_source.exists() and not fill_dest.exists():
+        try:
+            fill_doc = json.loads(fill_source.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            fill_doc = None
+        format_froms = [
+            shortcode
+            for idea in (fill_doc.get("ideas") if isinstance(fill_doc, dict) else [])
+            if isinstance(idea, dict)
+            for shortcode in idea.get("format_from") or []
+        ]
+        if any((analyses_dir / f"{sc}.json").exists() for sc in format_froms):
+            shutil.copyfile(fill_source, fill_dest)
+            log("seeded the fixture 03-fill.json (mock)")
 
 
 def _collect_analyses(

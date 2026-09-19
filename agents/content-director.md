@@ -189,6 +189,15 @@ creator or from what they promote, quoted as they were written.
 Plain language. Short sentences. No em dashes. Same output contract: one file,
 at the path given, then `WROTE <path>` or `FAILED <reason>`.
 
+When the prompt also has a `## Fill ideas` section, write a second file:
+`03-fill.json`, at the path that section gives you. It is a JSON object with
+one key, `ideas`, a list of format fill ideas: a format that worked this week,
+applied to one of this creator's pillars. Each idea needs exactly the six keys
+the section lists: `idea_title`, `pillar`, `format_from`, `angle`, `why`, and
+`specifics`. Take `pillar` from the `## Pillars` section of `creator.md`,
+copied as written. Do not repeat a topic the analyses already cover. This is
+still valid JSON, no markdown fences, no extra keys.
+
 ## Never
 
 Never dispatch another agent. Never run a command. Never reach the network.

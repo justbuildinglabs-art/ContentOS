@@ -38,6 +38,7 @@ from lib.env import Keys  # noqa: E402
 FIXTURES_DIR = REPO_ROOT / "fixtures"
 ANALYSES_FIXTURES_DIR = FIXTURES_DIR / "analyses"
 PATTERNS_FIXTURE = FIXTURES_DIR / "patterns.sample.md"
+FILL_FIXTURE = FIXTURES_DIR / "fill.sample.json"
 
 # The fixture handles Task 8/9 designed the sample Apify files around
 # (mirrors tests/test_research.py's FIXTURE_HANDLES), split into
@@ -659,6 +660,50 @@ class RankTests(NoNetworkTestCase):
             self.assertEqual(code, codes.EXIT_USAGE)
             self.assertEqual(out, "")
             self.assertTrue(err.strip())
+
+    def test_rank_mock_seeds_fill_and_verify_synth_rejects_bad_format_from(self) -> None:
+        # DWN006 and HAB005 (fixtures/fill.sample.json's format_from
+        # shortCodes) are both among the fixture analyses --mock seeds, so
+        # the fixture fill file is seeded whole, unlike a real week with no
+        # new outliers (spec: no fill when the run has no new analysis).
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research(project)
+
+            code, _out, _err = _main(
+                ["rank", "--project", str(project), "--run", "latest", "--mock"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
+
+            fill_path = run_dir / "03-fill.json"
+            self.assertTrue(fill_path.exists())
+            self.assertEqual(
+                json.loads(fill_path.read_text(encoding="utf-8")),
+                json.loads(FILL_FIXTURE.read_text(encoding="utf-8")),
+            )
+
+            code, out, err = _main(
+                ["verify", "--project", str(project), "--run", "latest", "--stage", "synth"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
+            self.assertEqual(err, "")
+
+            bad_idea = {
+                "idea_title": "T",
+                "pillar": "P",
+                "format_from": ["NOPE"],
+                "angle": "A",
+                "why": "W",
+                "specifics": [],
+            }
+            fill_path.write_text(json.dumps({"ideas": [bad_idea]}), encoding="utf-8")
+
+            code, out, err = _main(
+                ["verify", "--project", str(project), "--run", "latest", "--stage", "synth"]
+            )
+            self.assertEqual(code, codes.EXIT_VERIFY)
+            self.assertEqual(out, "")
+            self.assertIn("NOPE", err)
 
 
 if __name__ == "__main__":
