@@ -37,5 +37,34 @@
   "risk_flags": [
     "none"
   ],
-  "confidence": "high"
+  "confidence": "high",
+  "specifics": [
+    {
+      "kind": "product",
+      "name": "dailywins app",
+      "detail": "the daily wins tracker shown in the screen recording, with a wins board and a streak counter",
+      "evidence": "frame 1",
+      "public": true
+    },
+    {
+      "kind": "number",
+      "name": "2 seconds",
+      "detail": "a top comment says the viewer downloaded the app within 2 seconds of watching",
+      "evidence": "comment",
+      "public": false
+    },
+    {
+      "kind": "claim",
+      "name": "We were NOT ready for this one",
+      "detail": "the on screen promise that sets up the reveal",
+      "evidence": "frame 1",
+      "public": false
+    }
+  ],
+  "steps": [
+    "Open on the wins board with one line that promises a reveal",
+    "Scroll the real entries so viewers see it is not a mockup",
+    "Flip to the streak counter and let the number fill the screen",
+    "Ask for a comment to get the link"
+  ]
 }

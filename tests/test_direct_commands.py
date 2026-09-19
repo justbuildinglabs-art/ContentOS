@@ -536,6 +536,42 @@ class RankTests(NoNetworkTestCase):
             self.assertEqual(stage["briefs"], 5)
             self.assertTrue(stage["finished_at"])
 
+    def test_rank_mock_carries_fixture_specifics_and_steps_into_briefs(self) -> None:
+        # DWN006's fixture analysis carries `specifics` and `steps`; the
+        # other four predate them. Both kinds must rank, and only the one
+        # with specifics prints a Specifics list in briefs.md.
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research(project)
+
+            code, _out, _err = _main(
+                ["rank", "--project", str(project), "--run", "latest", "--mock"]
+            )
+
+            self.assertEqual(code, codes.EXIT_OK)
+            briefs = store.read_json(run_dir / "03-briefs.json")["briefs"]
+            by_shortcode = {brief["shortCode"]: brief for brief in briefs}
+
+            fixture = json.loads(
+                (ANALYSES_FIXTURES_DIR / "DWN006.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(fixture["specifics"])
+            self.assertTrue(fixture["steps"])
+            self.assertEqual(by_shortcode["DWN006"]["specifics"], fixture["specifics"])
+            self.assertEqual(by_shortcode["DWN006"]["steps"], fixture["steps"])
+            for shortcode in ("DWN001", "DWN003", "SPA006", "HAB005"):
+                self.assertEqual(by_shortcode[shortcode]["specifics"], [])
+                self.assertEqual(by_shortcode[shortcode]["steps"], [])
+
+            briefs_md = (run_dir / "briefs.md").read_text(encoding="utf-8")
+            self.assertEqual(briefs_md.count("Specifics:"), 1)
+            self.assertEqual(briefs_md.count("Steps:"), 1)
+            self.assertEqual(briefs_md.count("Bet: "), 5)
+            self.assertNotIn("Hypothesis:", briefs_md)
+            first_specific = fixture["specifics"][0]
+            self.assertIn(f"- {first_specific['name']} ({first_specific['kind']}", briefs_md)
+            self.assertNotIn("—", briefs_md)
+
     def test_rank_mock_applies_risk_cap_and_low_confidence_penalty(self) -> None:
         with temp_project() as project:
             _write_project(project)
