@@ -23,6 +23,7 @@ import json
 import shutil
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
@@ -32,7 +33,7 @@ from tests.helpers import PRE_WEEKLY_CONFIG, NoNetworkTestCase, REPO_ROOT, temp_
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
 import contentos  # noqa: E402
-from lib import codes, director, research, store  # noqa: E402
+from lib import codes, direct, director, ideas, research, store  # noqa: E402
 from lib.env import Keys  # noqa: E402
 
 FIXTURES_DIR = REPO_ROOT / "fixtures"
@@ -704,6 +705,245 @@ class RankTests(NoNetworkTestCase):
             self.assertEqual(code, codes.EXIT_VERIFY)
             self.assertEqual(out, "")
             self.assertIn("NOPE", err)
+
+    # -- Task 7: wire the ideas ledger into rank ---------------------------
+
+    def test_rank_records_ideas_in_the_ledger(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research(project)
+
+            code, _out, _err = _main(
+                ["rank", "--project", str(project), "--run", "latest", "--mock"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
+
+            briefs = store.read_json(run_dir / "03-briefs.json")["briefs"]
+            new_shortcodes = {brief["shortCode"] for brief in briefs if brief["kind"] == "new"}
+            self.assertEqual(new_shortcodes, set(ANALYZED_SHORTCODES))
+
+            ledger = ideas.load_ledger(project)
+            self.assertEqual(set(ledger["ideas"]), new_shortcodes)
+            for entry in ledger["ideas"].values():
+                self.assertEqual(len(entry["shown"]), 1)
+                self.assertEqual(entry["shown"][0]["run_id"], run_dir.name)
+                self.assertIsNone(entry["closed"])
+
+            # Ranking the same run again must not double-count it: every
+            # entry still has exactly one shown pair, not two.
+            code, _out, _err = _main(
+                ["rank", "--project", str(project), "--run", "latest", "--mock"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
+            ledger_again = ideas.load_ledger(project)
+            self.assertEqual(set(ledger_again["ideas"]), new_shortcodes)
+            for entry in ledger_again["ideas"].values():
+                self.assertEqual(len(entry["shown"]), 1)
+
+    def test_second_run_carries_unscripted_ideas(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run1 = _mock_research(project)
+            code, _out, _err = _main(
+                ["rank", "--project", str(project), "--run", "latest", "--mock"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
+            briefs1 = store.read_json(run1 / "03-briefs.json")["briefs"]
+            b01 = next(brief for brief in briefs1 if brief["brief_id"] == "B01")
+
+            # B01 gets scripted, so its idea closes and cannot carry over.
+            script_path = run1 / "04-scripts" / "B01.r0.md"
+            script_path.parent.mkdir(parents=True, exist_ok=True)
+            script_path.write_text("# script\n", encoding="utf-8")
+
+            run2 = _mock_research(project)
+            self.assertNotEqual(run2.name, run1.name)
+
+            code, out, err = _main(["rank", "--project", str(project), "--run", "latest"])
+            self.assertEqual(code, codes.EXIT_OK)
+
+            briefs2 = store.read_json(run2 / "03-briefs.json")["briefs"]
+            self.assertTrue(briefs2)
+            for brief in briefs2:
+                self.assertEqual(brief["kind"], "carried")
+                self.assertEqual(brief["weeks_carried"], 1)
+                self.assertTrue(
+                    brief["analysis_path"].replace("\\", "/").startswith(
+                        str((run1 / "03-analyses").resolve()).replace("\\", "/")
+                    )
+                )
+            self.assertNotIn(b01["shortCode"], [brief["shortCode"] for brief in briefs2])
+
+    def test_rank_fails_only_when_nothing_to_rank(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research(project)
+            outliers_path = run_dir / "02-outliers.json"
+            doc = store.read_json(outliers_path)
+            doc["selected"] = []
+            store.write_json_atomic(outliers_path, doc)
+
+            self.assertFalse(ideas.ledger_path(project).exists())
+
+            code, out, err = _main(["rank", "--project", str(project), "--run", "latest"])
+
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertEqual(out, "")
+            self.assertIn("no valid analysis in 03-analyses/", err)
+
+    def test_mark_skipped_closes_an_idea(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run1 = _mock_research(project)
+            code, _out, _err = _main(
+                ["rank", "--project", str(project), "--run", "latest", "--mock"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
+            briefs1 = store.read_json(run1 / "03-briefs.json")["briefs"]
+            b02 = next(brief for brief in briefs1 if brief["brief_id"] == "B02")
+
+            code, out, err = _main(
+                ["mark", "--project", str(project), "--run", run1.name,
+                 "--brief", "B02", "--state", "skipped"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
+
+            run2 = _mock_research(project)
+            code, _out, _err = _main(["rank", "--project", str(project), "--run", "latest"])
+            self.assertEqual(code, codes.EXIT_OK)
+
+            ledger = ideas.load_ledger(project)
+            self.assertEqual(ledger["ideas"][b02["shortCode"]]["closed"], "skipped")
+
+            briefs2 = store.read_json(run2 / "03-briefs.json")["briefs"]
+            self.assertNotIn(b02["shortCode"], [brief["shortCode"] for brief in briefs2])
+
+
+def _carried_entry(
+    shortcode: str,
+    analysis_path: Path,
+    timestamp: Any = "2026-09-10T00:00:00+00:00",
+) -> Dict[str, Any]:
+    """A hand-built ledger entry, the shape `ideas.record_briefs` writes."""
+    return {
+        "idea_title": f"Idea {shortcode}",
+        "brief_title": f"Format {shortcode}",
+        "first_run": "R0",
+        "shown": [{"run_id": "R0", "brief_id": "B01"}],
+        "analysis_path": str(analysis_path),
+        "frames_dir": f"/abs/frames/{shortcode}",
+        "reel": {
+            "shortCode": shortcode,
+            "url": f"https://x/{shortcode}",
+            "ownerUsername": "acct",
+            "source_kind": "niche",
+            "timestamp": timestamp,
+            "plays": 9000,
+            "outlier_ratio": 3.0,
+            "viral_proof": 4.0,
+        },
+        "closed": None,
+    }
+
+
+class LoadCarriedTests(NoNetworkTestCase):
+    """Direct unit tests for `direct._load_carried` (extra review requirements)."""
+
+    def test_skips_entry_already_analyzed_new_this_run(self) -> None:
+        analysis_path = ANALYSES_FIXTURES_DIR / "DWN006.json"
+        ledger = {"version": 1, "ideas": {"AAA": _carried_entry("AAA", analysis_path)}}
+        logged: List[str] = []
+
+        carried = direct._load_carried({"AAA": {}}, ledger, "R1", logged.append)
+
+        self.assertEqual(carried, [])
+        self.assertTrue(any("AAA" in line for line in logged), logged)
+
+    def test_skips_entry_with_unparseable_timestamp(self) -> None:
+        analysis_path = ANALYSES_FIXTURES_DIR / "DWN006.json"
+        ledger = {
+            "version": 1,
+            "ideas": {"AAA": _carried_entry("AAA", analysis_path, timestamp="not-a-date")},
+        }
+        logged: List[str] = []
+
+        carried = direct._load_carried({}, ledger, "R1", logged.append)
+
+        self.assertEqual(carried, [])
+        self.assertTrue(any("AAA" in line for line in logged), logged)
+
+    def test_skips_entry_with_missing_timestamp(self) -> None:
+        analysis_path = ANALYSES_FIXTURES_DIR / "DWN006.json"
+        ledger = {
+            "version": 1,
+            "ideas": {"AAA": _carried_entry("AAA", analysis_path, timestamp=None)},
+        }
+        logged: List[str] = []
+
+        carried = direct._load_carried({}, ledger, "R1", logged.append)
+
+        self.assertEqual(carried, [])
+        self.assertTrue(any("AAA" in line for line in logged), logged)
+
+    def test_loads_a_valid_open_entry(self) -> None:
+        analysis_path = ANALYSES_FIXTURES_DIR / "DWN006.json"
+        ledger = {"version": 1, "ideas": {"AAA": _carried_entry("AAA", analysis_path)}}
+
+        carried = direct._load_carried({}, ledger, "R1", lambda _line: None)
+
+        self.assertEqual(len(carried), 1)
+        item = carried[0]
+        self.assertEqual(item["weeks_carried"], 1)
+        self.assertEqual(item["first_run"], "R0")
+        self.assertEqual(item["reel"]["shortCode"], "AAA")
+        self.assertEqual(item["analysis_path"], str(analysis_path))
+        self.assertEqual(item["frames_dir"], "/abs/frames/AAA")
+        self.assertIn("idea_title", item["analysis"])
+
+    def test_skips_entry_whose_analysis_file_is_gone(self) -> None:
+        ledger = {
+            "version": 1,
+            "ideas": {"AAA": _carried_entry("AAA", Path("/no/such/analysis.json"))},
+        }
+        logged: List[str] = []
+
+        carried = direct._load_carried({}, ledger, "R1", logged.append)
+
+        self.assertEqual(carried, [])
+        self.assertTrue(any("AAA" in line for line in logged), logged)
+
+
+class RankNowTests(NoNetworkTestCase):
+    """Direct unit tests for `direct._rank_now` (extra review requirement 3)."""
+
+    def test_mock_mode_uses_research_mock_now(self) -> None:
+        with temp_project() as project:
+            run_dir = project / "run"
+            run_dir.mkdir()
+            store.write_json_atomic(
+                run_dir / "run.json",
+                {"mode": "mock", "created_at": "2020-01-01T00:00:00+00:00"},
+            )
+            self.assertEqual(direct._rank_now(run_dir), research.MOCK_NOW)
+
+    def test_live_mode_parses_created_at_as_utc_aware(self) -> None:
+        with temp_project() as project:
+            run_dir = project / "run"
+            run_dir.mkdir()
+            store.write_json_atomic(
+                run_dir / "run.json",
+                {"mode": "live", "created_at": "2026-09-10T12:00:00+00:00"},
+            )
+            now = direct._rank_now(run_dir)
+            self.assertEqual(now, datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc))
+            self.assertIsNotNone(now.tzinfo)
+
+    def test_missing_run_json_falls_back_to_the_current_time(self) -> None:
+        with temp_project() as project:
+            run_dir = project / "run"
+            run_dir.mkdir()
+            now = direct._rank_now(run_dir)
+            self.assertIsNotNone(now.tzinfo)
 
 
 if __name__ == "__main__":
