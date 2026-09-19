@@ -1,6 +1,6 @@
 # ContentOS — Design Spec
 
-Approved 2026-09-16; amended 2026-09-17 for 0.2.0 and 2026-09-18 for 0.3.0. The implementation task list lives in the plan file; this spec is the binding authority for every task.
+Approved 2026-09-16; amended 2026-09-17 for 0.2.0, 2026-09-18 for 0.3.0, and 2026-09-19 for 0.4.0. The implementation task list lives in the plan file; this spec is the binding authority for every task.
 
 ## 0.2.0 changes (2026-09-17): the creator pivot
 
@@ -41,6 +41,56 @@ The first live run (`20260918-145826`) produced scripts that were structurally s
 - `report.md` opens with a "What to do next" list, prints per-score lines, and lists placeholders with their section, beat, and line, deduplicated. `report --html` also writes a self-contained `report.html` (stdlib only, no network assets required to read it). `status --text` prints a readable summary.
 - Weekly memory: `.contentos/log.json` records per-brief states via `mark --run <id> --brief <B> --state filmed|posted|skipped [--url <u>]`; `history` writes `.contentos/history.md` (one row per run). `research` excludes source reels already briefed in an earlier run (reason `already_briefed`).
 - After `needs_human`, a filled `04-intake/<B>.md` unlocks one more revision (`write-prompt --revision 2`) and one more QA, instead of hand edits.
+
+## 0.4.0 changes (2026-09-19): weekly ideas
+
+A creator runs ContentOS once a week against the same watch list. The first live run showed two problems with the 0.3.0 shape. The 90-day window was never the real limit, because `reels_per_account` (30) covered 5 days for a daily poster and 6 months for a weekly one. And 15 of the 20 paid analyses never reached the creator, because `rank` cut to 5. 0.4.0 makes each run a ranked list of up to 20 ideas that remembers earlier weeks. Idea is the creator-facing word; the code, files, and ids still say brief (`03-briefs.json`, `B01`).
+
+**Selection (`lib/outliers.py`)**
+
+- `lookback_days` defaults to 14. The overlap with last week is safe, because `already_briefed` (0.3.0) stops a reel an earlier run showed from coming back as new.
+- New `min_outlier_ratio` (default 2.0, a number greater than 0). A reel whose `outlier_ratio` is below it is excluded as `below_min_ratio`. The reason is checked after `below_min_plays` and before `already_briefed`. `outlier_threshold` stays the small-account proof threshold and is still not a filter.
+- The per-account cap is soft. Walking survivors in ratio order, the first `max_per_account` per account form the capped list and the rest form an overflow list (also in ratio order). The ranked list is the capped list followed by the overflow list. `selected` is its first `top_k_videos` and `backfill` the next `backfill_pool`. Only overflow reels past both are excluded as `per_account_cap`. A real outlier from a busy account therefore beats an empty slot, while diversity still wins when there are enough candidates.
+
+**The ideas ledger (`lib/ideas.py`, `.contentos/ideas.json`)**
+
+- `{"version": 1, "ideas": {<shortCode>: entry}}`, one entry per outlier idea ever shown. Entry: `idea_title`, `brief_title`, `first_run`, `shown` (a list of `{run_id, brief_id}` in run order), `analysis_path` and `frames_dir` (absolute), `reel` (a snapshot of the scored reel: `shortCode`, `url`, `ownerUsername`, `source_kind`, `timestamp`, `plays`, `outlier_ratio`, `viral_proof`), and `closed` (null, or one of `scripted`, `filmed`, `posted`, `skipped`, `expired`).
+- Only `rank` writes it, after `03-briefs.json`. Ranking the same run again first removes that run's `shown` pairs (and any entry left with none), so a re-rank never double-counts a week. Format fill ideas (below) are not in the ledger and never carry over; each week's synthesis makes fresh ones.
+- At the start of `rank`, each open entry is closed from what other runs recorded: `scripted` when any `shown` pair has a script (`agents.brief_state(...)["revision"]` is not null), `filmed`, `posted`, or `skipped` from that pair's latest `log.json` state, and `expired` once it has been shown in `carry_weeks + 1` runs (`carry_weeks` default 2, an integer 0 or more; 0 turns carry-over off). Weeks are counted in runs, so two runs in one week count as two.
+- An unreadable or missing ledger is treated as empty, like `log.json`.
+
+**Ranking (`rank`, `director.rank_briefs`)**
+
+- Candidates are this run's valid analyses (as in 0.3.0) plus every open ledger entry whose `first_run` sorts before this run and whose analysis file still loads and validates. A carried idea keeps the analysis, frames, and reel snapshot from the run that found it, so nothing is re-analyzed.
+- A new idea's score is `brief_score`. A carried idea's is `brief_score` minus 1.0 for each earlier run that showed it (`weeks_carried`), floored at 0, so a strong idea from last week can still beat a weak new one. The sort key and the `max_format_briefs` walk are unchanged and cover both kinds together. `briefs` now defaults to 20.
+- When fewer than `briefs` real ideas exist, the remaining slots are filled from this run's `03-fill.json` in file order, after every real idea. A fill brief has `brief_score`, `viral_proof`, and the three director scores set to null.
+- Every brief gains `kind` (`new`, `carried`, or `fill`), `weeks_carried` (0 for new and fill), `idea_title`, and `days_old` (days from the source reel's `timestamp` to this run's `created_at`, rounded down; null for fill). A carried brief also has `first_run`. `B01`, `B02`, and so on follow the final order.
+- `rank` fails with exit 2 only when there is nothing to rank at all: no new analysis, no open carry-over, and no fill. A week with no new outliers still produces a list from carry-overs.
+
+**Format fill (the synthesis dispatch)**
+
+- The synthesis prompt also asks for `03-fill.json`: `{"ideas": [...]}`, at most `fill_ideas` of them (default 8, an integer 0 or more; 0 asks for none). Each idea: `idea_title` (the creator's topic, 12 words or fewer), `pillar` (one of `creator.md`'s pillars, copied as written), `format_from` (one or more shortCodes from this run's analyses whose format and hook it borrows), `angle` (what the creator's reel says and shows, the 10 to 20 percent change), `why` (why this format suits this pillar), and optional `specifics` (the analysis shape). A fill idea must not repeat a topic this run's analyses already cover.
+- `verify --stage synth` still requires the five pattern headings. When `03-fill.json` exists it must also match `schemas/fill.schema.json`, and every `format_from` shortCode must have an analysis in this run; otherwise exit 7. A missing file is fine, so older runs still verify and rank.
+- A fill brief borrows `format`, `hook_type`, `emotion_lead`, `transferable_mechanism`, `why_it_worked`, `avoid`, `risk_flags`, `confidence`, `brief_title`, the source fields, `analysis_path`, and `frames_dir` from its first `format_from` analysis. Its `adaptation` is the fill `angle`, its `idea_title` the fill title, its `specifics` the fill specifics (else empty), and its `steps` empty. The writer is told that a fill brief's topic comes from `idea_title` and `adaptation`, and the analysis supplies only the format and the hook.
+- When a run has no new analysis, the skill skips the director loop and the synthesis, and there is no fill that week.
+- `--mock` seeds `fixtures/fill.sample.json` as `03-fill.json` the same way it seeds the patterns.
+
+**Topic-first titles and `briefs.md`**
+
+- The analysis gains an optional `idea_title`: the creator's version as a topic line of 12 words or fewer, naming the subject rather than the source format. `coerce_analysis` falls back to `brief_title` when it is missing or blank. The director prompt asks for it.
+- `briefs.md` opens with `# This week's ideas`, one numbered line per brief: the id, the kind (`New`, `Carried over, week N` where N is `weeks_carried + 1`, or `Format fill, less proven`), `idea_title`, and the proof (`@owner, <ratio>x their usual, <days> days old`, or for fill `borrows the <hook_type> hook from @owner`). The per-brief sections follow under `# Briefs`, headed `## B01: <idea_title>`, with a `Kind:` line and a `Source format:` line carrying `brief_title` before the 0.3.0 lines.
+
+**Picking and `--auto`**
+
+- The skill shows the ranked list and asks with AskUserQuestion: `Top 3`, `Top 5`, and `All <n>`, with specific ids such as `B02 B07` typed through Other.
+- New `auto_scripts` (default 3, an integer 1 or more). `--auto` takes the top `auto_scripts` briefs, not all of them, so an unattended run never writes 20 scripts.
+
+**Setup and existing projects**
+
+- Setup writes the full default config, so new projects get `lookback_days` 14 and `briefs` 20. Projects set up before 0.4.0 pin 90 and 5; the README and CHANGELOG tell the creator to change both. Nothing rewrites a creator's config.
+- The fixture reels move close enough to `MOCK_NOW` that a mock run still reaches briefs under the 14-day default.
+
+Weekly cost is unchanged: the scrape is the same, director dispatches equal the new selected reels (at most `top_k_videos`), and synthesis stays one dispatch. Writer and QA dispatches follow the creator's picks. Still later: merging near-duplicate ideas, a watch-list health table, per-account reel counts for daily posters, and a scheduled weekly run.
 
 ## Context
 
@@ -142,7 +192,7 @@ Conventions verified on this machine: plugin manifests as in `superpowers` and `
 ## Stage specs
 
 ### Config defaults (`store.load_config` merges over `.contentos/config.json`)
-`competitors[]` (niche accounts, required non-empty), `format_accounts[]` (accounts from any niche whose formats travel, may be empty), `max_format_briefs 2` (integer ≥ 0), `lookback_days 90`, `baseline_lookback_days 365`, `reels_per_account 30`, `min_reels_for_median 8`, `outlier_threshold 3.0`, `min_plays 5000`, `top_k_videos 20`, `backfill_pool 10`, `max_per_account 4`, `small_account_followers 50000`, `apify_max_charge_usd 3.0`, `apify_timeout_s 900`, `poll_interval_s 5`, `max_video_mb 40`, `max_video_seconds 180`, `frames_per_reel 8`, `frame_long_edge_px 1024`, `briefs 5`, `parallel_agents 3`, `qa_pass_threshold 8`, `length_tolerance 0.10`, `video_source "cdn"`.
+`competitors[]` (niche accounts, required non-empty), `format_accounts[]` (accounts from any niche whose formats travel, may be empty), `max_format_briefs 2` (integer ≥ 0), `lookback_days 14` (90 before 0.4.0), `min_outlier_ratio 2.0`, `carry_weeks 2` (integer ≥ 0), `fill_ideas 8` (integer ≥ 0), `auto_scripts 3`, `baseline_lookback_days 365`, `reels_per_account 30`, `min_reels_for_median 8`, `outlier_threshold 3.0`, `min_plays 5000`, `top_k_videos 20`, `backfill_pool 10`, `max_per_account 4`, `small_account_followers 50000`, `apify_max_charge_usd 3.0`, `apify_timeout_s 900`, `poll_interval_s 5`, `max_video_mb 40`, `max_video_seconds 180`, `frames_per_reel 8`, `frame_long_edge_px 1024`, `briefs 20` (5 before 0.4.0), `parallel_agents 3`, `qa_pass_threshold 8`, `length_tolerance 0.10`, `video_source "cdn"`.
 
 ### Stage 1 — research (`contentos.py research [--yes] [--estimate-only] [--no-download] [--resume <run-id>]`)
 1. The accounts are `competitors` followed by `format_accounts`, in config order. Estimate cost = accounts × reels_per_account × $0.0027 + accounts × $0.0027. Over `apify_max_charge_usd` → exit 6. Without `--yes` print the estimate JSON and exit 3 (the skill confirms with the creator, then re-runs with `--yes`).
@@ -166,7 +216,7 @@ The three director scores are integers from 0 to 10. Score meanings: `score_fit`
 
 `contentos.py synth-prompt --run <id>` prints one more director dispatch that reads every analysis and writes `03-patterns.md` with fixed headings: Proven hooks (ranked, with the reels that prove them), Recurring formats, Saturated angles to avoid, Structural recommendation (length, pacing, format for this creator), Language bank (phrases from captions and comments that show the viewer wants more). `verify --stage synth` checks the headings exist.
 
-`contentos.py rank --run <id>` is deterministic: `brief_score = 0.35·viral_proof + 0.25·convertible + 0.20·scalable + 0.20·fit`, capped at 4.0 when `copyrighted_media` or `fake_testimonial_risk` is flagged, minus 1.0 when `confidence` is `low`. `viral_proof` comes from stage 1, never from the subagent. Sort by `brief_score` (existing tiebreak), then walk the list taking niche briefs freely and format briefs until `max_format_briefs` are taken; if fewer than `briefs` were taken, fill the remaining slots from the skipped format briefs in score order; then re-sort the taken briefs by `brief_score` (same tiebreak) so a backfilled brief never sits below a lower-scoring one. Assign `B01…`, write `03-briefs.json` and `briefs.md` (title, source with `source_kind`, format, hook type, emotion lead, scores, risk flags, adaptation, avoid, frames path, and a hypothesis line: "If we <adaptation> using the <mechanism> hook, we expect above-baseline plays because <why_it_worked>").
+`contentos.py rank --run <id>` is deterministic (0.4.0 adds carried and fill ideas and the ledger; see "0.4.0 changes"): `brief_score = 0.35·viral_proof + 0.25·convertible + 0.20·scalable + 0.20·fit`, capped at 4.0 when `copyrighted_media` or `fake_testimonial_risk` is flagged, minus 1.0 when `confidence` is `low`. `viral_proof` comes from stage 1, never from the subagent. Sort by `brief_score` (existing tiebreak), then walk the list taking niche briefs freely and format briefs until `max_format_briefs` are taken; if fewer than `briefs` were taken, fill the remaining slots from the skipped format briefs in score order; then re-sort the taken briefs by `brief_score` (same tiebreak) so a backfilled brief never sits below a lower-scoring one. Assign `B01…`, write `03-briefs.json` and `briefs.md` (title, source with `source_kind`, format, hook type, emotion lead, scores, risk flags, adaptation, avoid, frames path, and a hypothesis line: "If we <adaptation> using the <mechanism> hook, we expect above-baseline plays because <why_it_worked>").
 
 ### Stage 3 — write (subagent `contentos:script-writer`, tools Read, Write, maxTurns 15, model inherited)
 `contentos.py write-prompt --run <id> --brief B01 [--revision 1]` prints the dispatch prompt: HANDOFF block, absolute paths to the brief, the analysis, its frames, `03-patterns.md`, `creator.md`, `rules.md` (if non-empty), `references/hooks.md`, `formats.md`, `scripting.md`, the matching `examples/<format>.md` if present, the prior script and QA JSON on revision 1, the word budget for the format, and the exact output path `04-scripts/B01.r<N>.md`.
