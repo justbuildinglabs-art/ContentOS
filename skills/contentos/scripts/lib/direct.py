@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from lib import codes, director, ideas, instagram, research, store
+from lib import codes, director, history, ideas, instagram, research, store
 
 # Repo root / "fixtures": four directories up from this file (lib ->
 # scripts -> contentos -> skills -> repo root). The same directory
@@ -618,6 +618,26 @@ def _rank_now(run_dir: Path) -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _rerank_blockers(project: Path, run_dir: Path) -> List[str]:
+    """What in this run a re-rank would orphan: its scripts and its `log.json` marks.
+
+    `rank` renumbers `B01`, `B02`, ... from scratch, so a script or a
+    mark keyed to an old number would end up attached to a different
+    idea (or to none). Only this run's own files and marks count; other
+    runs' scripts and marks are exactly what the ledger reads.
+    """
+    blockers = [
+        f"04-scripts/{path.name}" for path in sorted((run_dir / "04-scripts").glob("*.md"))
+    ]
+    prefix = f"{run_dir.name}/"
+    blockers.extend(
+        f"a log.json mark for {key[len(prefix):]}"
+        for key in sorted(history.load_log(project)["briefs"])
+        if key.startswith(prefix)
+    )
+    return blockers
+
+
 def run_rank(
     project: Path,
     run_ref: str,
@@ -625,8 +645,9 @@ def run_rank(
     mock: bool = False,
     fixtures_dir: Optional[Path] = None,
     log: Optional[Callable[[str], None]] = None,
+    force: bool = False,
 ) -> Dict[str, Any]:
-    """Run `contentos.py rank --run <id|latest> [--mock]`.
+    """Run `contentos.py rank --run <id|latest> [--mock] [--force]`.
 
     Deterministic end to end: no model call, no network. Collects every
     `selected` reel's valid analysis, folds in this run's still-open
@@ -639,16 +660,29 @@ def run_rank(
     analyses and patterns (see `_seed_mock_analyses`).
 
     Raises a `DirectError` with exit code 2 when the run does not
-    resolve, when it has no `02-outliers.json`, or when there is
-    nothing at all to rank -- no valid analysis this run, no open
-    carry-over, and no fill. A week with no new outliers still produces
-    a list from carry-overs alone. Returns the JSON-able summary
-    `contentos.py` prints: `{"run_id", "analyzed", "briefs", "skipped",
-    "new", "carried", "fill"}`.
+    resolve, when it has no `02-outliers.json`, when there is nothing
+    at all to rank -- no valid analysis this run, no open carry-over,
+    and no fill -- or, unless `force`, when this run already has any
+    `04-scripts/*.md` file or any `log.json` mark keyed
+    `<this run id>/...` (a re-rank renumbers the briefs, so those would
+    end up on the wrong idea; see `_rerank_blockers`). That check runs
+    before anything is written. A week with no new outliers still
+    produces a list from carry-overs alone. Returns the JSON-able
+    summary `contentos.py` prints: `{"run_id", "analyzed", "briefs",
+    "skipped", "new", "carried", "fill"}`.
     """
     if log is None:
         log = _default_log
     run_dir = _resolve_run(project, run_ref)
+    if not force:
+        blockers = _rerank_blockers(project, run_dir)
+        if blockers:
+            raise DirectError(
+                f"{run_dir.name}: not re-ranked. Re-ranking would renumber briefs that "
+                f"already have scripts or marks ({', '.join(blockers)}). "
+                "Run `rank` again with --force to re-rank anyway.",
+                codes.EXIT_USAGE,
+            )
     outliers_doc = _read_outliers(run_dir)
     selected = outliers_doc.get("selected") or []
 

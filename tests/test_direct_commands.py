@@ -845,6 +845,77 @@ class RankTests(NoNetworkTestCase):
             briefs2 = store.read_json(run2 / "03-briefs.json")["briefs"]
             self.assertNotIn(b02["shortCode"], [brief["shortCode"] for brief in briefs2])
 
+    # -- Final review I1: never renumber briefs that have scripts or marks --
+
+    def _ranked_run(self, project: Path) -> Path:
+        _write_project(project)
+        run_dir = _mock_research(project)
+        code, _out, err = _main(["rank", "--project", str(project), "--run", "latest", "--mock"])
+        self.assertEqual(code, codes.EXIT_OK, err)
+        return run_dir
+
+    def test_rank_refuses_to_rerank_a_run_with_a_script(self) -> None:
+        with temp_project() as project:
+            run_dir = self._ranked_run(project)
+            script = run_dir / "04-scripts" / "B02.r0.md"
+            script.parent.mkdir(parents=True)
+            script.write_text("# script\n", encoding="utf-8")
+            briefs_before = (run_dir / "03-briefs.json").read_text(encoding="utf-8")
+            ledger_before = ideas.ledger_path(project).read_text(encoding="utf-8")
+
+            code, out, err = _main(["rank", "--project", str(project), "--run", "latest"])
+
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertEqual(out, "")
+            self.assertIn("renumber", err)
+            self.assertIn("--force", err)
+            self.assertEqual((run_dir / "03-briefs.json").read_text(encoding="utf-8"), briefs_before)
+            self.assertEqual(ideas.ledger_path(project).read_text(encoding="utf-8"), ledger_before)
+
+    def test_rank_refuses_to_rerank_a_run_with_a_mark(self) -> None:
+        with temp_project() as project:
+            run_dir = self._ranked_run(project)
+            code, _out, err = _main(
+                ["mark", "--project", str(project), "--run", run_dir.name,
+                 "--brief", "B01", "--state", "skipped"]
+            )
+            self.assertEqual(code, codes.EXIT_OK, err)
+
+            code, out, err = _main(["rank", "--project", str(project), "--run", "latest"])
+
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertEqual(out, "")
+            self.assertIn("renumber", err)
+            self.assertIn("--force", err)
+
+    def test_a_mark_on_another_run_does_not_block_rank(self) -> None:
+        with temp_project() as project:
+            run1 = self._ranked_run(project)
+            _main(["mark", "--project", str(project), "--run", run1.name,
+                   "--brief", "B01", "--state", "skipped"])
+            script = run1 / "04-scripts" / "B02.r0.md"
+            script.parent.mkdir(parents=True)
+            script.write_text("# script\n", encoding="utf-8")
+            _mock_research(project)
+
+            code, _out, err = _main(["rank", "--project", str(project), "--run", "latest"])
+
+            self.assertEqual(code, codes.EXIT_OK, err)
+
+    def test_rank_force_reranks_a_run_with_a_script(self) -> None:
+        with temp_project() as project:
+            run_dir = self._ranked_run(project)
+            script = run_dir / "04-scripts" / "B02.r0.md"
+            script.parent.mkdir(parents=True)
+            script.write_text("# script\n", encoding="utf-8")
+
+            code, out, err = _main(
+                ["rank", "--project", str(project), "--run", "latest", "--force"]
+            )
+
+            self.assertEqual(code, codes.EXIT_OK, err)
+            self.assertEqual(json.loads(out)["run_id"], run_dir.name)
+
 
 def _carried_entry(
     shortcode: str,

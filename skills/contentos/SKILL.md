@@ -525,7 +525,11 @@ With `--auto`, skip the question and take the top `auto_scripts` briefs from
 
 `rank` already cuts the list to `briefs` (default 20) before it writes
 `briefs.md`, so `All <n>` never offers more than that. To choose from a longer
-list, raise `briefs` in `.contentos/config.json` and run `rank` again.
+list, raise `briefs` in `.contentos/config.json` and run `rank` again. This
+only works before any script is written or any brief is marked for that run.
+After that, `rank` refuses with exit 2, because a re-rank renumbers the briefs
+and a script or mark would land on the wrong idea. Never add `--force` unless
+the creator asks for it knowing that.
 
 ## Offering a rule
 
