@@ -215,6 +215,11 @@ def next_steps(run_dir: Path, states: List[Dict[str, Any]]) -> List[str]:
                 ready.append(f"{brief_id} passed QA. Fill in {_lines_word(count)} of placeholders in {script}, then film it.")
             else:
                 ready.append(f"{brief_id} passed QA and is ready to film: {script}.")
+        elif state.get("needs_human") and (state.get("revision") or 0) >= 2:
+            human.append(
+                f"{brief_id} is final after revision 2 and still needs you. Read its QA notes, "
+                f"supply what they ask for in {script}, then film it or skip it."
+            )
         elif state.get("needs_human"):
             human.append(
                 f"{brief_id} needs your call. Answer its intake questions "

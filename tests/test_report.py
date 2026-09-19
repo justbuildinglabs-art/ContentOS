@@ -510,3 +510,16 @@ class ReadableCliTests(NoNetworkTestCase):
             history_path = Path(out.strip())
             self.assertEqual(history_path.name, "history.md")
             self.assertIn("https://www.instagram.com/p/X/", history_path.read_text(encoding="utf-8"))
+
+
+class FinalRevisionNextStepTests(NoNetworkTestCase):
+    def test_needs_human_after_revision_2_never_offers_another_revision(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _write_script_text(run_dir, "B04", 2, placeholder="[NEED NUMBER]")
+            _write_qa(run_dir, "B04", 2, "revise")
+            steps = report.next_steps(run_dir, report._brief_states(run_dir))
+        b04 = next(step for step in steps if step.startswith("B04"))
+        self.assertNotIn("then run revision 2", b04)
+        self.assertIn("final", b04)
+        self.assertIn("04-scripts/B04.r2.md", b04)
