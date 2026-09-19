@@ -1,0 +1,119 @@
+"""The weekly ideas ledger, `.contentos/ideas.json` (design spec, "0.4.0 changes").
+
+One entry per outlier idea ever shown, keyed by its source shortCode.
+Only `rank` writes it: it forgets the run it is re-ranking, closes
+entries from what other runs recorded, offers the open ones as carried
+ideas, and records the briefs it just ranked. Format fill ideas are
+never recorded; each week's synthesis makes fresh ones.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Dict, List
+
+from lib import agents, history, store
+
+LEDGER_VERSION = 1
+REEL_SNAPSHOT_KEYS = (
+    "shortCode", "url", "ownerUsername", "source_kind", "timestamp", "plays",
+    "outlier_ratio", "viral_proof",
+)
+_LOG_CLOSES = ("filmed", "posted", "skipped")
+
+
+def _empty() -> Dict[str, Any]:
+    return {"version": LEDGER_VERSION, "ideas": {}}
+
+
+def ledger_path(project: Path) -> Path:
+    """Return `<project>/.contentos/ideas.json`."""
+    return store.contentos_dir(project) / "ideas.json"
+
+
+def load_ledger(project: Path) -> Dict[str, Any]:
+    """The ledger; an empty one when the file is missing or unreadable, like `log.json`."""
+    path = ledger_path(project)
+    if not path.exists():
+        return _empty()
+    try:
+        doc = store.read_json(path)
+    except (ValueError, OSError):
+        return _empty()
+    if not isinstance(doc, dict) or not isinstance(doc.get("ideas"), dict):
+        return _empty()
+    return doc
+
+
+def save_ledger(project: Path, ledger: Dict[str, Any]) -> None:
+    store.write_json_atomic(ledger_path(project), ledger)
+
+
+def forget_run(ledger: Dict[str, Any], run_id: str) -> None:
+    """Drop `run_id`'s shown pairs, and any entry left with none, so a re-rank never double-counts."""
+    for key in list(ledger["ideas"]):
+        entry = ledger["ideas"][key]
+        entry["shown"] = [pair for pair in entry.get("shown", []) if pair.get("run_id") != run_id]
+        if not entry["shown"]:
+            del ledger["ideas"][key]
+
+
+def _closed_reason(project: Path, entry: Dict[str, Any], log: Dict[str, Any], carry_weeks: int) -> Any:
+    for pair in entry.get("shown", []):
+        run_dir = store.run_dir(project, pair["run_id"])
+        if run_dir.is_dir() and agents.latest_script_revision(run_dir, pair["brief_id"]) is not None:
+            return "scripted"
+    for pair in entry.get("shown", []):
+        state = log["briefs"].get(f"{pair['run_id']}/{pair['brief_id']}", {}).get("state")
+        if state in _LOG_CLOSES:
+            return state
+    if len(entry.get("shown", [])) >= carry_weeks + 1:
+        return "expired"
+    return None
+
+
+def close_entries(project: Path, ledger: Dict[str, Any], carry_weeks: int) -> None:
+    """Close each open entry from scripts, `log.json` marks, and how many runs showed it."""
+    log = history.load_log(project)
+    for entry in ledger["ideas"].values():
+        if entry.get("closed") is None:
+            entry["closed"] = _closed_reason(project, entry, log, carry_weeks)
+
+
+def carry_candidates(ledger: Dict[str, Any], run_id: str) -> List[Dict[str, Any]]:
+    """Open entries first found before `run_id`, each with `weeks_carried` added, in key order."""
+    found = []
+    for key in sorted(ledger["ideas"]):
+        entry = ledger["ideas"][key]
+        if entry.get("closed") is None and entry.get("first_run", "") < run_id:
+            found.append(dict(entry, weeks_carried=len(entry.get("shown", []))))
+    return found
+
+
+def record_briefs(
+    ledger: Dict[str, Any],
+    run_id: str,
+    briefs: List[Dict[str, Any]],
+    reels: Dict[str, Dict[str, Any]],
+) -> None:
+    """Add this run's shown pairs; new ideas also get an entry with a reel snapshot."""
+    for brief in briefs:
+        kind = brief.get("kind")
+        shortcode = brief.get("shortCode")
+        if kind not in ("new", "carried") or not shortcode:
+            continue
+        pair = {"run_id": run_id, "brief_id": brief["brief_id"]}
+        entry = ledger["ideas"].get(shortcode)
+        if entry is None:
+            reel = reels.get(shortcode, {})
+            entry = {
+                "idea_title": brief.get("idea_title"),
+                "brief_title": brief.get("brief_title"),
+                "first_run": run_id,
+                "shown": [],
+                "analysis_path": brief.get("analysis_path"),
+                "frames_dir": brief.get("frames_dir"),
+                "reel": {key: reel.get(key) for key in REEL_SNAPSHOT_KEYS},
+                "closed": None,
+            }
+            ledger["ideas"][shortcode] = entry
+        entry["shown"].append(pair)
