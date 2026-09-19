@@ -51,6 +51,13 @@ REFERENCE_FILENAMES = [
     "scoring.md",
     "stages.md",
     "creator-template.md",
+    "specificity.md",
+]
+
+# Niches `specificity.md` must cover in its table (design spec, "0.3.0
+# changes": what "specific" means per niche, niche-agnostic).
+SPECIFICITY_NICHES = [
+    "tech", "fitness", "cooking", "personal finance", "faith", "beauty", "parenting", "travel",
 ]
 
 # v1 ships at least these two gold scripts (design spec, "Reference files").
@@ -323,6 +330,30 @@ class ProductLeftoverTests(NoNetworkTestCase):
                     self.assertNotIn(
                         banned, lowered, f"{name} still contains {banned!r}"
                     )
+
+
+class SpecificityMdTests(NoNetworkTestCase):
+    def test_specificity_md_covers_every_niche_and_the_benefit_frame(self) -> None:
+        text = (REFERENCES_DIR / "specificity.md").read_text(encoding="utf-8")
+        self.assertNotIn("—", text)
+
+        rows = _parse_markdown_table(_section_text(text, "## By niche"))
+        niches = [row["Niche"].lower() for row in rows]
+        for niche in SPECIFICITY_NICHES:
+            with self.subTest(niche=niche):
+                self.assertIn(niche, niches)
+
+        frame = _section_text(text, "## Benefit frame for a proof beat").lower()
+        for part in ("what it is", "who it is for", "cost", "tradeoff"):
+            with self.subTest(part=part):
+                self.assertIn(part, frame)
+
+        # Every specifics kind the schema allows is explained somewhere.
+        kinds = director.load_schema("analysis")["properties"]["specifics"]["items"][
+            "properties"]["kind"]["enum"]
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                self.assertIn(f"`{kind}`", text)
 
 
 class ScoringMdTests(NoNetworkTestCase):

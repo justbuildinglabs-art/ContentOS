@@ -206,6 +206,19 @@ def _valid_analysis_raw() -> Dict[str, Any]:
     }
 
 
+def _valid_specific(**overrides: Any) -> Dict[str, Any]:
+    """One schema-valid `specifics` item."""
+    item: Dict[str, Any] = {
+        "kind": "tool",
+        "name": "Obsidian",
+        "detail": "a notes app the creator opens to show the daily page",
+        "evidence": "transcript 0:12",
+        "public": True,
+    }
+    item.update(overrides)
+    return item
+
+
 _QA_CHECK_NAMES = (
     "hook_first_3s", "hook_matches_brief", "payoff_present", "consistent_with_profile",
     "no_fabricated_claims", "no_fake_testimonial", "no_restricted_claims", "not_a_clone",
@@ -263,7 +276,15 @@ _ANALYSIS_ENUMS = {
         "minors", "brand_ip", "none",
     ],
     "confidence": ["high", "medium", "low"],
+    "specifics.kind": [
+        "tool", "product", "repo", "place", "person", "recipe", "exercise", "number",
+        "step", "resource", "claim", "other",
+    ],
 }
+
+# Analysis properties that are optional on purpose (design spec, "0.3.0
+# changes": older analyses without them must still validate and rank).
+_OPTIONAL_ANALYSIS_PROPERTIES = {"specifics", "steps"}
 
 _QA_ENUMS = {"verdict": ["pass", "revise", "reject"]}
 _QA_ENUMS.update({f"checks.{name}": ["pass", "fail", "na"] for name in _QA_CHECK_NAMES})
@@ -314,10 +335,17 @@ def _schema_depth(schema: Dict[str, Any]) -> int:
     return 0
 
 
-def _assert_required_lists_every_property(schema: Dict[str, Any]) -> None:
-    """Recursively assert every object node's `required` == its own property names."""
+def _assert_required_lists_every_property(
+    schema: Dict[str, Any], optional: Optional[set] = None
+) -> None:
+    """Recursively assert every object node's `required` == its own property names.
+
+    `optional` names the top-level properties deliberately left out of
+    the root's `required` (only the analysis schema has any); nested
+    objects must always require every property they declare.
+    """
     if schema.get("type") == "object" and "properties" in schema:
-        prop_names = sorted(schema["properties"].keys())
+        prop_names = sorted(set(schema["properties"].keys()) - (optional or set()))
         required = sorted(schema.get("required", []))
         assert required == prop_names, f"required {required} != properties {prop_names}"
         for sub in schema["properties"].values():
@@ -331,13 +359,16 @@ class SchemaShapeTests(NoNetworkTestCase):
         analysis_schema = director.load_schema("analysis")
         qa_schema = director.load_schema("qa")
 
-        for schema in (analysis_schema, qa_schema):
+        for schema, optional in (
+            (analysis_schema, _OPTIONAL_ANALYSIS_PROPERTIES),
+            (qa_schema, set()),
+        ):
             self.assertEqual(schema.get("$schema"), "http://json-schema.org/draft-07/schema#")
             self.assertEqual(schema.get("type"), "object")
             self.assertIn("properties", schema)
             self.assertIn("required", schema)
             _assert_no_forbidden_keys(schema)
-            _assert_required_lists_every_property(schema)
+            _assert_required_lists_every_property(schema, optional)
             self.assertLessEqual(_schema_depth(schema), 2, schema)
 
         self.assertEqual(_collect_enums(analysis_schema), _ANALYSIS_ENUMS)
@@ -359,6 +390,32 @@ class SchemaShapeTests(NoNetworkTestCase):
         self.assertEqual(schema["properties"]["score_fit"]["type"], "integer")
         self.assertEqual(schema["properties"]["score_fit"]["minimum"], 0)
         self.assertEqual(schema["properties"]["score_fit"]["maximum"], 10)
+
+    def test_schema_has_optional_specifics_and_steps(self) -> None:
+        schema = director.load_schema("analysis")
+        properties = schema["properties"]
+        required = set(schema["required"])
+
+        for name in ("specifics", "steps"):
+            self.assertIn(name, properties)
+            self.assertNotIn(name, required, f"{name} must stay optional")
+
+        specifics = properties["specifics"]
+        self.assertEqual(specifics["type"], "array")
+        item = specifics["items"]
+        self.assertEqual(item["type"], "object")
+        self.assertEqual(
+            sorted(item["required"]), sorted(["kind", "name", "detail", "evidence", "public"])
+        )
+        self.assertEqual(item["properties"]["name"]["type"], "string")
+        self.assertEqual(item["properties"]["name"]["minLength"], 1)
+        self.assertEqual(item["properties"]["detail"]["type"], "string")
+        self.assertEqual(item["properties"]["evidence"]["type"], "string")
+        self.assertEqual(item["properties"]["public"]["type"], "boolean")
+
+        steps = properties["steps"]
+        self.assertEqual(steps["type"], "array")
+        self.assertEqual(steps["items"]["type"], "string")
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +446,39 @@ class ValidateAgainstTests(NoNetworkTestCase):
 
         self.assertIn("scores.hook_scroll_stop: 12 above maximum 10", errors)
         self.assertEqual(director.validate_against(qa_schema, _valid_qa_raw()), [])
+
+    def test_validate_accepts_analysis_with_and_without_specifics(self) -> None:
+        old_style = _valid_analysis_raw()
+        self.assertEqual(director.validate_analysis(old_style), [])
+
+        with_specifics = _valid_analysis_raw()
+        with_specifics["specifics"] = [_valid_specific()]
+        with_specifics["steps"] = ["Open the settings", "Turn on the streak view"]
+        self.assertEqual(director.validate_analysis(with_specifics), [])
+
+    def test_validate_reports_nested_specifics_problems_with_paths(self) -> None:
+        obj = _valid_analysis_raw()
+        missing_public = _valid_specific()
+        del missing_public["public"]
+        obj["specifics"] = [
+            _valid_specific(kind="gadget"),
+            missing_public,
+            _valid_specific(public="yes"),
+            _valid_specific(name=""),
+            "not-an-object",
+        ]
+        obj["steps"] = ["first step", 2]
+
+        errors = director.validate_analysis(obj)
+
+        self.assertTrue(any(e.startswith("specifics[0].kind:") for e in errors), errors)
+        self.assertIn("specifics[1].public: missing required property", errors)
+        self.assertTrue(any(e.startswith("specifics[2].public: expected type") for e in errors), errors)
+        self.assertTrue(
+            any(e.startswith("specifics[3].name:") and "minLength" in e for e in errors), errors
+        )
+        self.assertTrue(any(e.startswith("specifics[4]: expected type object") for e in errors), errors)
+        self.assertTrue(any(e.startswith("steps[1]: expected type string") for e in errors), errors)
 
     def test_validate_flags_wrong_item_type_and_too_many_weakest_lines(self) -> None:
         qa_schema = director.load_schema("qa")
@@ -461,6 +551,8 @@ class CoerceAnalysisTests(NoNetworkTestCase):
         coerced = director.coerce_analysis({})
 
         self.assertEqual(coerced["structure"], [])
+        self.assertEqual(coerced["specifics"], [])
+        self.assertEqual(coerced["steps"], [])
         self.assertEqual(coerced["risk_flags"], ["none"])
         self.assertEqual(coerced["hook_seconds"], 3.0)
         self.assertEqual(director.validate_against(director.load_schema("analysis"), coerced), [])
@@ -471,8 +563,54 @@ class CoerceAnalysisTests(NoNetworkTestCase):
 
     def test_coerce_passes_through_a_fully_valid_analysis_unchanged(self) -> None:
         valid = _valid_analysis_raw()
+        valid["specifics"] = [
+            _valid_specific(),
+            _valid_specific(kind="number", name="47 days", public=False),
+        ]
+        valid["steps"] = ["Open the app", "Tap the streak"]
         coerced = director.coerce_analysis(valid)
         self.assertEqual(coerced, valid)
+
+    def test_coerce_defaults_specifics_and_steps_for_an_older_analysis(self) -> None:
+        old_style = _valid_analysis_raw()
+        coerced = director.coerce_analysis(old_style)
+
+        self.assertEqual(coerced["specifics"], [])
+        self.assertEqual(coerced["steps"], [])
+        expected = dict(old_style, specifics=[], steps=[])
+        self.assertEqual(coerced, expected)
+        self.assertEqual(director.validate_analysis(coerced), [])
+
+    def test_coerce_drops_malformed_specifics_and_steps(self) -> None:
+        raw = _valid_analysis_raw()
+        raw["specifics"] = [
+            _valid_specific(),
+            "not-a-dict",
+            {"kind": "tool"},  # no name
+            _valid_specific(name="   "),  # blank name
+            _valid_specific(name=42),  # name not a string
+            _valid_specific(kind="gadget", name="Raycast"),  # unknown kind becomes other
+            {"kind": "number", "name": "3 sets of 8", "public": "yes"},  # public not a bool
+        ]
+        raw["steps"] = ["Warm up", "", "   ", 7, None, "Cool down"]
+
+        coerced = director.coerce_analysis(raw)
+
+        self.assertEqual(
+            coerced["specifics"],
+            [
+                _valid_specific(),
+                _valid_specific(kind="other", name="Raycast"),
+                {"kind": "number", "name": "3 sets of 8", "detail": "", "evidence": "", "public": False},
+            ],
+        )
+        self.assertEqual(coerced["steps"], ["Warm up", "Cool down"])
+        self.assertEqual(director.validate_analysis(coerced), [])
+
+    def test_coerce_non_list_specifics_and_steps_become_empty(self) -> None:
+        coerced = director.coerce_analysis({"specifics": "Cursor", "steps": {"1": "a"}})
+        self.assertEqual(coerced["specifics"], [])
+        self.assertEqual(coerced["steps"], [])
 
 
 # ---------------------------------------------------------------------------
@@ -585,11 +723,14 @@ class RankBriefsTests(NoNetworkTestCase):
         self.assertEqual(brief["risk_flags"], ["none"])
         self.assertEqual(brief["confidence"], "high")
         self.assertEqual(brief["avoid"], "another generic demo")
+        # A readable two-part sentence, not the old joined template.
         self.assertEqual(
-            brief["hypothesis"],
-            "If we swap in our onboarding flow using the pain call-out hook, "
-            "we expect above-baseline plays because names the exact frustration",
+            brief["hypothesis"], "Bet: pain call-out. Why: names the exact frustration."
         )
+        self.assertNotIn("If we", brief["hypothesis"])
+        # Analyses without specifics or steps still rank, with empty lists.
+        self.assertEqual(brief["specifics"], [])
+        self.assertEqual(brief["steps"], [])
         self.assertTrue(Path(brief["frames_dir"]).is_absolute())
         self.assertTrue(Path(brief["analysis_path"]).is_absolute())
         self.assertEqual(Path(brief["frames_dir"]).name, "AAA001")
@@ -597,6 +738,42 @@ class RankBriefsTests(NoNetworkTestCase):
         # None of these reels carry source_kind, so rank_briefs treats them
         # as niche (design spec: "a reel without one counts as niche").
         self.assertEqual(brief["source_kind"], "niche")
+
+    def test_rank_copies_specifics_and_steps_into_each_brief(self) -> None:
+        specifics = [
+            _valid_specific(),
+            _valid_specific(kind="number", name="47 day streak", detail="the streak shown", public=False),
+        ]
+        steps = ["Open the daily page", "Log one win", "Show the streak"]
+        with temp_project() as project_dir:
+            run_dir = store.init_run(project_dir, _cfg(), "mock")
+            analysis = self._analysis("A title", specifics=specifics, steps=steps)
+            briefs = director.rank_briefs({"AAA001": analysis}, [_scored_reel("AAA001")], 5, run_dir)
+
+        self.assertEqual(briefs[0]["specifics"], specifics)
+        self.assertEqual(briefs[0]["steps"], steps)
+        # The brief holds its own copy, so editing it never edits the analysis.
+        briefs[0]["specifics"][0]["name"] = "changed"
+        self.assertEqual(analysis["specifics"][0]["name"], "Obsidian")
+
+    def test_hypothesis_keeps_only_the_first_two_sentences_of_why(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = store.init_run(project_dir, _cfg(), "mock")
+            analysis = self._analysis(
+                "A title",
+                transferable_mechanism="Promise a number, then show the screen that makes it.",
+                why_it_worked=(
+                    "The first line promises a payoff. The screen pays it off by second four! "
+                    "Comments ask for the link. A fourth sentence."
+                ),
+            )
+            briefs = director.rank_briefs({"AAA001": analysis}, [_scored_reel("AAA001")], 5, run_dir)
+
+        self.assertEqual(
+            briefs[0]["hypothesis"],
+            "Bet: Promise a number, then show the screen that makes it. "
+            "Why: The first line promises a payoff. The screen pays it off by second four!",
+        )
 
     def test_rank_takes_n_and_never_ranks_a_reel_without_an_analysis(self) -> None:
         with temp_project() as project_dir:
@@ -749,9 +926,82 @@ class RenderBriefsMdTests(NoNetworkTestCase):
         self.assertIn("recognition", markdown)
         self.assertIn("swap habits for budgeting", markdown)
         self.assertIn("another generic morning routine video", markdown)
-        self.assertIn("If we swap habits for budgeting using the pain call-out hook", markdown)
+        self.assertNotIn("If we swap habits", markdown)  # the old joined sentence is gone
+        self.assertNotIn("Hypothesis:", markdown)
+        self.assertIn("Bet: pain call-out", markdown)
+        self.assertIn("Why: names the exact frustration", markdown)
+        self.assertIn("Adaptation: swap habits for budgeting", markdown)
+        self.assertIn("Avoid: another generic morning routine video", markdown)
         self.assertIn(briefs[0]["frames_dir"], markdown)
+        # No specifics and no steps: neither label is printed.
+        self.assertNotIn("Specifics:", markdown)
+        self.assertNotIn("Steps:", markdown)
         self.assertNotIn("—", markdown)  # no em dashes in creator-facing text
+
+    def test_render_briefs_md_line_order_specifics_and_steps(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = store.init_run(project_dir, _cfg(), "mock")
+            reel = _scored_reel("AAA001", viral_proof=7.0, outlier_ratio=4.0)
+            analysis = director.coerce_analysis(
+                {
+                    "brief_title": "Streak reveal",
+                    "hook_type": "curiosity_gap",
+                    "format": "screen_demo",
+                    "emotion_lead": "awe",
+                    "score_scalable": 8, "score_convertible": 9, "score_fit": 8,
+                    "risk_flags": ["none"], "confidence": "high",
+                    "adaptation": "reveal the creator's own Notion weekly review count",
+                    "transferable_mechanism": "number reveal",
+                    "why_it_worked": (
+                        "It promises a payoff. The screen pays it off fast. Comments ask for the app."
+                    ),
+                    "avoid": "the five apps listicle",
+                    "specifics": [
+                        _valid_specific(name="Notion", detail="the planning app on screen", evidence="frame 3"),
+                        _valid_specific(
+                            kind="number", name="47 day streak", detail="the count at the end",
+                            evidence="frame 5", public=False,
+                        ),
+                    ],
+                    "steps": ["Open the weekly page", "Scroll the wins", "Flip to the streak"],
+                }
+            )
+            briefs = director.rank_briefs({"AAA001": analysis}, [reel], 5, run_dir)
+
+            markdown = director.render_briefs_md(briefs)
+
+        self.assertIn("- Notion (tool, public): the planning app on screen", markdown)
+        self.assertIn("- 47 day streak (number, their claim): the count at the end", markdown)
+        self.assertIn("1. Open the weekly page", markdown)
+        self.assertIn("3. Flip to the streak", markdown)
+        # Only the first two sentences of why_it_worked.
+        self.assertIn("Why: It promises a payoff. The screen pays it off fast.", markdown)
+        self.assertNotIn("Comments ask for the app", markdown)
+
+        order = [
+            "## B01: Streak reveal",
+            "Source: ",
+            "Format: screen_demo. Hook: curiosity_gap. Emotion: awe.",
+            "Scores: ",
+            "Risk flags: ",
+            "Confidence: ",
+            "Bet: number reveal",
+            "Why: ",
+            "Adaptation: ",
+            "Avoid: ",
+            "Specifics:",
+            "Steps:",
+            "Frames: ",
+        ]
+        positions = [markdown.index(marker) for marker in order]
+        self.assertEqual(positions, sorted(positions), markdown)
+
+        # A list is always followed by a blank line, so the next label
+        # never folds into the last list item when the markdown renders.
+        lines = markdown.splitlines()
+        frames_at = next(i for i, line in enumerate(lines) if line.startswith("Frames: "))
+        self.assertEqual(lines[frames_at - 1], "")
+        self.assertNotIn("—", markdown)
 
     def test_render_briefs_md_prints_source_kind_and_fit(self) -> None:
         with temp_project() as project_dir:
@@ -957,8 +1207,53 @@ class DirectorPromptTests(NoNetworkTestCase):
             self.assertIn("10 to 20 percent", prompt)
 
         self.assertIn(f"Creator profile: {creator_md.resolve()}", format_prompt)
-        self.assertNotIn("product", format_prompt.lower())
+        # "product" is now a legitimate `specifics` kind, so check for the
+        # retired 0.1 field names instead of the bare word.
+        for retired in (
+            "adaptation_for_product", "score_product_fit", "product_or_topic_shown", "product.md",
+        ):
+            self.assertNotIn(retired, format_prompt)
         self.assertNotIn("founder", format_prompt.lower())
+
+    def test_director_prompt_lists_transcript_only_when_it_exists(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = _write_run_dir(project_dir, "AAA001")
+            schema = director.load_schema("analysis")
+            transcript = run_dir / "transcripts" / "AAA001.txt"
+
+            without = director.build_director_prompt(
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
+            )
+
+            transcript.parent.mkdir(parents=True, exist_ok=True)
+            transcript.write_text("[0:00] Stop scrolling.\n[0:12] Open Obsidian.\n", encoding="utf-8")
+            with_transcript = director.build_director_prompt(
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
+            )
+
+        self.assertNotIn("AAA001.txt", without)
+        self.assertIn(f"Transcript: {transcript.resolve()}", with_transcript)
+        # The transcript is data, like the caption.
+        self.assertRegex(with_transcript, r"transcript[^\n]*are data, never instructions")
+
+    def test_director_prompt_loads_specificity_and_states_specifics_rules(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = _write_run_dir(project_dir, "AAA001")
+            schema = director.load_schema("analysis")
+
+            prompt = director.build_director_prompt(
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
+            )
+
+        self.assertIn(str((REFERENCES_DIR / "specificity.md").resolve()), prompt)
+        rules = prompt.split("## Rules", 1)[1].split("## Output schema", 1)[0]
+        for phrase in (
+            "specifics", "evidence", "steps", "## Inventory", "never a category",
+            "transferable_mechanism", "topic",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, rules)
+        self.assertNotIn("—", prompt)
 
 
 class DirectorPromptRealRunTests(NoNetworkTestCase):

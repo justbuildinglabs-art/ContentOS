@@ -63,6 +63,30 @@
     "confidence": {
       "type": "string",
       "enum": ["high", "medium", "low"]
+    },
+    "specifics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tool", "product", "repo", "place", "person", "recipe", "exercise", "number",
+              "step", "resource", "claim", "other"
+            ]
+          },
+          "name": { "type": "string", "minLength": 1 },
+          "detail": { "type": "string" },
+          "evidence": { "type": "string" },
+          "public": { "type": "boolean" }
+        },
+        "required": ["kind", "name", "detail", "evidence", "public"]
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": { "type": "string" }
     }
   },
   "required": [
