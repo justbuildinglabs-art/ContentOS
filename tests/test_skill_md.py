@@ -410,6 +410,15 @@ class SkillBodyTests(NoNetworkTestCase):
                 self.assertIn(needle, text)
         self.assertNotIn("take the top `briefs`", text)
 
+    def test_a_fill_brief_gets_facts_about_its_own_topic(self) -> None:
+        # Final review I3: a fill brief's topic is its own idea, not the
+        # proof reel's, so the fact sheet must be researched from it.
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        section = _collapse(body.split("## Intake and the fact sheet", 1)[1].split("\n## ", 1)[0])
+        for phrase in ("`kind` is `fill`", "`idea_title`", "`adaptation`", "not from the proof reel"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+
     def test_skill_preflight_checks_creator_md(self) -> None:
         body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
 

@@ -1621,6 +1621,12 @@ class FillTests(NoNetworkTestCase):
             prompt = director.build_synth_prompt(run_dir, REFERENCES_DIR, creator, fill_ideas=5)
             self.assertIn(str((run_dir / "03-fill.json").resolve()), prompt)
             self.assertIn("at most 5", prompt)
+            # Final review I3: ask for public specifics about each fill
+            # idea's own topic, never guessed, and still allow none.
+            self.assertIn("2 to 3 public specifics", prompt)
+            self.assertIn("without guessing", prompt)
+            self.assertIn("[]", prompt)
+            self.assertNotIn("—", prompt)
             none = director.build_synth_prompt(run_dir, REFERENCES_DIR, creator, fill_ideas=0)
             self.assertNotIn("03-fill.json", none)
 

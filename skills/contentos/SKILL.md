@@ -344,6 +344,13 @@ money or time, and one tradeoff or alternative. Write
 - Remotion renders videos from React code. Source: https://www.remotion.dev/docs. Checked 2026-09-18.
 ```
 
+**A format fill brief.** When the brief's `kind` is `fill` (`briefs.md` labels
+it `Format fill`), its topic is the creator's own: the brief's `idea_title` and
+`adaptation`. The proof reel lends only the format and the hook. So research
+the fill topic: look up 4 to 8 facts about what `idea_title` and `adaptation`
+name, plus any public specifics the brief itself lists. Write the fact sheet
+from that research, not from the proof reel's specifics, transcript, or steps.
+
 Then check it:
 
 ```bash

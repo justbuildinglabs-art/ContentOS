@@ -363,6 +363,12 @@ class WriterAndQaAgentTests(NoNetworkTestCase):
             with self.subTest(verdict_phrase=phrase):
                 self.assertIn(phrase, qa_prose)
 
+        # Final review I3: a fill brief is judged on its own topic.
+        for phrase in ("`kind` is `fill`", "`idea_title`", "`adaptation`", "format and the hook only",
+                       "not the proof reel's subject"):
+            with self.subTest(fill_phrase=phrase):
+                self.assertIn(phrase, qa_prose)
+
 
 
 class CreatorRulesLabelTests(NoNetworkTestCase):

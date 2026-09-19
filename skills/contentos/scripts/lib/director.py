@@ -722,7 +722,9 @@ _FILL_KEY_LINES = [
     "- format_from: one or more shortCodes from this run's analyses whose format and hook it borrows.",
     "- angle: what the creator's reel says and shows, the 10 to 20 percent change.",
     "- why: why this format suits this pillar.",
-    "- specifics: the analysis shape. May be [].",
+    "- specifics: the analysis shape (kind, name, detail, evidence, public). List 2 to 3 "
+    "public specifics about this idea's own topic, such as a tool, a method, or a place, "
+    "when you can name them without guessing. Otherwise use [].",
 ]
 
 
