@@ -25,7 +25,10 @@ other input.
 The dispatch prompt gives you the briefs file and the `brief_id` inside it that
 is yours, the analysis of the source reel and its frames directory,
 `03-patterns.md` when the run has one, `creator.md` with the creator's own
-pillars, audience, claims, and voice, the creator's corrections from
+pillars, audience, claims, Inventory, and voice, the brief's intake answers
+(`Intake answers:`, facts the creator gave for this brief) and fact sheet
+(`Fact sheet:`, facts about the world, each with a source) when they exist,
+the creator's corrections from
 `rules.md` written straight into a `## Creator rules` section when there are
 any, the reference files plus the gold example for your format when one
 exists, the target length and word budget with the counting rule and the
@@ -46,6 +49,8 @@ the brief is wrong, write it anyway and say so in `## What changed vs source`.
 - `formats.md`: your format's budget, beat skeleton, text density, and audio.
 - `scripting.md`: how to write the lines, and the tells to keep out.
 - `examples/<format>.md`: the gold script, when the prompt lists one.
+- `specificity.md`: what "specific" looks like in each niche, when the prompt
+  lists it.
 
 If a listed file is missing, carry on without it and note the gap in
 `## Production notes`. A missing reference file is not a reason to fail.
@@ -55,7 +60,10 @@ If a listed file is missing, carry on without it and note the gap in
 When the prompt has a `## Creator rules` section, those lines win. They are
 corrections the creator made to earlier output, so they override anything
 general in `scripting.md` or in this file about style, wording, and taste. They
-never override the evidence rules below.
+never override the evidence rules below. Creator rules also outrank the default
+offer placement: when a rule says the offer or the community only goes in the
+backup CTA, put it there and nowhere else, even though the default puts the
+offer in the Payoff.
 
 ## The rules
 
@@ -64,17 +72,29 @@ mechanism. Change 10 to 20 percent of the source: the subject, the setting, the
 example, the number. Under 10 percent is a clone. Over 20 percent throws away
 the thing that worked. Read the brief's `avoid` line first and steer around it.
 
-**Evidence only.** Every claim must already exist in `creator.md`, under
-Allowed claims, Proof assets, Payoff moments, or What you promote. If it is not
-there, it does not go in the script. Nothing under Forbidden claims, and no
-medical, income, or legal promise. Write `[NEED NUMBER]` in place of a
-statistic rather than invent one, and keep the sentence. Use `[NEED NAME]`,
-`[NEED SCREENSHOT]`, and `[NEED DATE]` the same way. No testimonial, quote,
-review, or message screenshot unless it is listed under Proof assets. When a
-section of `creator.md` the script needs is empty, Payoff moments or Allowed
-claims for example, do not invent content. Write a `[NEED ...]` placeholder
-that names what is missing. Placeholders are expected and never count against
-the script.
+**Three claim tiers.** Every claim sits in one of three tiers.
+
+- About the creator: it must already exist in `creator.md` (Allowed claims,
+  Proof assets, Payoff moments, What you promote, Inventory) or in this brief's
+  intake answers. Intake answers count for this brief only.
+- About the world: it must be in the fact sheet, or be a brief specific marked
+  `public: true`. Say it plainly, the way anyone could check it.
+- Never: anything under Forbidden claims, and no medical, income, or legal
+  promise.
+
+Placeholders are only for facts about the creator. Write `[NEED NUMBER]` in
+place of a creator number nobody gave you, and keep the sentence. Use
+`[NEED NAME]`, `[NEED SCREENSHOT]`, and `[NEED DATE]` the same way. A world
+fact that is not in the fact sheet or a public specific is left out, never
+placeheld. No testimonial, quote, review, or message screenshot unless it is
+listed under Proof assets.
+
+**Name real things.** Generic lines are the failure this pipeline exists to
+stop. Where the source reel names a tool, a number, or a step, name the
+creator's own: an Inventory item, an intake answer, a public specific, or a
+fact from the fact sheet. Use at least `min_specifics` concrete named items,
+the number the prompt gives you, 3 by default. A placeholder does not count
+toward it, and QA scores it as no proof at all.
 
 **Two hooks.** Primary and backup, each using a different approach from the
 four in `hooks.md`, each spoken line under 25 words, each with an on-screen
@@ -111,6 +131,9 @@ review it points at. Then:
   clean lines is a new draft, and the creator loses the version they liked.
 - Keep the same hook mechanism unless QA failed `hook_matches_brief`.
 - Leave placeholders as placeholders. Never fill one in with a guess.
+- On revision 2, the prompt also carries the intake answers and the prior QA
+  issues. Replace each placeholder the answers cover with the real answer, then
+  fix the issues. A blank answer stays a placeholder. There is no revision 3.
 - Set `revision` in the frontmatter to the new number, and write to the new
   path the prompt gives you.
 - If an issue cannot be fixed without breaking a rule above, leave the line
@@ -142,7 +165,7 @@ Then these seven headings, in this order and no others: `## Hook`, `## Beats`,
 - **Payoff**: the on-screen moment that delivers what the hook promised, taken
   from Payoff moments in `creator.md`. When What you promote is filled in, this
   is where the offer appears, shown through one of those moments rather than
-  announced.
+  announced, unless a creator rule puts the offer somewhere else.
 - **CTA**: two variants, labeled exactly `**Primary (direct ask)**` and
   `**Backup (open loop)**`. Exactly one plain line under each label, under 20
   words, with no `Spoken:` or `On-screen text:` prefix.

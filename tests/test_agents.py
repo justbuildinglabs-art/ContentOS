@@ -657,11 +657,10 @@ class BriefStateTests(NoNetworkTestCase):
             self.assertEqual(state["verdict"], "revise")
             self.assertEqual(state["revision"], 1)
 
-    def test_needs_human_when_two_revise_verdicts_exist_even_after_a_later_pass(self) -> None:
-        # A brief that somehow accumulated a third script revision (past
-        # the one-revision policy) whose QA came back pass: the *latest*
-        # verdict alone would read as fine, but two earlier revise
-        # verdicts on this brief still mean a human should look at it.
+    def test_a_pass_at_revision_2_clears_two_earlier_revise_verdicts(self) -> None:
+        # 0.3.0: a filled intake unlocks one more revision after
+        # needs_human. Its QA verdict is final: a pass at revision 2 is a
+        # pass, even with two revise verdicts before it.
         with temp_project() as project:
             _write_project(project)
             run_dir = _mock_research_and_rank(project)
@@ -684,8 +683,8 @@ class BriefStateTests(NoNetworkTestCase):
             state = agents.brief_state(run_dir, "B01")
 
             self.assertEqual(state["verdict"], "pass")
-            self.assertTrue(state["needs_human"])
-            self.assertEqual(state["status"], "needs_human")
+            self.assertFalse(state["needs_human"])
+            self.assertEqual(state["status"], "pass")
 
 
 class CliWiringTests(NoNetworkTestCase):

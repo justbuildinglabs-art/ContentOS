@@ -76,6 +76,7 @@ CREATOR_TEMPLATE_SECTIONS = [
     "Allowed claims",
     "Forbidden claims",
     "Proof assets",
+    "Inventory",
     "Brand voice",
     "CTA",
     "Hashtag seeds",

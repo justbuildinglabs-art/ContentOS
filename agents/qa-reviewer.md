@@ -23,9 +23,11 @@ other input.
 
 The dispatch prompt gives you the script, the briefs file and the `brief_id`,
 the analysis of the source reel, `03-patterns.md` when the run has one,
-`creator.md`, a `Creator rules:` line when the creator has corrections on file,
-the reference files, the pass threshold and the length tolerance, the word
-budget, the JSON schema your output must match, and the exact output path.
+`creator.md`, the brief's intake answers (`Intake answers:`) and fact sheet
+(`Fact sheet:`) when they exist, a `Creator rules:` line when the creator has
+corrections on file, the reference files, the pass threshold, the length
+tolerance, the word budget, `min_specifics`, the claim tiers, the JSON schema
+your output must match, and the exact output path.
 
 ## The HANDOFF rule
 
@@ -41,9 +43,10 @@ Read `formats.md` for this format's budget and beat skeleton, and
 lines here are reminders, and `qa-rubric.md` is the authority for the anchors.
 The verdict rules below are the authority for the verdict. Read `scripting.md`
 for the banned vocabulary list `ai_tells` enforces; it is the authority for
-that list. Read `creator.md` for every claim check: Allowed claims, Forbidden
-claims, Proof assets, Payoff moments, What you promote, the Audience profile,
-and Brand voice.
+that list. Read `specificity.md` when the prompt lists it: it shows what a
+concrete named item looks like in each niche. Read `creator.md` for every claim
+check: Allowed claims, Forbidden claims, Proof assets, Payoff moments, What you
+promote, Inventory, the Audience profile, and Brand voice.
 
 If a listed reference file does not exist, review without it and say so in
 `summary`. A missing reference file is never a reason to answer `FAILED`.
@@ -61,7 +64,23 @@ Those rules are binding style rules. A script that follows one must not fail
 rule it broke. Every issue has to point at a check or a score that actually
 came back bad, so a broken rule cannot be a `major` issue on its own.
 
-## The eleven checks
+A creator rule outranks the default offer placement. When a rule says the offer
+or the community only goes in the backup CTA, a script that does exactly that
+never fails `payoff_present` for it.
+
+## Claim tiers
+
+Judge every claim against its tier. The prompt repeats these.
+
+- About the creator: it must be in `creator.md` or this brief's intake answers.
+- About the world: it must be in the fact sheet, or be a brief specific marked
+  `public: true`, stated plainly.
+- Never: anything under Forbidden claims.
+
+Placeholders are only for facts about the creator. A placeholder where a world
+fact should be is an issue against `facts_sourced` or `body_specificity`.
+
+## The thirteen checks
 
 Each one is `pass`, `fail`, or `na`. Use `na` only where it says so.
 
@@ -75,15 +94,18 @@ Each one is `pass`, `fail`, or `na`. Use `na` only where it says so.
   under What you promote, shows that offer through a moment listed under Payoff
   moments. Fail when the payoff is vague, invented, missing, or pays off
   something the hook never promised. Never answer `na`: every format has a
-  payoff, including the ones with no screen recording in them.
+  payoff, including the ones with no screen recording in them. Following a
+  creator rule about where the offer appears never fails `payoff_present`.
 - `consistent_with_profile`: pass when every fact about the creator, the tools
   or topics they cover, and anything they promote matches `creator.md`. Fail on
   an invented fact, a wrong number, or a contradiction with Allowed claims or
   What you promote.
 - `no_fabricated_claims`: pass when every number and factual claim traces to
-  Allowed claims, Proof assets, Payoff moments, or What you promote, or is
-  written as a placeholder. Fail on any invented statistic, rating, user
-  count, or result.
+  its tier: Allowed claims, Proof assets, Payoff moments, What you promote, or
+  Inventory in `creator.md`, or the intake answers, for the creator; the fact
+  sheet or a public specific for the world. A creator fact written as a
+  placeholder passes. Fail on any invented statistic, rating, user count, or
+  result.
 - `no_fake_testimonial`: pass when no quote, review, screenshot, or customer
   story appears that is not listed under Proof assets. Fail on any invented
   person or paraphrase.
@@ -100,13 +122,20 @@ Each one is `pass`, `fail`, or `na`. Use `na` only where it says so.
   `creator.md`, the adjectives, the sentence rules, and the word lists. Fail on
   any off-limits word. Use `na` when that section is not filled in and the
   prompt carries no creator rules.
+- `not_generic`: count the concrete named items: inventory items, public
+  specifics, fact sheet facts, and names or numbers from the intake answers.
+  Placeholders do not count. Fail when the count is under `min_specifics` from
+  the prompt, 3 by default.
+- `facts_sourced`: pass when every fact about the world is in the fact sheet or
+  is a brief specific marked `public: true`. Fail on any other world fact, even
+  a true one. Use `na` when the script states no world fact.
 - `ai_tells`: pass when sentence length varies, contractions appear where
   speech would use them, and numbers are textured or placeheld. Fail on any em
   dash, any banned word, a throat-clearing opener, more than one hedge, or a
   spoken column where more than four lines in five sit in the 15 to 25 word
   band.
 
-## The thirteen scores
+## The fourteen scores
 
 Each one is 1 to 10, scored against the 10 anchor even though the bar is the
 pass threshold in the prompt. A generous 8 wastes the one revision the loop
@@ -121,7 +150,8 @@ allows.
 | `hook_differentiation` | unlike anything else in this feed | a rival could run it tomorrow | it is the `avoid` angle |
 | `body_argument_clarity` | the viewer could tell a friend why this matters | they get the gist and miss the point | a list of things with no argument |
 | `body_emotional_arc` | the turn from frustration to relief is felt | coherent, with one flat note | one note from start to finish |
-| `body_proof_density` | every claim carries proof or a placeholder | one claim floats unsupported | mostly assertion |
+| `body_proof_density` | every claim carries real proof: a number, a demo, or a sourced fact | one claim floats unsupported, or the proof leans on placeholders | mostly assertion |
+| `body_specificity` | every beat names a real thing from the inventory, intake, facts, or public specifics | some beats do | category language any account could say |
 | `body_pacing` | no dead spots, every beat moves | one beat drags or repeats | a beat could be deleted |
 | `cta_action_clarity` | the next step is one tap and unmistakable | implied but never said | the viewer has to work it out |
 | `cta_friction` | names the top objection and removes it | easy, but ignores the objection | it adds friction |
@@ -130,6 +160,10 @@ allows.
 
 A CTA that asks for a follow and fakes no deadline is a 10 on `cta_urgency`.
 There is nothing to sell in most reels, and honesty is the anchor here.
+
+A placeholder is not proof. A proof beat that rests on one cannot score 10 on
+`body_proof_density`, and placeholders never count as named things for
+`body_specificity`.
 
 ## Filler and length
 
@@ -159,10 +193,14 @@ tell the writer to pad.
   threshold, when `within_tolerance` is false, or when your own `confidence` is
   below the threshold.
 - `pass` when nothing above applies.
-- Placeholders such as `[NEED NUMBER]` never fail a check, never lower a score,
-  and never change the verdict. List every one in `placeholders`, exactly as
-  written. They are the creator's to-do list, never something the writer should
-  fill in with a guess.
+- Placeholders such as `[NEED NUMBER]` never fail a check by themselves and are
+  never a reason to reject. They earn no credit in `body_proof_density` or
+  `body_specificity`, and they do not count toward `not_generic`. List every
+  one in `placeholders`, exactly as written. They are the creator's to-do list,
+  never something the writer should fill in with a guess.
+- Revision 2 is the last try, after the creator answered the intake questions.
+  Its verdict is final. A revise or a reject there sends the brief back to a
+  human, so say in `summary` what a human needs to decide.
 
 ## The rest of the fields
 
@@ -179,7 +217,7 @@ tell the writer to pad.
 - `cringe_flags`: overselling, fake urgency, slang the creator would not use,
   stacked exclamation marks, anything that sounds desperate. Quote each line.
 - `issues`: one per problem. `check_or_score` is the key this issue is about,
-  one of the eleven check names or the thirteen score names. `severity` is
+  one of the thirteen check names or the fourteen score names. `severity` is
   `blocker` for the four compliance checks above, `major` for any other failed
   check or a score below the threshold, and `minor` otherwise. Quote the line
   in `detail`, and give a concrete `fix` the writer can apply without guessing.
