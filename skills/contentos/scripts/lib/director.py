@@ -852,6 +852,10 @@ def _first_sentences(text: str, count: int = 2) -> str:
     is fine for a one-line summary the full analysis file still backs.
     """
     parts = [part for part in _SENTENCE_END_RE.split((text or "").strip()) if part]
+    # Directors often open why_it_worked with a bare "Hypothesis." label,
+    # which says nothing on its own; skip it so both sentences carry content.
+    if parts and parts[0].strip().rstrip(".:").lower() == "hypothesis":
+        parts = parts[1:]
     return _as_sentence(" ".join(parts[:count]))
 
 
@@ -1013,22 +1017,22 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
         lines.append(f"## {brief['brief_id']}: {brief['brief_title']}")
         lines.append("")
         lines.append(
-            f"Source: {brief['source_url']} (by {brief['ownerUsername']}, "
+            f"- Source: {brief['source_url']} (by {brief['ownerUsername']}, "
             f"{brief['source_kind']} account)"
         )
         lines.append(
-            f"Format: {brief['format']}. Hook: {brief['hook_type']}. Emotion: {brief['emotion_lead']}."
+            f"- Format: {brief['format']}. Hook: {brief['hook_type']}. Emotion: {brief['emotion_lead']}."
         )
         lines.append(
             "Scores: brief {brief_score}, viral proof {viral_proof}, convertible {score_convertible}, "
             "scalable {score_scalable}, fit {score_fit}.".format(**brief)
         )
-        lines.append(f"Risk flags: {', '.join(brief['risk_flags'])}.")
-        lines.append(f"Confidence: {brief['confidence']}.")
-        lines.append(f"Bet: {_as_sentence(brief.get('transferable_mechanism') or '')}")
-        lines.append(f"Why: {_first_sentences(brief.get('why_it_worked') or '')}")
-        lines.append(f"Adaptation: {brief['adaptation']}")
-        lines.append(f"Avoid: {brief['avoid']}")
+        lines.append(f"- Risk flags: {', '.join(brief['risk_flags'])}.")
+        lines.append(f"- Confidence: {brief['confidence']}.")
+        lines.append(f"- Bet: {_as_sentence(brief.get('transferable_mechanism') or '')}")
+        lines.append(f"- Why: {_first_sentences(brief.get('why_it_worked') or '')}")
+        lines.append(f"- Adaptation: {brief['adaptation']}")
+        lines.append(f"- Avoid: {brief['avoid']}")
         if specifics:
             lines.append("")
             lines.append("Specifics:")
@@ -1046,6 +1050,6 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
                 lines.append(f"{number}. {step}")
         if specifics or steps:
             lines.append("")
-        lines.append(f"Frames: {brief['frames_dir']}")
+        lines.append(f"- Frames: {brief['frames_dir']}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

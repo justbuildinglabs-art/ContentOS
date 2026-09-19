@@ -999,7 +999,7 @@ class RenderBriefsMdTests(NoNetworkTestCase):
         # A list is always followed by a blank line, so the next label
         # never folds into the last list item when the markdown renders.
         lines = markdown.splitlines()
-        frames_at = next(i for i, line in enumerate(lines) if line.startswith("Frames: "))
+        frames_at = next(i for i, line in enumerate(lines) if line.startswith("- Frames: "))
         self.assertEqual(lines[frames_at - 1], "")
         self.assertNotIn("—", markdown)
 
