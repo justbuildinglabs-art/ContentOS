@@ -1,6 +1,6 @@
 # ContentOS — Design Spec
 
-Approved 2026-09-16; amended 2026-09-17 for 0.2.0. The implementation task list lives in the plan file; this spec is the binding authority for every task.
+Approved 2026-09-16; amended 2026-09-17 for 0.2.0 and 2026-09-18 for 0.3.0. The implementation task list lives in the plan file; this spec is the binding authority for every task.
 
 ## 0.2.0 changes (2026-09-17): the creator pivot
 
@@ -17,6 +17,28 @@ Approved 2026-09-16; amended 2026-09-17 for 0.2.0. The implementation task list 
 ## 0.2.1 change (2026-09-18): guided key steps
 
 Adding the Apify key is a step-by-step task the creator does themselves in a real Terminal, with one command that reads the token with the input hidden. See the Skill section's pre-flight bullet. Nothing else changed.
+
+## 0.3.0 changes (2026-09-18): specific scripts, readable weekly output
+
+The first live run (`20260918-145826`) produced scripts that were structurally sound but generic: the chain from reel to script dropped every named tool, number, and step, and the writer filled the gap with `[NEED NAME]`. The run's outputs were also hard to read outside a hand-built page. 0.3.0 fixes both, specificity first. It supersedes "transcripts", "HTML report", "per-score report lines", and the first half of the "results feedback loop" in Cut and Later.
+
+**Specificity (phase 1)**
+
+- **Transcripts.** New `lib/transcribe.py`, the only module that touches whisper. After frames, `research` transcribes each selected reel to `runs/<id>/transcripts/<shortCode>.txt` (one line per segment, `[m:ss] text`) and sets `transcript_status` (`ok | apify | none | failed`) on the reel in `02-outliers.json`. Backend order under config `transcripts` (`"auto"` default, or `"local" | "apify" | "off"`): local `whisper-cli` (whisper-cpp, found on PATH, `whisper-cpp` accepted too) with a ggml model (config `whisper_model`, else env `CONTENTOS_WHISPER_MODEL`, else `~/.cache/contentos/whisper/ggml-base.en.bin`), audio extracted with ffmpeg to 16 kHz mono; then, only when `apify_transcripts` is true, Apify's `apify~instagram-reel-scraper` with `includeTranscript` on the selected reel URLs. The Apify path is paid: its estimate is `top_k_videos × max_video_seconds/60 × apify_transcript_usd_per_min`, added to `total_usd` as `transcripts_usd` only when the local backend is unavailable, and it counts against `apify_max_charge_usd`. `transcribe --run <id>` backfills a run. `diagnose` adds `whisper` and `whisper_model`. whisper-cpp is optional, exactly like ffmpeg; without it (and without `apify_transcripts`) status is `none` and nothing fails. `--mock` copies `fixtures/transcripts/<sc>.txt` when present.
+- **Specifics in the analysis.** `analysis.schema.json` gains optional `specifics[]` (`{kind, name, detail, evidence, public}`; `kind` in `tool, product, repo, place, person, recipe, exercise, number, step, resource, claim, other`; `evidence` names where it was seen, such as `transcript 0:12`, `frame 3`, `caption`; `public` is true when it is a verifiable fact about the world, false when it is the source creator's own claim) and optional `steps[]` (strings, the ordered method the reel teaches). `coerce_analysis` defaults both to `[]`, so older analyses still rank. The director prompt lists the transcript path when the file exists and loads `references/specificity.md`; the director records every named item and number it can see or hear. `adaptation` must name the concrete replacement (an inventory item or a public specific), not a category. `rank_briefs` copies `specifics` and `steps` into each brief.
+- **Inventory.** `creator.md` gains `## Inventory` (after Proof assets): things the creator actually uses, built, makes, or teaches, one per line, each with one proof or number when they have it. Setup answer key `inventory` (list). Setup answer key `lead_magnet` (text) is appended to Allowed claims as `The CTA guide: <text>`.
+- **Intake.** `intake --run <id> --brief <B>` prints (stdout, exit 0) a short markdown question list built deterministically from the brief's specifics, the inventory, and the format. The orchestrator asks the creator and writes `runs/<id>/04-intake/<B>.md`. Facts in that file count as allowed claims about the creator for that brief only. `--auto` skips intake.
+- **Fact sheet.** Before writing, the orchestrator (the main session, which has web access; subagents stay offline) looks up each public specific the brief keeps and writes `runs/<id>/04-facts/<B>.md`: one bullet per fact, `- <fact>. Source: <https url>. Checked <YYYY-MM-DD>.` `verify --stage facts --brief <B>` exits 7 when a bullet lacks an https source.
+- **Three claim tiers.** About the creator: `creator.md` plus the brief's intake. About the world: the brief's fact sheet, or a brief specific marked `public`, stated plainly and attributable. Never: Forbidden claims. `[NEED ...]` placeholders are for facts about the creator only.
+- **QA measures genericness.** New score `body_specificity` (10: every beat names a real thing from the inventory, intake, facts, or public specifics; 4: category language any account could say). `body_proof_density` no longer gives full credit for a placeholder. New checks `not_generic` (fails with fewer than config `min_specifics`, default 3, concrete named items, placeholders excluded) and `facts_sourced` (fails when a world fact is not in the fact sheet or a public specific). `rules.md` outranks the default offer placement, so following a creator rule never fails `payoff_present`.
+- **`references/specificity.md`** shows what "specific" means per niche and the benefit frame a proof beat uses (what it is, who it is for, cost or time, the tradeoff).
+
+**Readability and the weekly loop (phase 2)**
+
+- `briefs.md` drops the joined hypothesis sentence for a `Bet` line (the mechanism) and a `Why` line (the first two sentences of `why_it_worked`), plus a score line and the brief's specifics. `03-briefs.json` keeps `hypothesis` for compatibility.
+- `report.md` opens with a "What to do next" list, prints per-score lines, and lists placeholders with their section, beat, and line, deduplicated. `report --html` also writes a self-contained `report.html` (stdlib only, no network assets required to read it). `status --text` prints a readable summary.
+- Weekly memory: `.contentos/log.json` records per-brief states via `mark --run <id> --brief <B> --state filmed|posted|skipped [--url <u>]`; `history` writes `.contentos/history.md` (one row per run). `research` excludes source reels already briefed in an earlier run (reason `already_briefed`).
+- After `needs_human`, a filled `04-intake/<B>.md` unlocks one more revision (`write-prompt --revision 2`) and one more QA, instead of hand edits.
 
 ## Context
 
