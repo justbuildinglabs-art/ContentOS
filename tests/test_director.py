@@ -995,6 +995,43 @@ class WeeklyRankTests(NoNetworkTestCase):
 
 
 # ---------------------------------------------------------------------------
+# render_briefs_md: digest
+# ---------------------------------------------------------------------------
+
+
+class DigestTests(NoNetworkTestCase):
+    def test_digest_lines_per_kind(self) -> None:
+        base = {
+            "source_url": "https://x", "source_kind": "niche", "format": "screen_demo",
+            "hook_type": "bold_claim", "emotion_lead": "curiosity", "brief_score": 7.5,
+            "viral_proof": 6.0, "score_convertible": 7, "score_scalable": 6, "score_fit": 8,
+            "risk_flags": ["none"], "confidence": "high", "transferable_mechanism": "M",
+            "why_it_worked": "W.", "adaptation": "A", "avoid": "V", "specifics": [], "steps": [],
+            "frames_dir": "/f", "brief_title": "Tool claim, 3 steps", "outlier_ratio": 52.97,
+        }
+        briefs = [
+            dict(base, brief_id="B01", kind="new", weeks_carried=0, idea_title="New idea",
+                 ownerUsername="mavgpt", days_old=4),
+            dict(base, brief_id="B02", kind="carried", weeks_carried=1, idea_title="Old idea",
+                 ownerUsername="raycfu", days_old=11, first_run="20260912-090000"),
+            dict(base, brief_id="B03", kind="fill", weeks_carried=0, idea_title="Fill idea",
+                 ownerUsername="mavgpt", days_old=None, brief_score=None, viral_proof=None,
+                 score_convertible=None, score_scalable=None, score_fit=None),
+        ]
+        text = director.render_briefs_md(briefs)
+        lines = text.splitlines()
+        self.assertEqual(lines[0], "# This week's ideas")
+        self.assertIn("1. B01 · New · New idea. @mavgpt, 52.97x their usual, 4 days old.", lines)
+        self.assertIn("2. B02 · Carried over, week 2 · Old idea. @raycfu, 52.97x their usual, 11 days old.", lines)
+        self.assertIn("3. B03 · Format fill, less proven · Fill idea. Borrows the bold_claim hook from @mavgpt.", lines)
+        self.assertIn("# Briefs", lines)
+        self.assertIn("## B02: Old idea", lines)
+        self.assertIn("- Kind: Carried over, week 2 (first shown in 20260912-090000).", lines)
+        self.assertIn("- Source format: Tool claim, 3 steps", lines)
+        self.assertNotIn("—", text)
+
+
+# ---------------------------------------------------------------------------
 # render_briefs_md
 # ---------------------------------------------------------------------------
 
@@ -1022,7 +1059,8 @@ class RenderBriefsMdTests(NoNetworkTestCase):
 
             markdown = director.render_briefs_md(briefs)
 
-        self.assertTrue(markdown.startswith("# Briefs"))
+        self.assertTrue(markdown.startswith("# This week's ideas"))
+        self.assertIn("\n# Briefs\n", markdown)
         self.assertIn("## B01: Morning habit callout", markdown)
         self.assertIn("acct1", markdown)
         self.assertIn(reel["url"], markdown)

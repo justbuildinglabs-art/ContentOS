@@ -1295,26 +1295,89 @@ def rank_briefs(
     return briefs
 
 
-def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
-    """Render ranked briefs as `briefs.md`: a `# Briefs` title plus one section each.
+def _kind_label(brief: Dict[str, Any]) -> str:
+    """The digest/section kind label for `brief`.
 
-    Each `## B01: <brief_title>` section has plain-language lines, in
+    `"new"` (or a missing `kind` -- a 0.3.0 `03-briefs.json` predates
+    the key) is `"New"`; `"carried"` is `"Carried over, week N"` where
+    `N` is `weeks_carried + 1`; `"fill"` is `"Format fill, less
+    proven"`.
+    """
+    kind = brief.get("kind") or "new"
+    if kind == "carried":
+        return f"Carried over, week {brief.get('weeks_carried', 0) + 1}"
+    if kind == "fill":
+        return "Format fill, less proven"
+    return "New"
+
+
+def _digest_proof(brief: Dict[str, Any]) -> str:
+    """The digest line's proof clause for `brief`, ending in a period.
+
+    A fill idea (no analyzed reel behind it) gets `Borrows the
+    <hook_type> hook from @<owner>.`. Any other brief gets
+    `@<owner>[, <ratio>x their usual][, <days> days old].`, dropping the
+    ratio clause when `outlier_ratio` is `None` (a 0.3.0 brief has
+    neither) and the days clause when `days_old` is `None`.
+    """
+    owner = brief.get("ownerUsername")
+    if brief.get("kind") == "fill":
+        return f"Borrows the {brief['hook_type']} hook from @{owner}."
+    parts = [f"@{owner}"]
+    ratio = brief.get("outlier_ratio")
+    if ratio is not None:
+        parts.append(f"{ratio:.2f}x their usual")
+    days = brief.get("days_old")
+    if days is not None:
+        parts.append(f"{days} days old")
+    return ", ".join(parts) + "."
+
+
+def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
+    """Render `briefs.md`: a topic-first digest, then a `# Briefs` title plus one section each.
+
+    The digest opens with `# This week's ideas`, one numbered line per
+    brief: `i. <id> · <kind label> · <idea_title>. <proof>` (see
+    `_kind_label`, `_digest_proof`).
+
+    Each `## <id>: <idea_title>` section (falling back to `brief_title`
+    when `idea_title` is missing -- a 0.3.0 `03-briefs.json` has
+    neither `idea_title` nor `kind`) opens with `- Kind: <label>` (plus
+    ` (first shown in <first_run>)` for a carried idea) and `- Source
+    format: <brief_title>`, then the existing plain-language lines, in
     this order: the source (with its niche/format kind), format/hook/
-    emotion, every score, risk flags, confidence, `Bet:` (the
-    transferable mechanism), `Why:` (the first two sentences of
-    `why_it_worked`), adaptation, avoid, a `Specifics:` list (name,
+    emotion, a `- Scores:` line (printed only when `brief_score` is not
+    `None` -- a fill brief has no scores), risk flags, confidence,
+    `Bet:` (the transferable mechanism), `Why:` (the first two sentences
+    of `why_it_worked`), adaptation, avoid, a `Specifics:` list (name,
     kind, public or their claim, detail; skipped when empty), a
     numbered `Steps:` list (skipped when empty), and the frames path.
     Each list sits between blank lines so the next label never folds
     into its last item. The joined `hypothesis` sentence is not printed;
     it stays in `03-briefs.json` only. No em dashes.
     """
-    lines: List[str] = ["# Briefs", ""]
+    lines: List[str] = ["# This week's ideas"]
+    for index, brief in enumerate(briefs, start=1):
+        idea_title = brief.get("idea_title") or brief.get("brief_title", "")
+        lines.append(
+            f"{index}. {brief['brief_id']} · {_kind_label(brief)} · {idea_title}. "
+            f"{_digest_proof(brief)}"
+        )
+    lines.append("")
+    lines.append("# Briefs")
+    lines.append("")
     for brief in briefs:
         specifics = brief.get("specifics") or []
         steps = brief.get("steps") or []
-        lines.append(f"## {brief['brief_id']}: {brief['brief_title']}")
+        idea_title = brief.get("idea_title") or brief.get("brief_title", "")
+        label = _kind_label(brief)
+        lines.append(f"## {brief['brief_id']}: {idea_title}")
         lines.append("")
+        if brief.get("kind") == "carried" and brief.get("first_run"):
+            lines.append(f"- Kind: {label} (first shown in {brief['first_run']}).")
+        else:
+            lines.append(f"- Kind: {label}.")
+        lines.append(f"- Source format: {brief.get('brief_title', '')}")
         lines.append(
             f"- Source: {brief['source_url']} (by {brief['ownerUsername']}, "
             f"{brief['source_kind']} account)"
@@ -1322,10 +1385,11 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
         lines.append(
             f"- Format: {brief['format']}. Hook: {brief['hook_type']}. Emotion: {brief['emotion_lead']}."
         )
-        lines.append(
-            "Scores: brief {brief_score}, viral proof {viral_proof}, convertible {score_convertible}, "
-            "scalable {score_scalable}, fit {score_fit}.".format(**brief)
-        )
+        if brief.get("brief_score") is not None:
+            lines.append(
+                "- Scores: brief {brief_score}, viral proof {viral_proof}, convertible {score_convertible}, "
+                "scalable {score_scalable}, fit {score_fit}.".format(**brief)
+            )
         lines.append(f"- Risk flags: {', '.join(brief['risk_flags'])}.")
         lines.append(f"- Confidence: {brief['confidence']}.")
         lines.append(f"- Bet: {_as_sentence(brief.get('transferable_mechanism') or '')}")

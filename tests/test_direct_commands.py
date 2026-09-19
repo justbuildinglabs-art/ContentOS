@@ -530,7 +530,9 @@ class RankTests(NoNetworkTestCase):
             headings = [line for line in briefs_md.splitlines() if line.startswith("## B")]
             self.assertEqual(len(headings), 5)
             for index, brief in enumerate(briefs, start=1):
-                self.assertIn(f"## B{index:02d}: {brief['brief_title']}", briefs_md)
+                self.assertIn(f"## B{index:02d}: {brief['idea_title']}", briefs_md)
+                self.assertIn(f"- Source format: {brief['brief_title']}", briefs_md)
+            self.assertIn("# This week's ideas", briefs_md)
             self.assertNotIn("—", briefs_md)
 
             # Ranked highest first, and run.json records the stage.
