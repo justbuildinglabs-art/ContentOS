@@ -697,7 +697,13 @@ def run_rank(
     ideas.forget_run(ledger, run_dir.name)
     ideas.close_entries(project, ledger, run_dir.name, cfg["carry_weeks"])
     carried = [] if cfg["carry_weeks"] == 0 else _load_carried(analyses, ledger, run_dir.name, log)
-    fill = director.load_fill(run_dir) if analyses and cfg["fill_ideas"] > 0 else []
+    fill: List[Dict[str, Any]] = []
+    if analyses and cfg["fill_ideas"] > 0:
+        fill_problems = director.verify_fill(run_dir)
+        if fill_problems:
+            log(f"03-fill.json: format fill not used, {fill_problems[0]}")
+        else:
+            fill = director.load_fill(run_dir)
 
     if not analyses and not carried and not fill:
         raise DirectError(

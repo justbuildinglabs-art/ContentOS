@@ -982,6 +982,19 @@ class WeeklyRankTests(NoNetworkTestCase):
         self.assertEqual(filled["brief_title"], "F NEW1")
         self.assertEqual([b["brief_id"] for b in briefs], ["B01", "B02"])
 
+    def test_fill_specifics_are_coerced_like_an_analysis(self) -> None:
+        # Final review M3: fill specifics go through `_coerce_specifics`.
+        reel, analysis = _pair("NEW1", 3.0)
+        fill = [{"idea_title": "Fill A", "pillar": "P", "format_from": ["NEW1"], "angle": "A", "why": "W",
+                 "specifics": ["junk", {"kind": "tool"},
+                               {"name": " Todoist ", "kind": "weird", "public": "yes", "extra": 1}]}]
+        with temp_project() as root:
+            briefs = director.rank_briefs({"NEW1": analysis}, [reel], 2, root, fill=fill, now=WEEKLY_NOW)
+        self.assertEqual(
+            briefs[1]["specifics"],
+            [{"kind": "other", "name": "Todoist", "detail": "", "evidence": "", "public": False}],
+        )
+
     def test_new_brief_fields(self) -> None:
         reel, analysis = _pair("NEW1", 3.0)
         with temp_project() as root:
@@ -1044,6 +1057,27 @@ class DigestTests(NoNetworkTestCase):
         self.assertIn("- Kind: Carried over, week 2 (first shown in 20260912-090000).", lines)
         self.assertIn("- Source format: Tool claim, 3 steps", lines)
         self.assertNotIn("—", text)
+
+    def test_a_title_that_already_ends_a_sentence_gets_no_extra_period(self) -> None:
+        # Final review M5: no "title?. @owner".
+        base = {
+            "source_url": "https://x", "source_kind": "niche", "format": "screen_demo",
+            "hook_type": "bold_claim", "emotion_lead": "curiosity", "brief_score": 7.5,
+            "viral_proof": 6.0, "score_convertible": 7, "score_scalable": 6, "score_fit": 8,
+            "risk_flags": ["none"], "confidence": "high", "transferable_mechanism": "M",
+            "why_it_worked": "W.", "adaptation": "A", "avoid": "V", "specifics": [], "steps": [],
+            "frames_dir": "/f", "brief_title": "Tool claim", "outlier_ratio": 3.0,
+            "kind": "new", "weeks_carried": 0, "ownerUsername": "acct", "days_old": 2,
+        }
+        briefs = [
+            dict(base, brief_id="B01", idea_title="Is your week plan lying to you?"),
+            dict(base, brief_id="B02", idea_title="Stop planning on Monday!"),
+            dict(base, brief_id="B03", idea_title="Plan on Sunday."),
+        ]
+        lines = director.render_briefs_md(briefs).splitlines()
+        self.assertIn("1. B01 · New · Is your week plan lying to you? @acct, 3.00x their usual, 2 days old.", lines)
+        self.assertIn("2. B02 · New · Stop planning on Monday! @acct, 3.00x their usual, 2 days old.", lines)
+        self.assertIn("3. B03 · New · Plan on Sunday. @acct, 3.00x their usual, 2 days old.", lines)
 
     def test_a_genuinely_0_3_0_brief_renders_as_new_with_fallbacks(self) -> None:
         # A real 0.3.0 03-briefs.json brief: no `kind`, `idea_title`, `outlier_ratio`,

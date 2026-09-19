@@ -1076,10 +1076,12 @@ def _brief_dict(
 
     A fill candidate (`meta["kind"] == "fill"`) instead takes its
     `idea_title` and `adaptation` (the fill idea's `angle`) from `meta`,
-    its `specifics` from `meta` (copied, or `[]`), an empty `steps`, and
+    its `specifics` from `meta` (through `_coerce_specifics`, exactly like
+    an analysis's, so a malformed item is dropped), an empty `steps`, and
     sets `brief_score`, `viral_proof`, `outlier_ratio`, `score_scalable`,
-    `score_convertible`, `score_fit`, and `days_old` to `None` -- there
-    is no analyzed reel behind it to score. A new or carried brief's
+    `score_convertible`, `score_fit`, and `days_old` to `None` -- its
+    proof reel proves only the format and the hook, and the fill topic
+    itself is unproven, so those numbers would score the wrong thing. A new or carried brief's
     `idea_title` is `analysis["idea_title"]`, its `outlier_ratio` is
     `reel.get("outlier_ratio")`, and its `days_old` is the whole days
     from the source reel's `timestamp` to `now`, or `None` when `now` or
@@ -1090,7 +1092,7 @@ def _brief_dict(
     if is_fill:
         idea_title = meta["idea_title"]
         adaptation = meta["adaptation"]
-        specifics = [dict(item) for item in meta.get("specifics") or []]
+        specifics = _coerce_specifics(meta.get("specifics"))
         steps: List[str] = []
         score: Optional[float] = None
         viral_proof: Optional[float] = None
@@ -1175,8 +1177,11 @@ def rank_briefs(
     `carried` (from `ideas.carry_candidates`, with the caller having
     already loaded each entry's analysis) is a list of
     `{"reel": <snapshot>, "analysis": <coerced>, "weeks_carried": int,
-    "first_run": str, "analysis_path": str, "frames_dir": str}`. Each
-    becomes a `"carried"` candidate, scored the same way as a new one
+    "first_run": str, "analysis_path": str, "frames_dir": str}`. No
+    carried item may share a shortCode with `analyses`: this function
+    does not check, and such an idea would be ranked twice, once as
+    new and once as carried. The caller filters them out first
+    (`direct._load_carried`). Each becomes a `"carried"` candidate, scored the same way as a new one
     except its effective score has `weeks_carried` subtracted (floored
     at 0, see `_effective_score`) -- so a strong idea from an earlier
     week can still beat a weak new one, while enough weeks eventually
@@ -1207,7 +1212,10 @@ def rank_briefs(
     confidence, mechanism, source fields, `analysis_path`, `frames_dir`)
     and gets its own `idea_title`, `adaptation` (the fill `angle`), and
     `specifics`, with `brief_score`, `viral_proof`, `outlier_ratio`, and
-    the three director scores all `None`. Fill briefs are never
+    the three director scores all `None`: a fill brief does have a
+    proof reel, but that reel proves only the format and the hook. The
+    fill topic itself is unproven, so the proof reel's numbers would
+    score the wrong thing. Fill briefs are never
     re-sorted among themselves or against the real ones; the walk stops
     as soon as `n` briefs exist.
 
@@ -1215,7 +1223,8 @@ def rank_briefs(
     `weeks_carried` (0 for new and fill), `idea_title`, `outlier_ratio`
     (`None` for fill), and `days_old` (whole days from the source reel's
     `timestamp` to `now`, or `None` when `now` or the timestamp is
-    missing -- always `None` for fill, which has no single source reel).
+    missing -- always `None` for fill, whose proof reel's age says
+    nothing about its unproven topic).
     A carried brief also gets `first_run`. `B01`, `B02`, ... are
     assigned in the final order: sorted new/carried first, then fill.
 
@@ -1328,8 +1337,9 @@ def _kind_label(brief: Dict[str, Any]) -> str:
 def _digest_proof(brief: Dict[str, Any]) -> str:
     """The digest line's proof clause for `brief`, ending in a period.
 
-    A fill idea (no analyzed reel behind it) gets `Borrows the
-    <hook_type> hook from @<owner>.`. Any other brief gets
+    A fill idea (its topic is unproven; its proof reel lends only the
+    format and the hook) gets `Borrows the <hook_type> hook from
+    @<owner>.`. Any other brief gets
     `@<owner>[, <ratio>x their usual][, <days> days old].`, dropping the
     ratio clause when `outlier_ratio` is `None` (a 0.3.0 brief has
     neither) and the days clause when `days_old` is `None`.
@@ -1352,7 +1362,8 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
 
     The digest opens with `# This week's ideas`, one numbered line per
     brief: `i. <id> · <kind label> · <idea_title>. <proof>` (see
-    `_kind_label`, `_digest_proof`).
+    `_kind_label`, `_digest_proof`; the period after the title is left
+    out when the title already ends in `.`, `!`, or `?`).
 
     Each `## <id>: <idea_title>` section (`display_title`, which falls
     back to `brief_title` when `idea_title` is missing -- a 0.3.0
@@ -1372,9 +1383,11 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
     """
     lines: List[str] = ["# This week's ideas"]
     for index, brief in enumerate(briefs, start=1):
-        idea_title = display_title(brief)
+        # `_as_sentence` adds a period only when the title does not
+        # already end in `.`, `!`, or `?`.
+        idea_title = _as_sentence(display_title(brief))
         lines.append(
-            f"{index}. {brief['brief_id']} · {_kind_label(brief)} · {idea_title}. "
+            f"{index}. {brief['brief_id']} · {_kind_label(brief)} · {idea_title} "
             f"{_digest_proof(brief)}"
         )
     lines.append("")

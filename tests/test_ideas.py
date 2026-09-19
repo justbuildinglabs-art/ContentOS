@@ -170,6 +170,43 @@ class LedgerTests(NoNetworkTestCase):
 
             self.assertEqual(ledger["ideas"]["AAA"]["closed"], "expired")
 
+    def test_load_drops_malformed_entries_and_shown_pairs(self) -> None:
+        # Final review M2: a hand-edited ledger must never crash rank.
+        with temp_project() as project:
+            good = {"run_id": "R1", "brief_id": "B02"}
+            doc = {"version": 1, "ideas": {
+                "AAA": "not an entry",
+                "BBB": {"first_run": "R1", "closed": None, "shown": [
+                    "junk", {"run_id": 5, "brief_id": "B01"}, {"run_id": "R1"}, good,
+                ]},
+                "CCC": {"first_run": "R1", "closed": None, "shown": "not a list"},
+            }}
+            ideas.ledger_path(project).parent.mkdir(parents=True)
+            ideas.ledger_path(project).write_text(json.dumps(doc), encoding="utf-8")
+
+            ledger = ideas.load_ledger(project)
+
+            self.assertEqual(set(ledger["ideas"]), {"BBB", "CCC"})
+            self.assertEqual(ledger["ideas"]["BBB"]["shown"], [good])
+            self.assertEqual(ledger["ideas"]["CCC"]["shown"], [])
+            ideas.close_entries(project, ledger, "R2", carry_weeks=2)
+            ideas.forget_run(ledger, "R9")
+            self.assertEqual(set(ledger["ideas"]), {"BBB"})
+
+    def test_close_entries_tolerates_non_dict_log_entries(self) -> None:
+        with temp_project() as project:
+            store.contentos_dir(project).mkdir(parents=True)
+            ledger = {"version": 1, "ideas": {}}
+            ideas.record_briefs(ledger, "R1", [_brief("B01", "AAA"), _brief("B02", "BBB")],
+                                {"AAA": _reel("AAA"), "BBB": _reel("BBB")})
+            (store.contentos_dir(project) / "log.json").write_text(
+                json.dumps({"briefs": {"R1/B01": "skipped", "R1/B02": None}}), encoding="utf-8"
+            )
+
+            ideas.close_entries(project, ledger, "R2", carry_weeks=2)
+
+            self.assertEqual({sc: e["closed"] for sc, e in ledger["ideas"].items()}, {"AAA": None, "BBB": None})
+
     def test_save_then_load_round_trips(self) -> None:
         with temp_project() as project:
             ledger = {"version": 1, "ideas": {}}

@@ -30,8 +30,22 @@ def ledger_path(project: Path) -> Path:
     return store.contentos_dir(project) / "ideas.json"
 
 
+def _valid_pair(pair: Any) -> bool:
+    return (
+        isinstance(pair, dict)
+        and isinstance(pair.get("run_id"), str)
+        and isinstance(pair.get("brief_id"), str)
+    )
+
+
 def load_ledger(project: Path) -> Dict[str, Any]:
-    """The ledger; an empty one when the file is missing or unreadable, like `log.json`."""
+    """The ledger; an empty one when the file is missing or unreadable, like `log.json`.
+
+    A hand-edited ledger must never crash `rank`, so an entry that is
+    not an object is dropped, and so is every `shown` pair that is not
+    an object with a string `run_id` and `brief_id` (a `shown` that is
+    not a list becomes `[]`, which `forget_run` then drops).
+    """
     path = ledger_path(project)
     if not path.exists():
         return _empty()
@@ -41,6 +55,14 @@ def load_ledger(project: Path) -> Dict[str, Any]:
         return _empty()
     if not isinstance(doc, dict) or not isinstance(doc.get("ideas"), dict):
         return _empty()
+    entries = {}
+    for key, entry in doc["ideas"].items():
+        if not isinstance(entry, dict):
+            continue
+        shown = entry.get("shown")
+        entry["shown"] = [pair for pair in shown if _valid_pair(pair)] if isinstance(shown, list) else []
+        entries[key] = entry
+    doc["ideas"] = entries
     return doc
 
 
@@ -70,7 +92,8 @@ def _closed_reason(
         if run_dir.is_dir() and agents.latest_script_revision(run_dir, pair["brief_id"]) is not None:
             return "scripted"
     for pair in entry.get("shown", []):
-        state = log["briefs"].get(f"{pair['run_id']}/{pair['brief_id']}", {}).get("state")
+        logged = log["briefs"].get(f"{pair['run_id']}/{pair['brief_id']}")
+        state = logged.get("state") if isinstance(logged, dict) else None
         if state in _LOG_CLOSES:
             return state
     first_run = entry.get("first_run")

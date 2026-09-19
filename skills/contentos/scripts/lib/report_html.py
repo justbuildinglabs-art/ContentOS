@@ -194,9 +194,12 @@ def _research_section(run_dir: Path, run_data: Dict[str, Any]) -> str:
         if isinstance(item, dict):
             reasons[item.get("reason", "other")] = reasons.get(item.get("reason", "other"), 0) + 1
     cfg = run_data.get("config") or {}
+    ratio = cfg.get("min_outlier_ratio")
+    ratio_text = f"{ratio:g}" if isinstance(ratio, (int, float)) else "?"
     labels = {
         "outside_lookback": f"older than {cfg.get('lookback_days', '?')} days",
         "below_min_plays": f"under {cfg.get('min_plays', '?')} plays",
+        "below_min_ratio": f"below {ratio_text}x their usual",
         "per_account_cap": f"past the cap of {cfg.get('max_per_account', '?')} per account",
         "already_briefed": "briefed in an earlier run",
     }

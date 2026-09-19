@@ -866,6 +866,24 @@ class RankTests(NoNetworkTestCase):
             self.assertEqual(code, codes.EXIT_USAGE, out)
             self.assertIn("no valid analysis in 03-analyses/", err)
 
+    def test_rank_says_why_a_bad_fill_file_was_not_used(self) -> None:
+        # Final review M4: one stderr line with the first problem, then
+        # rank carries on with no fill.
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research(project)
+            (run_dir / "03-fill.json").write_text(json.dumps({"ideas": [{"idea_title": "T"}]}),
+                                                  encoding="utf-8")
+
+            code, out, err = _main(["rank", "--project", str(project), "--run", "latest", "--mock"])
+
+            self.assertEqual(code, codes.EXIT_OK, err)
+            self.assertEqual(json.loads(out)["fill"], 0)
+            fill_lines = [line for line in err.splitlines() if "03-fill.json" in line]
+            self.assertEqual(len(fill_lines), 1, err)
+            self.assertIn("not used", fill_lines[0])
+            self.assertIn(director.verify_fill(run_dir)[0], fill_lines[0])
+
     # -- Final review I1: never renumber briefs that have scripts or marks --
 
     def _ranked_run(self, project: Path) -> Path:

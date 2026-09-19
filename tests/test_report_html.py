@@ -111,6 +111,21 @@ class ReportHtmlTests(NoNetworkTestCase):
         self.assertNotIn("<h3>Pending brief</h3>", html)
         self.assertNotIn("<td>Pending brief</td>", html)
 
+    def test_funnel_names_the_ratio_floor_in_plain_words(self) -> None:
+        # Final review M1: `below_min_ratio` gets a label from the run's
+        # own `min_outlier_ratio`, never the raw reason key.
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            store.update_run(run_dir, config=dict(store.read_json(run_dir / "run.json")["config"],
+                                                  min_outlier_ratio=2.0))
+            doc = store.read_json(run_dir / "02-outliers.json")
+            doc["excluded"] = [{"shortCode": "X1", "reason": "below_min_ratio"},
+                               {"shortCode": "X2", "reason": "below_min_ratio"}]
+            store.write_json_atomic(run_dir / "02-outliers.json", doc)
+            html = report_html.render_report_html(run_dir)
+        self.assertIn("minus <b>2</b> below 2x their usual", html)
+        self.assertNotIn("below_min_ratio", html)
+
     def test_a_run_with_no_briefs_still_renders(self) -> None:
         with temp_project() as project:
             config_dir = store.contentos_dir(project)
