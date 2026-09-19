@@ -306,6 +306,18 @@ def _has_file(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
+def _no_audio_track(result: Any) -> bool:
+    """Whether ffmpeg failed only because the video has no audio stream.
+
+    Instagram sometimes serves a video-only stream. There is nothing to
+    hear, so that is `none`, not a transcription failure.
+    """
+    stderr = getattr(result, "stderr", "") or ""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    return "does not contain any stream" in stderr or "matches no streams" in stderr
+
+
 def transcribe_local(
     mp4: Path,
     out_path: Path,
@@ -320,7 +332,7 @@ def transcribe_local(
     with `-ocsv` so the segments land in `<prefix>.csv`, and that CSV
     (or, failing that, whisper's printed segment lines) becomes the
     transcript. `ok` when at least one segment was written, `none` when
-    whisper ran fine but heard nothing, `failed` for any process error,
+    whisper ran fine but heard nothing or the video has no audio track, `failed` for any process error,
     timeout, or missing binary. Never raises for those.
     """
     with tempfile.TemporaryDirectory(prefix="contentos-whisper-") as tmp:
@@ -338,6 +350,8 @@ def transcribe_local(
         ]
         try:
             result = runner(ffmpeg_cmd, check=False, capture_output=True, timeout=_FFMPEG_TIMEOUT_S)
+            if result.returncode != 0 and _no_audio_track(result):
+                return STATUS_NONE
             if result.returncode != 0 or not _has_file(wav):
                 return STATUS_FAILED
             result = runner(

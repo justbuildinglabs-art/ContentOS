@@ -66,10 +66,10 @@ def _which(present: List[str]):
 
 
 class _Proc:
-    def __init__(self, returncode: int = 0, stdout: str = "") -> None:
+    def __init__(self, returncode: int = 0, stdout: str = "", stderr: Any = "") -> None:
         self.returncode = returncode
         self.stdout = stdout
-        self.stderr = ""
+        self.stderr = stderr
 
 
 class _FakeRunner:
@@ -214,6 +214,23 @@ class TranscribeLocalTests(NoNetworkTestCase):
         self.assertEqual(whisper_cmd[whisper_cmd.index("-m") + 1], "/m/ggml-base.en.bin")
         self.assertEqual(whisper_cmd[whisper_cmd.index("-f") + 1], ffmpeg_cmd[-1])
         self.assertIn("-ocsv", whisper_cmd)
+
+    def test_a_video_with_no_audio_track_is_none_not_failed(self) -> None:
+        # Instagram sometimes serves a video-only stream. There is nothing
+        # to hear, which is "none", not a transcription failure.
+        with temp_project() as tmp:
+            mp4 = tmp / "A1.mp4"
+            mp4.write_bytes(b"mp4")
+            out = tmp / "A1.txt"
+
+            def no_audio(cmd, **_kw):
+                return _Proc(234, stderr=b"[out#0/wav] Output file does not contain any stream\n")
+
+            status = transcribe.transcribe_local(
+                mp4, out, "whisper-cli", Path("/m.bin"), ffmpeg="ffmpeg", runner=no_audio
+            )
+        self.assertEqual(status, "none")
+        self.assertFalse(out.exists())
 
     def test_failures_are_statuses_not_exceptions(self) -> None:
         with temp_project() as tmp:
