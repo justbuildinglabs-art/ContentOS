@@ -241,6 +241,13 @@ def _transcribe_handler(args: argparse.Namespace) -> int:
     project_dir = args.project.resolve()
     try:
         cfg = store.load_config(project_dir)
+        # The Apify fallback is paid, so it asks first, like research does:
+        # print the estimate and exit 3 until the creator passes --yes.
+        if not args.mock and not args.yes and transcribe.apify_planned(cfg):
+            print(json.dumps({"transcripts_usd": transcribe.estimate_usd(cfg),
+                              "cap_usd": cfg["apify_max_charge_usd"]}))
+            print("confirmation required; re-run with --yes to spend on Apify transcripts", file=sys.stderr)
+            return codes.EXIT_CONFIRM
         keys = env.resolve_keys(project_dir)
         result = transcribe.run_transcribe(
             project_dir,
@@ -517,6 +524,7 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--run", required=True)
             sub.add_argument("--refresh-expired", action="store_true")
         if name == "transcribe":
+            sub.add_argument("--yes", action="store_true")
             sub.add_argument("--run", required=True)
         if name in (
             "direct-prompt", "synth-prompt", "rank", "verify",

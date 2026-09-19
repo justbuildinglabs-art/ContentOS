@@ -613,6 +613,59 @@ class TranscribeCliTests(NoNetworkTestCase):
         self.assertIn("02-outliers.json", err)
 
 
+class TranscribeSpendGuardTests(NoNetworkTestCase):
+    """A paid Apify transcript run asks first, exactly like research does."""
+
+    def _run(self, project: Path, extra_args: list) -> tuple:
+        import contentos
+        from contextlib import redirect_stderr, redirect_stdout
+        from io import StringIO
+
+        out, err = StringIO(), StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = contentos.main(["transcribe", "--run", "latest", "--project", str(project)] + extra_args)
+        return code, out.getvalue(), err.getvalue()
+
+    def _paid_project(self, project: Path) -> None:
+        _write_config(
+            project,
+            {
+                "competitors": FIXTURE_HANDLES,
+                "apify_transcripts": True,
+                "apify_transcript_usd_per_min": 0.02,
+            },
+        )
+        _mock_research(project)
+
+    def test_paid_backend_without_yes_prints_the_estimate_and_exits_3(self) -> None:
+        with temp_project() as project:
+            self._paid_project(project)
+            with mock.patch.object(transcribe, "local_available", return_value=False), \
+                    mock.patch.object(transcribe, "run_transcribe") as run:
+                code, out, _err = self._run(project, [])
+        self.assertEqual(code, 3)
+        run.assert_not_called()
+        self.assertGreater(json.loads(out)["transcripts_usd"], 0)
+
+    def test_paid_backend_with_yes_runs(self) -> None:
+        with temp_project() as project:
+            self._paid_project(project)
+            with mock.patch.object(transcribe, "local_available", return_value=False), \
+                    mock.patch.object(transcribe, "run_transcribe", return_value={"run_id": "x"}) as run:
+                code, _out, _err = self._run(project, ["--yes"])
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+
+    def test_free_backends_never_ask(self) -> None:
+        with temp_project() as project:
+            self._paid_project(project)
+            with mock.patch.object(transcribe, "local_available", return_value=True), \
+                    mock.patch.object(transcribe, "run_transcribe", return_value={"run_id": "x"}) as run:
+                code, _out, _err = self._run(project, [])
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+
+
 class DiagnoseWhisperTests(NoNetworkTestCase):
     def test_diagnose_reports_whisper_and_model(self) -> None:
         from lib import env
