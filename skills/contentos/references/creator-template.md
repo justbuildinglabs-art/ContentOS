@@ -55,10 +55,10 @@ List the testimonials, reviews, screenshots, numbers, or results that
 genuinely exist and may be shown on screen.
 
 ## Inventory
-List the things you actually use, built, make, or teach, one per line. Give
-each one proof or one number when you have it. The writer names these in
-place of the source reel's tools and examples, so a script sounds like you
-and not like any account in the niche.
+Optional. List the things you actually use, built, make, or teach, one per
+line, with proof or one number when you have it. Without this section, scripts
+still name real things: the tools and steps from the source reels and the
+researched fact sheet. With it, scripts can also name yours.
 
 Short examples, one per niche:
 A cook: cast iron skillet I have used for 6 years, 3 dinners a week.

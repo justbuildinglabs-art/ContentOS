@@ -27,7 +27,7 @@ from lib import report, store
 _WEIGHTS = (("viral_proof", 0.35, "viral"), ("score_convertible", 0.25, "convertible"),
             ("score_scalable", 0.20, "scalable"), ("score_fit", 0.20, "fit"))
 
-_SCRIPT_SECTIONS = ("Hook", "Beats", "Payoff", "CTA", "Caption")
+_SCRIPT_SECTIONS = ("Hook", "Beats", "Payoff", "CTA", "Lead magnet", "Caption")
 _NOTE_SECTIONS = ("Production notes", "What changed vs source")
 
 _CSS = """

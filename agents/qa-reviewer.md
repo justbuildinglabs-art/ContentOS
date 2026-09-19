@@ -72,13 +72,23 @@ never fails `payoff_present` for it.
 
 Judge every claim against its tier. The prompt repeats these.
 
-- About the creator: it must be in `creator.md` or this brief's intake answers.
-- About the world: it must be in the fact sheet, or be a brief specific marked
-  `public: true`, stated plainly.
+Any reasonable claim is fine inside the three tiers.
+
+- About the world: a tool, product, repo, place, or step from the brief's
+  specifics (`public: true`), the source transcript, or the fact sheet, stated
+  plainly.
+- About the creator: first-person framing ("I use", "here is how I set it
+  up") is fine when the screen can show it. A number about the creator's own
+  results must be in `creator.md` or this brief's intake answers, or be a
+  placeholder.
 - Never: anything under Forbidden claims.
 
-Placeholders are only for facts about the creator. A placeholder where a world
-fact should be is an issue against `facts_sourced` or `body_specificity`.
+Placeholders are only for facts about the creator's own results. A placeholder
+where a nameable tool, step, or world fact should be is an issue against
+`facts_sourced` or `body_specificity`. When the script has a `## Lead magnet`
+section, judge it under `cta_action_clarity`: the primary CTA must ask for its
+keyword, and the guide must contain only what the brief and fact sheet
+support.
 
 ## The thirteen checks
 
@@ -101,9 +111,9 @@ Each one is `pass`, `fail`, or `na`. Use `na` only where it says so.
   an invented fact, a wrong number, or a contradiction with Allowed claims or
   What you promote.
 - `no_fabricated_claims`: pass when every number and factual claim traces to
-  its tier: Allowed claims, Proof assets, Payoff moments, What you promote, or
-  Inventory in `creator.md`, or the intake answers, for the creator; the fact
-  sheet or a public specific for the world. A creator fact written as a
+  its tier: for the creator, Allowed claims, Proof assets, Payoff moments,
+  What you promote, or Inventory in `creator.md`, or the intake answers; for the world, the fact
+  sheet, a public specific, or the source transcript. A creator fact written as a
   placeholder passes. Fail on any invented statistic, rating, user count, or
   result.
 - `no_fake_testimonial`: pass when no quote, review, screenshot, or customer

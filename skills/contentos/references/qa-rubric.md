@@ -11,16 +11,22 @@ anyway. A generous 8 wastes the revision.
 
 ## Claim tiers
 
-Every claim in a script sits in one of three tiers. Judge it against its own tier.
+Every claim in a script sits in one of three tiers. Judge it against its own tier. Any reasonable claim
+is fine inside them.
 
-- About the creator: it must be in `creator.md` (Allowed claims, Proof assets, Payoff moments, What you
-  promote, Inventory) or in this brief's intake answers. Intake answers count for this brief only.
-- About the world: it must be in the brief's fact sheet, or be a brief specific marked `public: true`. It is
-  stated plainly, the way anyone could check it.
+- About the world: a tool, product, repo, place, or step from the brief's specifics (`public: true`), the
+  source transcript, or the fact sheet. It is stated plainly, the way anyone could check it.
+- About the creator: first-person framing is fine when the screen can show it. A number about the
+  creator's own results must be in `creator.md` (Allowed claims, Proof assets, Inventory) or this brief's
+  intake answers, or be a placeholder.
 - Never: anything under Forbidden claims, and any medical, income, or legal promise.
 
-Placeholders are only for facts about the creator. A `[NEED ...]` standing in for a world fact is a
-problem: the writer should have used the fact sheet or a public specific, or left the fact out.
+Placeholders are only for facts about the creator's own results. A `[NEED ...]` standing in for a
+nameable tool, step, or world fact is a problem: the writer should have named it from the brief or the
+fact sheet.
+
+The `## Lead magnet` section, when present, is judged under `cta_action_clarity`: the primary CTA asks for
+its keyword, and the guide lists only what the brief and the fact sheet support.
 
 ## Checks
 
@@ -49,8 +55,8 @@ contradiction with Allowed claims or What you promote.
 
 ### no_fabricated_claims
 Pass when every number and factual claim traces to its tier. For the creator, that is Allowed claims,
-Proof assets, Payoff moments, What you promote, or Inventory in `creator.md`, or the brief's intake
-answers. For the world, that is the fact sheet or a public brief specific. A creator fact written as a
+Proof assets, Payoff moments, What you promote, or Inventory in `creator.md`, or the brief's intake answers. For the world,
+that is the fact sheet, a public brief specific, or the source transcript. A creator fact written as a
 placeholder also passes. Fail on any invented statistic, rating, user count, or result.
 
 ### no_fake_testimonial

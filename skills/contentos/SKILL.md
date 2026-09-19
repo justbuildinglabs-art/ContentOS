@@ -191,12 +191,11 @@ if any: this is optional, and the writer picks from the niche when the
 section is empty. 3 to 8 Instagram handles in your niche. 0 to 5 accounts from
 any niche whose formats travel well.
 
-**Round 5, what you actually use.** The tools, products, recipes, routines, or
-builds you really use or made, one per line, each with one number or proof if
-you have it: "Zapier flow that tags new leads, runs 40 times a week". This is
-the inventory. It is what lets a script name a real thing instead of "an AI
-tool". Also: what your lead magnet or free guide actually contains, in one
-line, and whether it is free.
+**Round 5, optional.** Say that skipping it is fine. Scripts name real things
+anyway, from the source reels and web research, and each script suggests its
+own lead magnet. Ask: any tools, products, or builds you use that you want
+named, one per line, with a number if you have one (the inventory). And, if
+you already have one fixed guide people comment for, what it contains.
 
 Then write the answers and run setup:
 
@@ -307,10 +306,12 @@ final message.
 ## Intake and the fact sheet
 
 Generic scripts come from missing facts, not from bad writing. Before the
-writer runs, collect two small files per chosen brief. Both are optional, and
-the writer and the reviewer read them when they exist.
+writer runs, build the fact sheet for every chosen brief. It is the default,
+and it needs nothing from the creator. The intake is optional: use it when the
+creator wants to add their own results, and always after `needs_human`. The
+writer and the reviewer read both files when they exist.
 
-**Intake: facts about the creator.**
+**Intake (optional): facts about the creator.**
 
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" intake --project "$PWD" --run <run_id> --brief B01
@@ -324,9 +325,10 @@ what the creator says to `<run_dir>/04-intake/B01.md`, bullets under a
 `## Answers` heading. A blank answer stays out of the file, and the writer uses
 a placeholder for it.
 
-**Fact sheet: facts about the world.** For each public specific the creator
-kept (a repo, a tool, a product, a recipe, a verse), look it up yourself with
-WebSearch and WebFetch. The subagents have no network, so this step is yours.
+**Fact sheet: facts about the world (default).** For each public specific in
+the brief (a repo, a tool, a product, a recipe, a verse), and each step the
+brief says the reel teaches, look it up yourself with WebSearch and WebFetch.
+Aim for 4 to 8 facts that a proof beat or the lead magnet can use. The subagents have no network, so this step is yours.
 Record only what a source says: what it is, who it is for, what it costs in
 money or time, and one tradeoff or alternative. Write
 `<run_dir>/04-facts/B01.md`, one bullet per fact:
@@ -421,6 +423,11 @@ re-dispatch once, then carry on either way.
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" write-prompt --project "$PWD" --run <run_id> --brief B01 > "$RUN_DIR/prompts/write-B01.r0.md"
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <run_id> --stage write --brief B01
 ```
+
+Every script now ends its CTA with a suggested `## Lead magnet`: a keyword,
+a guide title, and what the guide contains, built from the brief and the fact
+sheet. Show it with the script. It is a suggestion for the creator to make,
+never a file ContentOS sends.
 
 Dispatch `contentos:script-writer` at `write-B01.r0.md` between them. Verify
 prints `ok <path> words=... read_time_s=... placeholders=... placeholder_ratio=...`

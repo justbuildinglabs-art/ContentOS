@@ -27,6 +27,7 @@ from tests.helpers import NoNetworkTestCase, temp_project
 from tests.test_agents import (
     QA_FIXTURE,
     REFERENCES_DIR,
+    SCRIPT_FIXTURE,
     _dump_json,
     _main,
     _mock_research_and_rank,
@@ -565,3 +566,67 @@ class WriterAndQaDocsTests(NoNetworkTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_LEAD_MAGNET = """## Lead magnet
+
+Keyword: PLAN
+Title: The Sunday one-prompt planning sheet
+- The one prompt, word for word
+- Where to paste it and how long it takes
+- The week view template shown in the reel
+
+"""
+
+
+def _script_with_lead_magnet(section: str = _LEAD_MAGNET, keyword_in_cta: bool = True) -> str:
+    """The gold fixture script with a `## Lead magnet` section after the CTA."""
+    text = SCRIPT_FIXTURE.read_text(encoding="utf-8")
+    if keyword_in_cta:
+        text = text.replace(
+            "One prompt, not another pile-up. Join the free weekly email,",
+            "Comment PLAN for the sheet. Join the free weekly email,",
+        )
+    return text.replace("## Caption", section + "## Caption", 1)
+
+
+class LeadMagnetTests(NoNetworkTestCase):
+    """0.3.0 follow-up: each script suggests its own lead magnet."""
+
+    def _check(self, text: str) -> "agents.ScriptCheck":
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "B01.r0.md"
+            path.write_text(text, encoding="utf-8")
+            return agents.verify_script(path, REFERENCES_DIR, 0.10)
+
+    def test_a_script_with_a_lead_magnet_passes(self) -> None:
+        self.assertEqual(self._check(_script_with_lead_magnet()).errors, [])
+
+    def test_a_script_without_one_still_passes(self) -> None:
+        self.assertEqual(self._check(SCRIPT_FIXTURE.read_text(encoding="utf-8")).errors, [])
+
+    def test_lead_magnet_needs_a_keyword_a_title_and_three_to_seven_items(self) -> None:
+        bad = {
+            "no keyword": _LEAD_MAGNET.replace("Keyword: PLAN\n", ""),
+            "no title": _LEAD_MAGNET.replace("Title: The Sunday one-prompt planning sheet\n", ""),
+            "two items": _LEAD_MAGNET.replace("- The week view template shown in the reel\n", ""),
+        }
+        for name, section in bad.items():
+            with self.subTest(case=name):
+                errors = self._check(_script_with_lead_magnet(section)).errors
+                self.assertTrue(any(e.startswith("Lead magnet:") for e in errors), errors)
+
+    def test_the_primary_cta_must_use_the_lead_magnet_keyword(self) -> None:
+        errors = self._check(_script_with_lead_magnet(keyword_in_cta=False)).errors
+        self.assertTrue(any("PLAN" in e and "CTA" in e for e in errors), errors)
+
+    def test_write_prompt_asks_for_a_lead_magnet_and_allows_reasonable_claims(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research_and_rank(project)
+            text = agents.write_prompt(project, run_dir, "B01", references_dir=REFERENCES_DIR)
+        self.assertIn("## Lead magnet", text)
+        self.assertIn("Keyword:", text)
+        self.assertIn("reasonable claim", text)
+        self.assertIn("never invent a number about the creator's own results", text)
+        self.assertNotIn("—", text)

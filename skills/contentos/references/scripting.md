@@ -53,17 +53,20 @@ something the viewer cannot see, either shoot it or cut the line.
 
 ## Evidence only: three claim tiers
 
-- About the creator: the claim must trace to `creator.md` (Allowed claims, Proof assets, Payoff moments,
-  What you promote, Inventory) or to this brief's intake answers. Intake answers count for this brief only.
-- About the world: the claim must be in the brief's fact sheet, or be a brief specific marked
-  `public: true`. State it plainly, the way anyone could check it.
+Any reasonable claim is fine inside these three tiers.
+
+- About the world: name the tools, products, repos, places, and steps from the brief's specifics
+  (anything marked `public: true`), the source transcript, and the fact sheet. State them plainly, the way
+  anyone could check them.
+- About the creator: first-person framing is fine ("I use", "here is how I set it up") as long as the
+  screen can show it. The creator's own results come from `creator.md` (Allowed claims, Proof assets,
+  Inventory, when filled in) or this brief's intake answers.
 - Never: anything under Forbidden claims.
-- Placeholders are only for facts about the creator. Never invent a statistic, a rating, a user count, or
-  a funding number about the creator. Write `[NEED NUMBER]` in place of the figure and keep the sentence.
-  The creator fills it in later. A world fact that is not in the fact sheet or a public specific is left
-  out, never placeheld.
-- Use the same convention for other missing creator facts: `[NEED NAME]`, `[NEED SCREENSHOT]`,
-  `[NEED DATE]`.
+- Placeholders are only for facts about the creator's own results. Never invent a statistic, a rating, a
+  user count, or a result about the creator. Write `[NEED NUMBER]` in place of the figure and keep the
+  sentence. The creator fills it in later. Never placehold a tool or a step you can name from the brief or
+  the fact sheet: name it.
+- Use the same convention for a shot only the creator can capture: `[NEED SCREENSHOT]`.
 - No testimonial, quote, review, or message screenshot unless it is listed under Proof assets.
 - Nothing under Forbidden claims, and no medical, income, or legal promise even when the creator would
   like one.
@@ -74,8 +77,8 @@ something the viewer cannot see, either shoot it or cut the line.
 
 A script any account in the niche could post is a failed script, however clean the lines are.
 
-- Where the source reel names a tool, a number, a place, or a step, name the creator's own: an Inventory
-  item, an intake answer, a public specific from the brief, or a fact from the fact sheet.
+- Where the source reel names a tool, a number, a place, or a step, name it: a public specific from the
+  brief, a step, a fact from the fact sheet, or an Inventory item or intake answer when there is one.
 - Use at least `min_specifics` concrete named items, the number the prompt gives you, 3 by default. A
   placeholder does not count toward it. QA checks this as `not_generic` and scores it as
   `body_specificity`.
@@ -107,6 +110,15 @@ A script any account in the niche could post is a failed script, however clean t
 - The open loop leaves a question that only the action resolves. Good for cold audiences.
 - Urgency only when it is real. No invented deadlines, no fake scarcity.
 - The CTA must land as the last step of the argument, never as a sales pitch glued onto the end.
+
+## Lead magnet rules
+
+- Every script suggests the free guide its comment keyword delivers. The reel shows that it works; the
+  guide hands over the how.
+- Build it only from the brief's steps, its public specifics, and the fact sheet. Never promise a result.
+- Shape: a `Keyword: <ONEWORD>` line in capitals, a `Title:` line, then 3 to 7 bullets naming what the
+  guide contains. The primary CTA asks for that keyword.
+- When `creator.md`'s CTA already names a specific guide, use that guide instead of suggesting one.
 
 ## Caption rules
 

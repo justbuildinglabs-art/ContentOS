@@ -72,27 +72,31 @@ mechanism. Change 10 to 20 percent of the source: the subject, the setting, the
 example, the number. Under 10 percent is a clone. Over 20 percent throws away
 the thing that worked. Read the brief's `avoid` line first and steer around it.
 
-**Three claim tiers.** Every claim sits in one of three tiers.
+**Three claim tiers.** Every claim sits in one of three tiers. Any reasonable
+claim is fine inside them.
 
-- About the creator: it must already exist in `creator.md` (Allowed claims,
-  Proof assets, Payoff moments, What you promote, Inventory) or in this brief's
-  intake answers. Intake answers count for this brief only.
-- About the world: it must be in the fact sheet, or be a brief specific marked
-  `public: true`. Say it plainly, the way anyone could check it.
+- About the world: name the tools, products, repos, places, and steps from the
+  brief's specifics (anything marked `public: true`), the source transcript,
+  and the fact sheet. Say them plainly, the way anyone could check them.
+- About the creator: first-person framing is fine ("I use", "here is how I set
+  it up", "my take") as long as the screen can show it. The creator's own
+  results come from `creator.md` (Allowed claims, Proof assets, Inventory, when
+  they are filled in) or this brief's intake answers. Never invent a number
+  about the creator's own results.
 - Never: anything under Forbidden claims, and no medical, income, or legal
   promise.
 
-Placeholders are only for facts about the creator. Write `[NEED NUMBER]` in
-place of a creator number nobody gave you, and keep the sentence. Use
-`[NEED NAME]`, `[NEED SCREENSHOT]`, and `[NEED DATE]` the same way. A world
-fact that is not in the fact sheet or a public specific is left out, never
-placeheld. No testimonial, quote, review, or message screenshot unless it is
+Placeholders are only for facts about the creator's own results. Write
+`[NEED NUMBER]` for time saved, leads, money, or counts nobody gave you, and
+keep the sentence. Use `[NEED SCREENSHOT]` for a shot only the creator can
+capture. Never placehold a tool or a step you can name from the brief or the
+fact sheet: name it. No testimonial, quote, review, or message screenshot unless it is
 listed under Proof assets.
 
 **Name real things.** Generic lines are the failure this pipeline exists to
-stop. Where the source reel names a tool, a number, or a step, name the
-creator's own: an Inventory item, an intake answer, a public specific, or a
-fact from the fact sheet. Use at least `min_specifics` concrete named items,
+stop. Where the source reel names a tool, a number, or a step, name it: a
+public specific, a step from the brief, a fact from the fact sheet, or an
+Inventory item or intake answer when there is one. Use at least `min_specifics` concrete named items,
 the number the prompt gives you, 3 by default. A placeholder does not count
 toward it, and QA scores it as no proof at all.
 
@@ -149,8 +153,8 @@ frontmatter. Frontmatter keys, these seven in this order and no others:
 row in `formats.md`, the hypothesis and the shortcode come from the brief, and
 `revision` matches the `.rN` in the output path.
 
-Then these seven headings, in this order and no others: `## Hook`, `## Beats`,
-`## Payoff`, `## CTA`, `## Caption`, `## Production notes`,
+Then these eight headings, in this order and no others: `## Hook`, `## Beats`,
+`## Payoff`, `## CTA`, `## Lead magnet`, `## Caption`, `## Production notes`,
 `## What changed vs source`. No other heading, and no `## Sources` footer.
 
 - **Hook**: two variants, labeled exactly `**Primary (approach: <name>)**` and
@@ -169,6 +173,12 @@ Then these seven headings, in this order and no others: `## Hook`, `## Beats`,
 - **CTA**: two variants, labeled exactly `**Primary (direct ask)**` and
   `**Backup (open loop)**`. Exactly one plain line under each label, under 20
   words, with no `Spoken:` or `On-screen text:` prefix.
+- **Lead magnet**: the free guide this reel's comment keyword delivers, so the
+  viewer gets the full how. Build it from the brief's steps, specifics, and
+  fact sheet. Exactly: a `Keyword: <ONEWORD>` line in capitals, a
+  `Title: <guide name>` line, then 3 to 7 bullets naming what the guide
+  contains. The primary CTA asks viewers to comment that keyword. When
+  `creator.md`'s CTA names a specific guide, use that guide instead.
 - **Caption**: two or three short lines, then one final line of 5 to 8
   hashtags with nothing after it.
 - **Production notes**: audio, shots, text style, read time, word count.
