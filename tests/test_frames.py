@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest import mock
 
-from tests.helpers import NoNetworkTestCase, REPO_ROOT, run_cli, temp_project
+from tests.helpers import PRE_WEEKLY_CONFIG, NoNetworkTestCase, REPO_ROOT, run_cli, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
@@ -76,10 +76,12 @@ def _outliers_doc(selected: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _write_config(project: Path, overrides: Dict[str, Any]) -> None:
-    """Write `<project>/.contentos/config.json` with exactly `overrides`."""
+    """Write `<project>/.contentos/config.json` with `PRE_WEEKLY_CONFIG` overlaid with `overrides`."""
     config_dir = project / ".contentos"
     config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "config.json").write_text(json.dumps(overrides), encoding="utf-8")
+    (config_dir / "config.json").write_text(
+        json.dumps(dict(PRE_WEEKLY_CONFIG, **overrides)), encoding="utf-8"
+    )
 
 
 def _mock_keys() -> Keys:

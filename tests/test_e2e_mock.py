@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any, Dict, Sequence, Tuple
 from unittest import mock
 
-from tests.helpers import NoNetworkTestCase, REPO_ROOT, temp_project
+from tests.helpers import PRE_WEEKLY_CONFIG, NoNetworkTestCase, REPO_ROOT, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
@@ -114,6 +114,11 @@ def _run_pipeline(project: Path) -> Dict[str, Any]:
             ["setup", "--project", str(project), "--answers-file", str(SETUP_ANSWERS_FIXTURE)]
         )
         _require_ok(code, out, err, "setup --answers-file")
+
+        config_path = project / ".contentos" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config.update(PRE_WEEKLY_CONFIG)
+        config_path.write_text(json.dumps(config), encoding="utf-8")
 
         code, out, err = _main(["research", "--project", str(project), "--mock", "--yes"])
         _require_ok(code, out, err, "research --mock --yes")

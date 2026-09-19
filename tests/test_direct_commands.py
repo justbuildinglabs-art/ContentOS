@@ -27,7 +27,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
-from tests.helpers import NoNetworkTestCase, REPO_ROOT, temp_project
+from tests.helpers import PRE_WEEKLY_CONFIG, NoNetworkTestCase, REPO_ROOT, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
@@ -76,7 +76,11 @@ def _write_project(project: Path) -> None:
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(
         json.dumps(
-            {"competitors": FIXTURE_COMPETITORS, "format_accounts": FIXTURE_FORMAT_ACCOUNTS}
+            dict(
+                PRE_WEEKLY_CONFIG,
+                competitors=FIXTURE_COMPETITORS,
+                format_accounts=FIXTURE_FORMAT_ACCOUNTS,
+            )
         ),
         encoding="utf-8",
     )
