@@ -713,12 +713,19 @@ class RankTests(NoNetworkTestCase):
             _write_project(project)
             run_dir = _mock_research(project)
 
-            code, _out, _err = _main(
+            code, out, _err = _main(
                 ["rank", "--project", str(project), "--run", "latest", "--mock"]
             )
             self.assertEqual(code, codes.EXIT_OK)
+            summary = json.loads(out)
+            self.assertEqual(
+                {key: summary[key] for key in ("new", "carried", "fill")},
+                {"new": 5, "carried": 0, "fill": 0},
+            )
 
-            briefs = store.read_json(run_dir / "03-briefs.json")["briefs"]
+            briefs_doc = store.read_json(run_dir / "03-briefs.json")
+            self.assertEqual(briefs_doc["counts"], {"new": 5, "carried": 0, "fill": 0})
+            briefs = briefs_doc["briefs"]
             new_shortcodes = {brief["shortCode"] for brief in briefs if brief["kind"] == "new"}
             self.assertEqual(new_shortcodes, set(ANALYZED_SHORTCODES))
 
@@ -730,11 +737,19 @@ class RankTests(NoNetworkTestCase):
                 self.assertIsNone(entry["closed"])
 
             # Ranking the same run again must not double-count it: every
-            # entry still has exactly one shown pair, not two.
-            code, _out, _err = _main(
+            # entry still has exactly one shown pair, not two, and the
+            # counts are recomputed fresh (not accumulated across reruns).
+            code, out, _err = _main(
                 ["rank", "--project", str(project), "--run", "latest", "--mock"]
             )
             self.assertEqual(code, codes.EXIT_OK)
+            summary_again = json.loads(out)
+            self.assertEqual(
+                {key: summary_again[key] for key in ("new", "carried", "fill")},
+                {"new": 5, "carried": 0, "fill": 0},
+            )
+            briefs_doc_again = store.read_json(run_dir / "03-briefs.json")
+            self.assertEqual(briefs_doc_again["counts"], {"new": 5, "carried": 0, "fill": 0})
             ledger_again = ideas.load_ledger(project)
             self.assertEqual(set(ledger_again["ideas"]), new_shortcodes)
             for entry in ledger_again["ideas"].values():
@@ -762,8 +777,19 @@ class RankTests(NoNetworkTestCase):
             code, out, err = _main(["rank", "--project", str(project), "--run", "latest"])
             self.assertEqual(code, codes.EXIT_OK)
 
-            briefs2 = store.read_json(run2 / "03-briefs.json")["briefs"]
-            self.assertTrue(briefs2)
+            summary = json.loads(out)
+            self.assertEqual(
+                {key: summary[key] for key in ("new", "carried", "fill")},
+                {"new": 0, "carried": 4, "fill": 0},
+            )
+
+            briefs_doc2 = store.read_json(run2 / "03-briefs.json")
+            self.assertEqual(briefs_doc2["counts"], {"new": 0, "carried": 4, "fill": 0})
+            briefs2 = briefs_doc2["briefs"]
+            # Every shortCode week 1 briefed carries over except B01's,
+            # which was scripted and so closed.
+            expected_carried = set(ANALYZED_SHORTCODES) - {b01["shortCode"]}
+            self.assertEqual({brief["shortCode"] for brief in briefs2}, expected_carried)
             for brief in briefs2:
                 self.assertEqual(brief["kind"], "carried")
                 self.assertEqual(brief["weeks_carried"], 1)
@@ -772,7 +798,6 @@ class RankTests(NoNetworkTestCase):
                         str((run1 / "03-analyses").resolve()).replace("\\", "/")
                     )
                 )
-            self.assertNotIn(b01["shortCode"], [brief["shortCode"] for brief in briefs2])
 
     def test_rank_fails_only_when_nothing_to_rank(self) -> None:
         with temp_project() as project:
@@ -878,6 +903,34 @@ class LoadCarriedTests(NoNetworkTestCase):
             "version": 1,
             "ideas": {"AAA": _carried_entry("AAA", analysis_path, timestamp=None)},
         }
+        logged: List[str] = []
+
+        carried = direct._load_carried({}, ledger, "R1", logged.append)
+
+        self.assertEqual(carried, [])
+        self.assertTrue(any("AAA" in line for line in logged), logged)
+
+    def test_skips_entry_with_an_overflowing_timestamp(self) -> None:
+        # `instagram.parse_ts` raises OverflowError (not ValueError) for a
+        # numeric timestamp datetime.fromtimestamp cannot represent, so a
+        # hand-edited ledger with a huge epoch number must not crash rank.
+        analysis_path = ANALYSES_FIXTURES_DIR / "DWN006.json"
+        ledger = {
+            "version": 1,
+            "ideas": {"AAA": _carried_entry("AAA", analysis_path, timestamp=10 ** 20)},
+        }
+        logged: List[str] = []
+
+        carried = direct._load_carried({}, ledger, "R1", logged.append)
+
+        self.assertEqual(carried, [])
+        self.assertTrue(any("AAA" in line for line in logged), logged)
+
+    def test_skips_entry_missing_analysis_path(self) -> None:
+        analysis_path = ANALYSES_FIXTURES_DIR / "DWN006.json"
+        entry = _carried_entry("AAA", analysis_path)
+        del entry["analysis_path"]
+        ledger = {"version": 1, "ideas": {"AAA": entry}}
         logged: List[str] = []
 
         carried = direct._load_carried({}, ledger, "R1", logged.append)

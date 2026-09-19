@@ -32,8 +32,9 @@ call one function here, print what it returns -- exactly like the
   `03-patterns.md` from the committed fixtures, so a mock run reaches
   briefs without dispatching a single subagent.
 
-Nothing here touches the network, and nothing writes outside the run
-directory it was pointed at.
+Nothing here touches the network. Every function writes only inside
+the run directory it was pointed at, except `run_rank`, which also
+reads and writes the creator's `.contentos/ideas.json` ledger.
 """
 from __future__ import annotations
 
@@ -521,8 +522,17 @@ def _load_carried(
       and get two `shown` pairs recorded).
     - its reel snapshot's `timestamp` is missing or does not parse with
       `instagram.parse_ts` -- a hand-edited ledger must not crash
-      `rank` (`director._brief_dict` parses it unconditionally to
-      compute `days_old`).
+      `rank` (`director._brief_dict` parses a timestamp when one is
+      present, to compute `days_old`; a value that reaches `parse_ts`
+      but blows up there, such as an out-of-range epoch number, must be
+      caught here instead). `parse_ts` can raise `ValueError` (bad
+      string, or `NaN`), `TypeError`/`AttributeError` (not a string or
+      number, e.g. `None`), or `OverflowError`/`OSError` (a number
+      `datetime.fromtimestamp` cannot represent, such as `10**20` or
+      `float("inf")`).
+    - its ledger entry has no `analysis_path`, `frames_dir`, or
+      `first_run` (missing key or an explicit `null`) -- a hand-edited
+      or half-written entry must not `KeyError`/`TypeError` here either.
     - `entry["analysis_path"]` no longer reads as JSON, or the coerced
       object fails `director.validate_analysis` -- the design spec's
       "whose analysis file still loads and validates".
@@ -542,11 +552,19 @@ def _load_carried(
 
         try:
             instagram.parse_ts(reel.get("timestamp"))
-        except (ValueError, TypeError, AttributeError):
+        except (ValueError, TypeError, AttributeError, OverflowError, OSError):
             log(f"{shortcode}: not carried over, its reel has no parseable timestamp")
             continue
 
-        raw, problems = _read_analysis(Path(entry["analysis_path"]))
+        analysis_path = entry.get("analysis_path")
+        frames_dir = entry.get("frames_dir")
+        first_run = entry.get("first_run")
+        if not analysis_path or not frames_dir or not first_run:
+            log(f"{shortcode}: not carried over, its ledger entry is missing "
+                "analysis_path, frames_dir, or first_run")
+            continue
+
+        raw, problems = _read_analysis(Path(analysis_path))
         if raw is None:
             log(f"{shortcode}: not carried over, {problems[0]}")
             continue
@@ -561,9 +579,9 @@ def _load_carried(
                 "reel": reel,
                 "analysis": coerced,
                 "weeks_carried": entry["weeks_carried"],
-                "first_run": entry["first_run"],
-                "analysis_path": entry["analysis_path"],
-                "frames_dir": entry["frames_dir"],
+                "first_run": first_run,
+                "analysis_path": analysis_path,
+                "frames_dir": frames_dir,
             }
         )
     return carried
