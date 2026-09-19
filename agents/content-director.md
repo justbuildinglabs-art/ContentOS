@@ -68,6 +68,9 @@ a frame, and for every line of the transcript.
 ## Filling in the analysis
 
 - `brief_title`: one short line the creator can scan in a list.
+- `idea_title`: the creator's version as a topic line of 12 words or fewer.
+  Name the subject of their reel, not the source format. Example: "Claude can
+  now turn a doc into slides", not "Tool claim with three on-screen steps".
 - `hook_spoken`: your best guess at the first spoken line, taken from the
   burned in captions. Use null when nothing readable is there.
 - `hook_on_screen_text`: the text actually shown in the first frames.

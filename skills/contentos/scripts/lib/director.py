@@ -328,7 +328,7 @@ def _coerce_steps(value: Any) -> List[str]:
 def coerce_analysis(obj: Any) -> Dict[str, Any]:
     """Repair a subagent's analysis JSON into one that always passes `validate_analysis`.
 
-    Returns a new dict with exactly the 22 `analysis.schema.json`
+    Returns a new dict with exactly the 23 `analysis.schema.json`
     properties, built from whatever `obj` supplies:
 
     - Integer scores (`score_scalable`, `score_convertible`,
@@ -350,6 +350,9 @@ def coerce_analysis(obj: Any) -> Dict[str, Any]:
     - The optional `specifics` and `steps` (0.3.0) default to `[]`, so an
       analysis written before they existed still ranks; malformed items
       are dropped (see `_coerce_specifics`, `_coerce_steps`).
+    - The optional `idea_title` (0.4.0) is kept, stripped, when it is a
+      non-blank string; otherwise it falls back to the coerced
+      `brief_title`, so it is never missing or blank.
 
     `obj` need not even be a dict -- a non-dict input is treated as `{}`,
     so this never raises.
@@ -364,8 +367,13 @@ def coerce_analysis(obj: Any) -> Dict[str, Any]:
         value = source.get(field)
         return value if isinstance(value, str) else None
 
+    brief_title = _string("brief_title")
+    idea_title_raw = source.get("idea_title")
+    idea_title = idea_title_raw.strip() if isinstance(idea_title_raw, str) else ""
+
     return {
-        "brief_title": _string("brief_title"),
+        "brief_title": brief_title,
+        "idea_title": idea_title or brief_title,
         "hook_spoken": _nullable_string("hook_spoken"),
         "hook_on_screen_text": _nullable_string("hook_on_screen_text"),
         "hook_type": _coerce_enum(source.get("hook_type"), _HOOK_TYPES, "other"),

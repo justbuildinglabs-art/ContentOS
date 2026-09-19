@@ -284,8 +284,9 @@ _ANALYSIS_ENUMS = {
 }
 
 # Analysis properties that are optional on purpose (design spec, "0.3.0
-# changes": older analyses without them must still validate and rank).
-_OPTIONAL_ANALYSIS_PROPERTIES = {"specifics", "steps"}
+# changes": older analyses without them must still validate and rank;
+# "0.4.0 changes": idea_title falls back to brief_title when absent).
+_OPTIONAL_ANALYSIS_PROPERTIES = {"specifics", "steps", "idea_title"}
 
 _QA_ENUMS = {"verdict": ["pass", "revise", "reject"]}
 _QA_ENUMS.update({f"checks.{name}": ["pass", "fail", "na"] for name in _QA_CHECK_NAMES})
@@ -569,6 +570,7 @@ class CoerceAnalysisTests(NoNetworkTestCase):
             _valid_specific(kind="number", name="47 days", public=False),
         ]
         valid["steps"] = ["Open the app", "Tap the streak"]
+        valid["idea_title"] = "The four-times habit callout"
         coerced = director.coerce_analysis(valid)
         self.assertEqual(coerced, valid)
 
@@ -578,7 +580,8 @@ class CoerceAnalysisTests(NoNetworkTestCase):
 
         self.assertEqual(coerced["specifics"], [])
         self.assertEqual(coerced["steps"], [])
-        expected = dict(old_style, specifics=[], steps=[])
+        # idea_title is also new (0.4.0) and falls back to brief_title.
+        expected = dict(old_style, specifics=[], steps=[], idea_title=old_style["brief_title"])
         self.assertEqual(coerced, expected)
         self.assertEqual(director.validate_analysis(coerced), [])
 
@@ -612,6 +615,21 @@ class CoerceAnalysisTests(NoNetworkTestCase):
         coerced = director.coerce_analysis({"specifics": "Cursor", "steps": {"1": "a"}})
         self.assertEqual(coerced["specifics"], [])
         self.assertEqual(coerced["steps"], [])
+
+
+class IdeaTitleTests(NoNetworkTestCase):
+    def test_idea_title_kept_when_given(self) -> None:
+        raw = dict(_valid_analysis_raw(), idea_title="  Claude can now design your slides  ")
+        self.assertEqual(director.coerce_analysis(raw)["idea_title"], "Claude can now design your slides")
+
+    def test_idea_title_falls_back_to_brief_title(self) -> None:
+        raw = dict(_valid_analysis_raw(), brief_title="Tool claim, 3 steps")
+        raw.pop("idea_title", None)
+        coerced = director.coerce_analysis(raw)
+        self.assertEqual(coerced["idea_title"], "Tool claim, 3 steps")
+        self.assertEqual(director.validate_analysis(coerced), [])
+        blank = director.coerce_analysis(dict(raw, idea_title="   "))
+        self.assertEqual(blank["idea_title"], "Tool claim, 3 steps")
 
 
 # ---------------------------------------------------------------------------
