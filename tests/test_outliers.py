@@ -98,6 +98,9 @@ def _cfg(**overrides: Any) -> Dict[str, Any]:
     defaults means a test only has to name the keys it cares about.
     """
     cfg = dict(DEFAULT_CONFIG)
+    # 0.3.0 selection (90-day window, no ratio floor) so pre-0.4.0 tests
+    # keep their meaning; 0.4.0 tests override these explicitly.
+    cfg.update({"lookback_days": 90, "min_outlier_ratio": 0.0})
     cfg.update(overrides)
     return cfg
 
@@ -542,6 +545,54 @@ class SelectOutliersTests(NoNetworkTestCase):
         self.assertEqual(selected_and_backfill, set())
 
 
+class WeeklySelectionTests(NoNetworkTestCase):
+    def test_below_min_ratio_is_excluded_after_min_plays(self) -> None:
+        low = _scored_reel(shortCode="LOW", outlier_ratio=1.9)
+        few = _scored_reel(shortCode="FEW", outlier_ratio=1.0, plays=10)
+        ok = _scored_reel(shortCode="OK", outlier_ratio=2.0)
+        cfg = _cfg(min_outlier_ratio=2.0, min_plays=100)
+
+        selection = outliers.select_outliers([low, few, ok], cfg, NOW)
+
+        reasons = {item["shortCode"]: item["reason"] for item in selection.excluded}
+        self.assertEqual(reasons, {"LOW": "below_min_ratio", "FEW": "below_min_plays"})
+        self.assertEqual([r["shortCode"] for r in selection.selected], ["OK"])
+
+    def test_below_min_ratio_wins_over_already_briefed(self) -> None:
+        low = _scored_reel(shortCode="LOW", outlier_ratio=1.5)
+        selection = outliers.select_outliers(
+            [low], _cfg(min_outlier_ratio=2.0), NOW, already_briefed={"LOW"}
+        )
+        self.assertEqual(selection.excluded, [{"shortCode": "LOW", "reason": "below_min_ratio"}])
+
+    def test_overflow_fills_selected_before_any_slot_goes_empty(self) -> None:
+        busy = [
+            _scored_reel(shortCode=f"B{i}", ownerUsername="busy", outlier_ratio=10.0 - i)
+            for i in range(4)
+        ]
+        quiet = [_scored_reel(shortCode="Q0", ownerUsername="quiet", outlier_ratio=2.5)]
+        cfg = _cfg(max_per_account=2, top_k_videos=4, backfill_pool=0)
+
+        selection = outliers.select_outliers(busy + quiet, cfg, NOW)
+
+        # Capped list first (B0, B1, Q0), then busy's overflow (B2).
+        self.assertEqual([r["shortCode"] for r in selection.selected], ["B0", "B1", "Q0", "B2"])
+        self.assertEqual(selection.excluded, [{"shortCode": "B3", "reason": "per_account_cap"}])
+
+    def test_overflow_goes_to_backfill_after_selected(self) -> None:
+        busy = [
+            _scored_reel(shortCode=f"B{i}", ownerUsername="busy", outlier_ratio=10.0 - i)
+            for i in range(3)
+        ]
+        cfg = _cfg(max_per_account=1, top_k_videos=1, backfill_pool=1)
+
+        selection = outliers.select_outliers(busy, cfg, NOW)
+
+        self.assertEqual([r["shortCode"] for r in selection.selected], ["B0"])
+        self.assertEqual([r["shortCode"] for r in selection.backfill], ["B1"])
+        self.assertEqual(selection.excluded, [{"shortCode": "B2", "reason": "per_account_cap"}])
+
+
 class FixtureOutlierTests(NoNetworkTestCase):
     def test_fixture_outliers_selected(self) -> None:
         reel_items = _load_fixture("apify_reels_sample.json")
@@ -557,17 +608,18 @@ class FixtureOutlierTests(NoNetworkTestCase):
         for handle in handles:
             self.assertEqual(baselines[handle].confidence, "low")
 
+        fixture_cfg = _cfg(min_outlier_ratio=0.5)
         scored = [
             outliers.score_reel(
                 reel,
                 baselines[reel["ownerUsername"].lower()],
                 profiles.get(reel["ownerUsername"].lower()),
-                DEFAULT_CONFIG,
+                fixture_cfg,
             )
             for reel in reels
         ]
 
-        selection = outliers.select_outliers(scored, DEFAULT_CONFIG, NOW)
+        selection = outliers.select_outliers(scored, fixture_cfg, NOW)
 
         # `selected` is already ranked by outlier_ratio descending, so the
         # first reel seen per account is that account's top pick.
@@ -592,7 +644,7 @@ class FixtureOutlierTests(NoNetworkTestCase):
                 f">= 4x its account median ({acct_median})",
             )
 
-        # The one fixture reel dated outside the 90-day lookback (dailywins,
+        # The one fixture reel dated outside the lookback (dailywins,
         # April 2026) must be excluded specifically for that reason.
         excluded_reasons = {item["shortCode"]: item["reason"] for item in selection.excluded}
         april_reels = [

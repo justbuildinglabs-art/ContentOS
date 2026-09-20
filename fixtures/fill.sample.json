@@ -1,0 +1,28 @@
+{
+  "ideas": [
+    {
+      "idea_title": "The two-minute Sunday reset that saves your week",
+      "pillar": "Weekly planning resets",
+      "format_from": ["DWN006"],
+      "angle": "Open on a messy Monday calendar, then show the three reset moves that fixed it.",
+      "why": "The before and after hook worked on DWN006 and a weekly reset has a visible payoff.",
+      "specifics": []
+    },
+    {
+      "idea_title": "Notion or paper: one week, same plan, which one held",
+      "pillar": "Notion and paper systems compared",
+      "format_from": ["HAB005"],
+      "angle": "Run the same week in both systems and show the day each one broke.",
+      "why": "HAB005's challenge format gives a clear verdict the viewer waits for.",
+      "specifics": []
+    },
+    {
+      "idea_title": "One focus trick for the day everything goes wrong",
+      "pillar": "Focus tricks that survive a bad week",
+      "format_from": ["HAB005", "DWN006"],
+      "angle": "Show a bad day on screen, then the single trick that saved the afternoon.",
+      "why": "Both proof reels land a payoff inside the first beat.",
+      "specifics": []
+    }
+  ]
+}

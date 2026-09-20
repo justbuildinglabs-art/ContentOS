@@ -60,3 +60,11 @@ def temp_project() -> Iterator[Path]:
     """Yield a fresh temporary directory to use as a creator project root."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         yield Path(tmp_dir)
+
+
+# The 0.3.0 selection and brief count. Fixture reels span April to
+# September and their small accounts give blended ratios near 1.3, so
+# tests that check the original five-brief fixture story pin these.
+# 0.5 keeps the ratio floor inert: the lowest fixture reel with enough
+# plays is at 0.92 (config validation forbids 0).
+PRE_WEEKLY_CONFIG = {"lookback_days": 90, "min_outlier_ratio": 0.5, "briefs": 5}

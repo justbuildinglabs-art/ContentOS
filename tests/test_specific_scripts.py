@@ -167,6 +167,21 @@ class IntakeTests(NoNetworkTestCase):
             self.assertIn("Leave blank if you do not know", text)
             self.assertIn("## Answers", text)
 
+    def test_intake_titles_a_fill_brief_by_its_idea_title(self) -> None:
+        with temp_project() as project:
+            _write_project(project)
+            run_dir = _mock_research_and_rank(project)
+            path = run_dir / "03-briefs.json"
+            doc = store.read_json(path)
+            doc["briefs"][0].update(
+                {"kind": "fill", "idea_title": "My own Sunday week card", "brief_title": "Source format"}
+            )
+            path.write_text(json.dumps(doc), encoding="utf-8")
+
+            text = agents.intake_questions(project, run_dir, "B01")
+
+            self.assertEqual(text.splitlines()[0], "# Intake for B01: My own Sunday week card")
+
     def test_intake_cli_exit_0_and_exit_2_for_missing_brief_or_run(self) -> None:
         with temp_project() as project:
             _write_project(project)

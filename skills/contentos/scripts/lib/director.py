@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -328,7 +329,7 @@ def _coerce_steps(value: Any) -> List[str]:
 def coerce_analysis(obj: Any) -> Dict[str, Any]:
     """Repair a subagent's analysis JSON into one that always passes `validate_analysis`.
 
-    Returns a new dict with exactly the 22 `analysis.schema.json`
+    Returns a new dict with exactly the 23 `analysis.schema.json`
     properties, built from whatever `obj` supplies:
 
     - Integer scores (`score_scalable`, `score_convertible`,
@@ -350,6 +351,9 @@ def coerce_analysis(obj: Any) -> Dict[str, Any]:
     - The optional `specifics` and `steps` (0.3.0) default to `[]`, so an
       analysis written before they existed still ranks; malformed items
       are dropped (see `_coerce_specifics`, `_coerce_steps`).
+    - The optional `idea_title` (0.4.0) is kept, stripped, when it is a
+      non-blank string; otherwise it falls back to the coerced
+      `brief_title`, so it is never missing or blank.
 
     `obj` need not even be a dict -- a non-dict input is treated as `{}`,
     so this never raises.
@@ -364,8 +368,13 @@ def coerce_analysis(obj: Any) -> Dict[str, Any]:
         value = source.get(field)
         return value if isinstance(value, str) else None
 
+    brief_title = _string("brief_title")
+    idea_title_raw = source.get("idea_title")
+    idea_title = idea_title_raw.strip() if isinstance(idea_title_raw, str) else ""
+
     return {
-        "brief_title": _string("brief_title"),
+        "brief_title": brief_title,
+        "idea_title": idea_title or brief_title,
         "hook_spoken": _nullable_string("hook_spoken"),
         "hook_on_screen_text": _nullable_string("hook_on_screen_text"),
         "hook_type": _coerce_enum(source.get("hook_type"), _HOOK_TYPES, "other"),
@@ -705,8 +714,23 @@ _HEADING_DESCRIPTIONS = {
     ),
 }
 
+# The six schemas/fill.schema.json keys, one line each, worded from the
+# design spec's "0.4.0 changes", "Format fill" bullet.
+_FILL_KEY_LINES = [
+    "- idea_title: the creator's topic, 12 words or fewer.",
+    "- pillar: one of creator.md's pillars, copied as written from its ## Pillars section.",
+    "- format_from: one or more shortCodes from this run's analyses whose format and hook it borrows.",
+    "- angle: what the creator's reel says and shows, the 10 to 20 percent change.",
+    "- why: why this format suits this pillar.",
+    "- specifics: the analysis shape (kind, name, detail, evidence, public). List 2 to 3 "
+    "public specifics about this idea's own topic, such as a tool, a method, or a place, "
+    "when you can name them without guessing. Otherwise use [].",
+]
 
-def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) -> str:
+
+def build_synth_prompt(
+    run_dir: Path, references_dir: Path, creator_md: Path, fill_ideas: int = 8
+) -> str:
     """The dispatch prompt for the one set-level `03-patterns.md` synthesis.
 
     Lists every `03-analyses/*.json` file (sorted, absolute paths) plus
@@ -715,6 +739,13 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) ->
     on what belongs under it, so the subagent can copy the heading text
     verbatim into `03-patterns.md` (what `verify_patterns` later checks
     for); states the output path and the `WROTE`/`FAILED` contract.
+
+    When `fill_ideas > 0` (design spec, "0.4.0 changes", "Format fill"),
+    a `## Fill ideas` section before `## Rules` also asks for
+    `03-fill.json`: at most `fill_ideas` ideas, each with the six
+    `schemas/fill.schema.json` keys, and the `## Output` section names
+    that second path too. `fill_ideas == 0` (a creator turning format
+    fill off) leaves both out entirely.
     """
     run_dir = Path(run_dir)
     references_dir = Path(references_dir)
@@ -723,6 +754,7 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) ->
     analyses_dir = run_dir / "03-analyses"
     analysis_paths = sorted(analyses_dir.glob("*.json"))
     output_path = run_dir / "03-patterns.md"
+    fill_path = run_dir / "03-fill.json"
 
     lines: List[str] = [_HANDOFF_SYNTH, _HANDOFF_SYNTH_NOTE, ""]
 
@@ -746,6 +778,25 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) ->
         lines.append(_HEADING_DESCRIPTIONS[heading])
         lines.append("")
 
+    if fill_ideas > 0:
+        lines.append("## Fill ideas")
+        lines.append("")
+        lines.append(
+            f"Also write {fill_path.resolve()}: a JSON object with one key, "
+            f"\"ideas\", a list of at most {fill_ideas} format fill ideas. A "
+            "format fill idea takes a format that worked this week and "
+            "applies it to one of this creator's pillars, so the list still "
+            "reaches its full length when there are not enough real outliers. "
+            "Each idea needs exactly these keys:"
+        )
+        lines.append("")
+        lines.extend(_FILL_KEY_LINES)
+        lines.append("")
+        lines.append(
+            "A fill idea must not repeat a topic the analyses above already cover."
+        )
+        lines.append("")
+
     lines.append("## Rules")
     lines.append("")
     lines.append("- No em dashes.")
@@ -757,6 +808,8 @@ def build_synth_prompt(run_dir: Path, references_dir: Path, creator_md: Path) ->
     lines.append("## Output")
     lines.append("")
     lines.append(f"Write the synthesis to exactly this path: {output_path.resolve()}")
+    if fill_ideas > 0:
+        lines.append(f"Then write the fill ideas to exactly this path: {fill_path.resolve()}")
     lines.append(_OUTPUT_CONTRACT_LINE)
 
     return "\n".join(lines)
@@ -799,6 +852,80 @@ def verify_patterns(path: Path) -> List[str]:
         errors.append("required headings are present but out of order")
 
     return errors
+
+
+# ---------------------------------------------------------------------------
+# verify_fill / load_fill
+# ---------------------------------------------------------------------------
+
+
+def verify_fill(run_dir: Path) -> List[str]:
+    """Problems with this run's `03-fill.json`: missing is fine, malformed is not.
+
+    A missing file is not a problem (design spec, "0.4.0 changes",
+    "Format fill": "A missing file is fine, so older runs still verify
+    and rank") -- this returns `[]` so an older run, or a week with
+    `fill_ideas: 0`, verifies exactly like before. Otherwise: unreadable
+    JSON is one problem; the parsed object must validate against
+    `schemas/fill.schema.json` (`validate_against` handles every keyword
+    the schema uses -- `minLength`, nested `items`, `required`); and,
+    since the schema only knows `format_from` as an array of strings, an
+    idea whose `format_from` is empty, or names a shortCode with no
+    `03-analyses/<shortCode>.json` in this run, adds one more problem
+    line naming that idea by its 1-based position.
+    """
+    run_dir = Path(run_dir)
+    fill_path = run_dir / "03-fill.json"
+    if not fill_path.exists():
+        return []
+
+    try:
+        doc = json.loads(fill_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        return [f"{fill_path}: cannot read as JSON: {exc}"]
+
+    errors = validate_against(load_schema("fill"), doc)
+
+    ideas = doc.get("ideas") if isinstance(doc, dict) else None
+    if isinstance(ideas, list):
+        analyses_dir = run_dir / "03-analyses"
+        for index, idea in enumerate(ideas):
+            if not isinstance(idea, dict):
+                continue
+            format_from = idea.get("format_from")
+            if not isinstance(format_from, list) or not format_from:
+                errors.append(f"fill idea {index + 1}: format_from is empty")
+                continue
+            for shortcode in format_from:
+                if isinstance(shortcode, str) and not (analyses_dir / f"{shortcode}.json").exists():
+                    errors.append(
+                        f"fill idea {index + 1}: format_from {shortcode} has no analysis in this run"
+                    )
+
+    return errors
+
+
+def load_fill(run_dir: Path) -> List[Dict[str, Any]]:
+    """This run's format fill ideas, or `[]` when there are none or any are invalid.
+
+    `[]` when `03-fill.json` is missing (the common case: most weeks
+    have enough real outliers), unreadable, or `verify_fill` finds any
+    problem with it -- a fill list ranking cannot trust in part is
+    treated the same as no fill list at all. Otherwise the file's own
+    `ideas` list.
+    """
+    run_dir = Path(run_dir)
+    fill_path = run_dir / "03-fill.json"
+    if not fill_path.exists() or verify_fill(run_dir):
+        return []
+
+    try:
+        doc = json.loads(fill_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+
+    ideas = doc.get("ideas") if isinstance(doc, dict) else None
+    return ideas if isinstance(ideas, list) else []
 
 
 # ---------------------------------------------------------------------------
@@ -877,19 +1004,154 @@ def _reel_source_kind(reel: Dict[str, Any]) -> str:
     return reel.get("source_kind") or instagram.SOURCE_KIND_NICHE
 
 
-def _candidate_sort_key(
-    pair: Tuple[Dict[str, Any], Dict[str, Any]]
-) -> Tuple[float, float, str]:
-    """The one sort key used everywhere in `rank_briefs`: `brief_score`
-    descending, then `outlier_ratio` descending, then `shortCode`
-    ascending. Shared by the initial candidate sort and the re-sort of
-    the taken list, so both orderings can never drift apart."""
-    reel, analysis = pair
+_Candidate = Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]
+
+
+def _new_meta(run_dir: Path, shortcode: str) -> Dict[str, Any]:
+    """The `meta` dict for a this-run candidate (new, or a fill idea's proof reel).
+
+    `kind` is `"new"` here; a fill candidate built from this starts the
+    same way (same `analysis_path`/`frames_dir` -- design spec, "Format
+    fill": a fill brief borrows those from its first `format_from`
+    analysis, which lives at this run's normal path) and then overrides
+    `kind` and adds its own `idea_title`/`adaptation`/`specifics`.
+    """
+    return {
+        "kind": "new",
+        "weeks_carried": 0,
+        "analysis_path": str((run_dir / "03-analyses" / f"{shortcode}.json").resolve()),
+        "frames_dir": str((run_dir / "frames" / shortcode).resolve()),
+    }
+
+
+def _effective_score(
+    reel: Dict[str, Any], analysis: Dict[str, Any], meta: Dict[str, Any]
+) -> float:
+    """`brief_score` minus 1.0 per week carried, floored at 0 (design spec, "Ranking").
+
+    A new idea's `meta["weeks_carried"]` is 0, so this is exactly
+    `brief_score(analysis, reel)` unchanged; a carried idea's score
+    drops 1.0 per earlier run it was already shown in, so a strong idea
+    from last week can still beat a weak new one, while enough weeks
+    eventually sink it. This is the one score both the sort key and
+    each non-fill brief's stored `brief_score` use, so a brief's
+    displayed score always matches the order it was ranked in.
+    """
+    return round(max(0.0, brief_score(analysis, reel) - 1.0 * meta["weeks_carried"]), 2)
+
+
+def _candidate_sort_key(candidate: _Candidate) -> Tuple[float, float, str]:
+    """The one sort key used everywhere in `rank_briefs`: effective `brief_score`
+    (`_effective_score`, which already applies a carried idea's per-week
+    penalty) descending, then `outlier_ratio` descending, then
+    `shortCode` ascending. Shared by the initial candidate sort and the
+    re-sort of the taken list, so both orderings can never drift apart.
+    Fill candidates never reach this key (they are appended after
+    sorting is done)."""
+    reel, analysis, meta = candidate
     return (
-        -brief_score(analysis, reel),
+        -_effective_score(reel, analysis, meta),
         -(reel.get("outlier_ratio") or 0),
         reel.get("shortCode") or "",
     )
+
+
+def _brief_dict(
+    index: int,
+    reel: Dict[str, Any],
+    analysis: Dict[str, Any],
+    meta: Dict[str, Any],
+    now: Optional[datetime],
+) -> Dict[str, Any]:
+    """Build one brief, shared by new, carried, and fill candidates alike.
+
+    `format`, `hook_type`, `emotion_lead`, `risk_flags`, `confidence`,
+    `brief_title`, `transferable_mechanism`, `why_it_worked`, and `avoid`
+    always come from `analysis` -- for a fill candidate that is the
+    borrowed `format_from[0]` analysis (design spec, "Format fill"), so
+    those fields are shared with a real brief for the same idea. `kind`,
+    `weeks_carried`, `analysis_path`, and `frames_dir` come from `meta`.
+    `source_url`/`ownerUsername`/`source_kind` always come from `reel`
+    (for fill, the proof reel matching `format_from[0]`).
+
+    A fill candidate (`meta["kind"] == "fill"`) instead takes its
+    `idea_title` and `adaptation` (the fill idea's `angle`) from `meta`,
+    its `specifics` from `meta` (through `_coerce_specifics`, exactly like
+    an analysis's, so a malformed item is dropped), an empty `steps`, and
+    sets `brief_score`, `viral_proof`, `outlier_ratio`, `score_scalable`,
+    `score_convertible`, `score_fit`, and `days_old` to `None` -- its
+    proof reel proves only the format and the hook, and the fill topic
+    itself is unproven, so those numbers would score the wrong thing. A new or carried brief's
+    `idea_title` is `analysis["idea_title"]`, its `outlier_ratio` is
+    `reel.get("outlier_ratio")`, and its `days_old` is the whole days
+    from the source reel's `timestamp` to `now`, or `None` when `now` or
+    the timestamp is missing.
+    """
+    is_fill = meta["kind"] == "fill"
+
+    if is_fill:
+        idea_title = meta["idea_title"]
+        adaptation = meta["adaptation"]
+        specifics = _coerce_specifics(meta.get("specifics"))
+        steps: List[str] = []
+        score: Optional[float] = None
+        viral_proof: Optional[float] = None
+        outlier_ratio: Optional[float] = None
+        score_scalable: Optional[int] = None
+        score_convertible: Optional[int] = None
+        score_fit: Optional[int] = None
+        days_old: Optional[int] = None
+    else:
+        idea_title = analysis["idea_title"]
+        adaptation = analysis["adaptation"]
+        specifics = [dict(item) for item in analysis.get("specifics") or []]
+        steps = list(analysis.get("steps") or [])
+        score = _effective_score(reel, analysis, meta)
+        viral_proof = reel.get("viral_proof")
+        outlier_ratio = reel.get("outlier_ratio")
+        score_scalable = analysis["score_scalable"]
+        score_convertible = analysis["score_convertible"]
+        score_fit = analysis["score_fit"]
+        timestamp = reel.get("timestamp")
+        days_old = (now - instagram.parse_ts(timestamp)).days if now and timestamp else None
+
+    brief: Dict[str, Any] = {
+        "brief_id": f"B{index:02d}",
+        "shortCode": reel["shortCode"],
+        "kind": meta["kind"],
+        "weeks_carried": meta["weeks_carried"],
+        "idea_title": idea_title,
+        "brief_title": analysis["brief_title"],
+        "source_url": reel.get("url"),
+        "ownerUsername": reel.get("ownerUsername"),
+        "source_kind": _reel_source_kind(reel),
+        "format": analysis["format"],
+        "hook_type": analysis["hook_type"],
+        "emotion_lead": analysis["emotion_lead"],
+        "brief_score": score,
+        "viral_proof": viral_proof,
+        "outlier_ratio": outlier_ratio,
+        "score_scalable": score_scalable,
+        "score_convertible": score_convertible,
+        "score_fit": score_fit,
+        "risk_flags": analysis["risk_flags"],
+        "confidence": analysis["confidence"],
+        "adaptation": adaptation,
+        "avoid": analysis["avoid"],
+        "transferable_mechanism": analysis["transferable_mechanism"],
+        "why_it_worked": analysis["why_it_worked"],
+        "hypothesis": _hypothesis_line(analysis),
+        # Copies, so a brief edited later never reaches back into the
+        # analysis dict (or fill idea) it was built from.
+        "specifics": specifics,
+        "steps": steps,
+        "days_old": days_old,
+        "frames_dir": meta["frames_dir"],
+        "analysis_path": meta["analysis_path"],
+    }
+    if meta["kind"] == "carried":
+        brief["first_run"] = meta["first_run"]
+    return brief
 
 
 def rank_briefs(
@@ -898,59 +1160,116 @@ def rank_briefs(
     n: int,
     run_dir: Path,
     max_format_briefs: int = 2,
+    carried: Optional[List[Dict[str, Any]]] = None,
+    fill: Optional[List[Dict[str, Any]]] = None,
+    now: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
-    """Rank analyzed reels into the top `n` briefs (design spec, "Stage 2 -- direct").
+    """Rank this run's ideas, last week's carried ones, and format fill into
+    the top `n` briefs (design spec, "0.4.0 changes", "Ranking" and
+    "Format fill").
 
     `analyses` maps shortCode to a coerced analysis dict (see
-    `coerce_analysis`); `reels` are `02-outliers.json`'s scored `selected`
-    reels. Only a reel with a matching entry in `analyses` is ranked; the
-    rest (never analyzed, or `analysis_failed`) are silently excluded.
+    `coerce_analysis`) for this run; `reels` are `02-outliers.json`'s
+    scored `selected` reels. Only a reel with a matching entry in
+    `analyses` is ranked as `"new"`; the rest (never analyzed, or
+    `analysis_failed`) are silently excluded.
 
-    Survivors sort by `brief_score` descending, then `outlier_ratio`
-    descending, then `shortCode` ascending (the existing tiebreak). The
-    sorted list is then walked once: a niche reel (`source_kind` "niche",
-    or missing) is always taken; a format reel is taken only while fewer
-    than `max_format_briefs` format reels have been taken so far, and is
-    otherwise set aside. Because the walk visits the list in score order,
-    both the taken list and the set-aside list stay in score order too.
-    If the walk alone did not fill `n` slots (the format cap left too few
-    eligible reels), the remaining slots are filled from the set-aside
-    format reels, best score first -- so `max_format_briefs` limits how
-    many format briefs are taken *freely*, never how many can appear when
-    niche reels run short. The taken list (walk plus any backfill) is
-    then re-sorted with the same key (`brief_score` descending, same
-    tiebreak), so a backfilled brief never sits below a lower-scoring
-    one just because it was appended last. `B01`, `B02`, ... are assigned
-    in this final, re-sorted order.
+    `carried` (from `ideas.carry_candidates`, with the caller having
+    already loaded each entry's analysis) is a list of
+    `{"reel": <snapshot>, "analysis": <coerced>, "weeks_carried": int,
+    "first_run": str, "analysis_path": str, "frames_dir": str}`. No
+    carried item may share a shortCode with `analyses`: this function
+    does not check, and such an idea would be ranked twice, once as
+    new and once as carried. The caller filters them out first
+    (`direct._load_carried`). Each becomes a `"carried"` candidate, scored the same way as a new one
+    except its effective score has `weeks_carried` subtracted (floored
+    at 0, see `_effective_score`) -- so a strong idea from an earlier
+    week can still beat a weak new one, while enough weeks eventually
+    sink it. New and carried candidates share one sort: effective
+    `brief_score` descending, then `outlier_ratio` descending, then
+    `shortCode` ascending (`_candidate_sort_key`). That sorted list is
+    then walked once: a niche reel (`source_kind` "niche", or missing)
+    is always taken; a format reel is taken only while fewer than
+    `max_format_briefs` format reels have been taken so far, and is
+    otherwise set aside. Because the walk visits the list in score
+    order, both the taken list and the set-aside list stay in score
+    order too. If the walk alone did not fill `n` slots (the format cap
+    left too few eligible candidates), the remaining slots are filled
+    from the set-aside format candidates, best score first -- so
+    `max_format_briefs` limits how many format briefs are taken
+    *freely*, never how many can appear when niche candidates run short.
+    The taken list (walk plus any backfill) is then re-sorted with the
+    same key, so a backfilled brief never sits below a lower-scoring one
+    just because it was appended last, and cut to `n`.
 
-    `run_dir` is not part of `analyses`/`reels` (neither carries a run
-    directory), but every brief's `frames_dir` and `analysis_path` must
-    be absolute paths (design spec), so it is required here to build
-    them: `run_dir/frames/<shortCode>` and
-    `run_dir/03-analyses/<shortCode>.json`.
+    Only when that leaves fewer than `n` briefs does `fill` (from
+    `director.load_fill`, a list of `{"idea_title", "pillar",
+    "format_from", "angle", "why", "specifics"}` dicts) come in, walked
+    in file order and appended after every new and carried brief: an
+    idea whose `format_from[0]` has no entry in `analyses`, or whose
+    reel is not in `reels`, is skipped; otherwise it borrows that
+    entry's analysis and reel (format, hook, emotion, risk flags,
+    confidence, mechanism, source fields, `analysis_path`, `frames_dir`)
+    and gets its own `idea_title`, `adaptation` (the fill `angle`), and
+    `specifics`, with `brief_score`, `viral_proof`, `outlier_ratio`, and
+    the three director scores all `None`: a fill brief does have a
+    proof reel, but that reel proves only the format and the hook. The
+    fill topic itself is unproven, so the proof reel's numbers would
+    score the wrong thing. Fill briefs are never
+    re-sorted among themselves or against the real ones; the walk stops
+    as soon as `n` briefs exist.
+
+    Every brief gains `kind` (`"new"`, `"carried"`, or `"fill"`),
+    `weeks_carried` (0 for new and fill), `idea_title`, `outlier_ratio`
+    (`None` for fill), and `days_old` (whole days from the source reel's
+    `timestamp` to `now`, or `None` when `now` or the timestamp is
+    missing -- always `None` for fill, whose proof reel's age says
+    nothing about its unproven topic).
+    A carried brief also gets `first_run`. `B01`, `B02`, ... are
+    assigned in the final order: sorted new/carried first, then fill.
+
+    `run_dir` is required to build `frames_dir`/`analysis_path` (both
+    must be absolute) for new and fill candidates:
+    `run_dir/frames/<shortCode>` and `run_dir/03-analyses/<shortCode>.json`.
+    A carried candidate keeps the paths its own dict already carries
+    instead (the run that first analyzed it, per the design spec: "A
+    carried idea keeps the analysis, frames, and reel snapshot from the
+    run that found it").
     """
     run_dir = Path(run_dir)
 
-    candidates: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    candidates: List[_Candidate] = []
     for reel in reels:
-        analysis = analyses.get(reel.get("shortCode"))
+        shortcode = reel.get("shortCode")
+        analysis = analyses.get(shortcode)
         if analysis is not None:
-            candidates.append((reel, analysis))
+            candidates.append((reel, analysis, _new_meta(run_dir, shortcode)))
+
+    for item in carried or []:
+        meta = {
+            "kind": "carried",
+            "weeks_carried": item["weeks_carried"],
+            "first_run": item["first_run"],
+            "analysis_path": item["analysis_path"],
+            "frames_dir": item["frames_dir"],
+        }
+        candidates.append((item["reel"], item["analysis"], meta))
 
     candidates.sort(key=_candidate_sort_key)
 
-    taken: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
-    skipped_format: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    taken: List[_Candidate] = []
+    skipped_format: List[_Candidate] = []
     format_taken = 0
-    for reel, analysis in candidates:
+    for candidate in candidates:
+        reel = candidate[0]
         if _reel_source_kind(reel) == instagram.SOURCE_KIND_FORMAT:
             if format_taken < max_format_briefs:
-                taken.append((reel, analysis))
+                taken.append(candidate)
                 format_taken += 1
             else:
-                skipped_format.append((reel, analysis))
+                skipped_format.append(candidate)
         else:
-            taken.append((reel, analysis))
+            taken.append(candidate)
 
     if len(taken) < n:
         taken.extend(skipped_format[: n - len(taken)])
@@ -958,64 +1277,134 @@ def rank_briefs(
     # Re-sort so a backfilled brief (appended above, out of score order)
     # never sits below a lower-scoring one in the final numbering.
     taken.sort(key=_candidate_sort_key)
+    taken = taken[:n]
+
+    fill_candidates: List[_Candidate] = []
+    if len(taken) < n:
+        reels_by_code = {reel.get("shortCode"): reel for reel in reels}
+        for idea in fill or []:
+            if len(taken) + len(fill_candidates) >= n:
+                break
+            format_from = idea.get("format_from") or []
+            proof_shortcode = format_from[0] if format_from else None
+            proof_analysis = analyses.get(proof_shortcode) if proof_shortcode else None
+            proof_reel = reels_by_code.get(proof_shortcode) if proof_shortcode else None
+            if proof_analysis is None or proof_reel is None:
+                continue
+            meta = dict(
+                _new_meta(run_dir, proof_shortcode),
+                kind="fill",
+                idea_title=idea.get("idea_title"),
+                adaptation=idea.get("angle"),
+                specifics=idea.get("specifics") or [],
+            )
+            fill_candidates.append((proof_reel, proof_analysis, meta))
 
     briefs: List[Dict[str, Any]] = []
-    for index, (reel, analysis) in enumerate(taken[:n], start=1):
-        shortcode = reel["shortCode"]
-        briefs.append(
-            {
-                "brief_id": f"B{index:02d}",
-                "shortCode": shortcode,
-                "brief_title": analysis["brief_title"],
-                "source_url": reel.get("url"),
-                "ownerUsername": reel.get("ownerUsername"),
-                "source_kind": _reel_source_kind(reel),
-                "format": analysis["format"],
-                "hook_type": analysis["hook_type"],
-                "emotion_lead": analysis["emotion_lead"],
-                "brief_score": brief_score(analysis, reel),
-                "viral_proof": reel.get("viral_proof"),
-                "score_scalable": analysis["score_scalable"],
-                "score_convertible": analysis["score_convertible"],
-                "score_fit": analysis["score_fit"],
-                "risk_flags": analysis["risk_flags"],
-                "confidence": analysis["confidence"],
-                "adaptation": analysis["adaptation"],
-                "avoid": analysis["avoid"],
-                "transferable_mechanism": analysis["transferable_mechanism"],
-                "why_it_worked": analysis["why_it_worked"],
-                "hypothesis": _hypothesis_line(analysis),
-                # Copies, so a brief edited later never reaches back into
-                # the analysis dict it was ranked from.
-                "specifics": [dict(item) for item in analysis.get("specifics") or []],
-                "steps": list(analysis.get("steps") or []),
-                "frames_dir": str((run_dir / "frames" / shortcode).resolve()),
-                "analysis_path": str((run_dir / "03-analyses" / f"{shortcode}.json").resolve()),
-            }
-        )
+    for index, (reel, analysis, meta) in enumerate(taken + fill_candidates, start=1):
+        briefs.append(_brief_dict(index, reel, analysis, meta, now))
     return briefs
 
 
-def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
-    """Render ranked briefs as `briefs.md`: a `# Briefs` title plus one section each.
+def display_title(brief: Dict[str, Any]) -> str:
+    """The title a creator sees for `brief`: `idea_title`, else `brief_title`, else "".
 
-    Each `## B01: <brief_title>` section has plain-language lines, in
+    A fill brief borrows its proof reel's `brief_title`, so titling it
+    by `brief_title` would give it the proof reel's name. A 0.3.0 brief
+    has no `idea_title`, so it falls back to `brief_title`. `briefs.md`,
+    `report.md`, `report.html`, `status`, and the intake header all
+    title a brief through this one function.
+    """
+    return brief.get("idea_title") or brief.get("brief_title") or ""
+
+
+def _kind_label(brief: Dict[str, Any]) -> str:
+    """The digest/section kind label for `brief`.
+
+    `"new"` (or a missing `kind` -- a 0.3.0 `03-briefs.json` predates
+    the key) is `"New"`; `"carried"` is `"Carried over, week N"` where
+    `N` is `weeks_carried + 1`; `"fill"` is `"Format fill, less
+    proven"`.
+    """
+    kind = brief.get("kind") or "new"
+    if kind == "carried":
+        return f"Carried over, week {brief.get('weeks_carried', 0) + 1}"
+    if kind == "fill":
+        return "Format fill, less proven"
+    return "New"
+
+
+def _digest_proof(brief: Dict[str, Any]) -> str:
+    """The digest line's proof clause for `brief`, ending in a period.
+
+    A fill idea (its topic is unproven; its proof reel lends only the
+    format and the hook) gets `Borrows the <hook_type> hook from
+    @<owner>.`. Any other brief gets
+    `@<owner>[, <ratio>x their usual][, <days> days old].`, dropping the
+    ratio clause when `outlier_ratio` is `None` (a 0.3.0 brief has
+    neither) and the days clause when `days_old` is `None`.
+    """
+    owner = brief.get("ownerUsername")
+    if brief.get("kind") == "fill":
+        return f"Borrows the {brief['hook_type']} hook from @{owner}."
+    parts = [f"@{owner}"]
+    ratio = brief.get("outlier_ratio")
+    if ratio is not None:
+        parts.append(f"{ratio:.2f}x their usual")
+    days = brief.get("days_old")
+    if days is not None:
+        parts.append(f"{days} days old")
+    return ", ".join(parts) + "."
+
+
+def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
+    """Render `briefs.md`: a topic-first digest, then a `# Briefs` title plus one section each.
+
+    The digest opens with `# This week's ideas`, one numbered line per
+    brief: `i. <id> · <kind label> · <idea_title>. <proof>` (see
+    `_kind_label`, `_digest_proof`; the period after the title is left
+    out when the title already ends in `.`, `!`, or `?`).
+
+    Each `## <id>: <idea_title>` section (`display_title`, which falls
+    back to `brief_title` when `idea_title` is missing -- a 0.3.0
+    `03-briefs.json` has neither `idea_title` nor `kind`) opens with `- Kind: <label>` (plus
+    ` (first shown in <first_run>)` for a carried idea) and `- Source
+    format: <brief_title>`, then the existing plain-language lines, in
     this order: the source (with its niche/format kind), format/hook/
-    emotion, every score, risk flags, confidence, `Bet:` (the
-    transferable mechanism), `Why:` (the first two sentences of
-    `why_it_worked`), adaptation, avoid, a `Specifics:` list (name,
+    emotion, a `- Scores:` line (printed only when `brief_score` is not
+    `None` -- a fill brief has no scores), risk flags, confidence,
+    `Bet:` (the transferable mechanism), `Why:` (the first two sentences
+    of `why_it_worked`), adaptation, avoid, a `Specifics:` list (name,
     kind, public or their claim, detail; skipped when empty), a
     numbered `Steps:` list (skipped when empty), and the frames path.
     Each list sits between blank lines so the next label never folds
     into its last item. The joined `hypothesis` sentence is not printed;
     it stays in `03-briefs.json` only. No em dashes.
     """
-    lines: List[str] = ["# Briefs", ""]
+    lines: List[str] = ["# This week's ideas"]
+    for index, brief in enumerate(briefs, start=1):
+        # `_as_sentence` adds a period only when the title does not
+        # already end in `.`, `!`, or `?`.
+        idea_title = _as_sentence(display_title(brief))
+        lines.append(
+            f"{index}. {brief['brief_id']} · {_kind_label(brief)} · {idea_title} "
+            f"{_digest_proof(brief)}"
+        )
+    lines.append("")
+    lines.append("# Briefs")
+    lines.append("")
     for brief in briefs:
         specifics = brief.get("specifics") or []
         steps = brief.get("steps") or []
-        lines.append(f"## {brief['brief_id']}: {brief['brief_title']}")
+        idea_title = display_title(brief)
+        label = _kind_label(brief)
+        lines.append(f"## {brief['brief_id']}: {idea_title}")
         lines.append("")
+        if brief.get("kind") == "carried" and brief.get("first_run"):
+            lines.append(f"- Kind: {label} (first shown in {brief['first_run']}).")
+        else:
+            lines.append(f"- Kind: {label}.")
+        lines.append(f"- Source format: {brief.get('brief_title', '')}")
         lines.append(
             f"- Source: {brief['source_url']} (by {brief['ownerUsername']}, "
             f"{brief['source_kind']} account)"
@@ -1023,10 +1412,11 @@ def render_briefs_md(briefs: List[Dict[str, Any]]) -> str:
         lines.append(
             f"- Format: {brief['format']}. Hook: {brief['hook_type']}. Emotion: {brief['emotion_lead']}."
         )
-        lines.append(
-            "Scores: brief {brief_score}, viral proof {viral_proof}, convertible {score_convertible}, "
-            "scalable {score_scalable}, fit {score_fit}.".format(**brief)
-        )
+        if brief.get("brief_score") is not None:
+            lines.append(
+                "- Scores: brief {brief_score}, viral proof {viral_proof}, convertible {score_convertible}, "
+                "scalable {score_scalable}, fit {score_fit}.".format(**brief)
+            )
         lines.append(f"- Risk flags: {', '.join(brief['risk_flags'])}.")
         lines.append(f"- Confidence: {brief['confidence']}.")
         lines.append(f"- Bet: {_as_sentence(brief.get('transferable_mechanism') or '')}")

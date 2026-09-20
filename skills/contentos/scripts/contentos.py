@@ -297,10 +297,14 @@ def _synth_prompt_handler(args: argparse.Namespace) -> int:
     """Print the one set-level synthesis dispatch prompt for `03-patterns.md`."""
     project_dir = args.project.resolve()
     try:
-        prompt = direct.run_synth_prompt(project_dir, args.run, references_dir())
+        cfg = store.load_config(project_dir)
+        prompt = direct.run_synth_prompt(project_dir, args.run, references_dir(), cfg=cfg)
     except direct.DirectError as exc:
         print(str(exc), file=sys.stderr)
         return exc.exit_code
+    except store.ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
     print(prompt)
     return codes.EXIT_OK
 
@@ -531,12 +535,15 @@ def _rank_handler(args: argparse.Namespace) -> int:
     `--mock` seeds the fixture analyses and patterns first, so a mock
     run reaches `briefs.md` with no subagent dispatched. A run with no
     valid analysis exits 2, as does a bad config or an unresolvable
-    run.
+    run, and so does a re-rank of a run that already has scripts or
+    `log.json` marks, unless `--force`.
     """
     project_dir = args.project.resolve()
     try:
         cfg = store.load_config(project_dir)
-        result = direct.run_rank(project_dir, args.run, cfg, mock=args.mock)
+        result = direct.run_rank(
+            project_dir, args.run, cfg, mock=args.mock, force=args.force
+        )
     except direct.DirectError as exc:
         print(str(exc), file=sys.stderr)
         return exc.exit_code
@@ -605,6 +612,8 @@ def build_parser() -> argparse.ArgumentParser:
             "write-prompt", "qa-prompt", "report", "status",
         ):
             sub.add_argument("--run", required=True)
+        if name == "rank":
+            sub.add_argument("--force", action="store_true")
         if name == "report":
             sub.add_argument("--html", action="store_true")
         if name == "status":

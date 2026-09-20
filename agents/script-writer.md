@@ -72,6 +72,10 @@ mechanism. Change 10 to 20 percent of the source: the subject, the setting, the
 example, the number. Under 10 percent is a clone. Over 20 percent throws away
 the thing that worked. Read the brief's `avoid` line first and steer around it.
 
+When the brief's `kind` is `fill`, the topic is the brief's `idea_title` and
+`adaptation`. The analysis supplies the format and the hook only. Do not
+borrow its subject, specifics, or steps.
+
 **Three claim tiers.** Every claim sits in one of three tiers. Any reasonable
 claim is fine inside them.
 

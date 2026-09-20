@@ -119,19 +119,31 @@ Every scored reel gets at most one exclusion reason, checked in this order:
 1. `no_plays`: the reel has no `plays` value. This always catches a reel
    scored against a likes-fallback baseline.
 2. `no_baseline`: the account's baseline confidence is `none`.
-3. `outside_lookback`: the reel is older than `lookback_days` (default 90).
+3. `outside_lookback`: the reel is older than `lookback_days` (default 14).
 4. `below_min_plays`: `plays` is under `min_plays` (default 5000).
+5. `below_min_ratio`: `outlier_ratio` is under `min_outlier_ratio` (default
+   2.0). `outlier_threshold` (default 3.0) is a different setting and never a
+   filter here; it only feeds `small_account_proof` above, and stays as the
+   higher bar a small account's own reel has to clear to count as proof.
+
+A reel that clears all five, but whose `shortCode` an earlier run already
+put in front of the creator, still gets excluded, with reason
+`already_briefed`; a reel the creator has already seen should not come back
+and count as new just because it is still inside the window.
 
 Everything else survives, sorted by `outlier_ratio` descending, ties broken
-by `shortCode`. Walking that order, at most `max_per_account` (default 4)
-reels per account are kept; the rest get a fifth reason, `per_account_cap`.
-`outlier_threshold` plays no part in this filter; it only feeds
-`small_account_proof` above. Of what remains, the first `top_k_videos`
+by `shortCode`. The per-account cap is soft: walking that order, the first
+`max_per_account` (default 4) reels per account form a capped list, and the
+rest of that account's reels fall into an overflow list, still in ratio
+order. The ranked list is the capped list followed by the overflow list, so
+a busy account's extra outliers rank behind every account's capped reels but
+still beat an empty slot. Of that ranked list, the first `top_k_videos`
 (default 20) become `selected`, and the next `backfill_pool` (default 10)
-become `backfill`. Anything ranked further down is simply not listed
+become `backfill`. Only an overflow reel ranked past both gets the reason
+`per_account_cap`; everything else ranked further down is simply not listed
 anywhere: not selected, not backfill, not excluded.
 
-Worked example: three reels survive the first four checks, each from a
+Worked example: three reels survive the first six checks, each from a
 different account. Reel A has `outlier_ratio` 5.0, reel B has 3.0, reel C
 has 2.0. Sorted, that is A, B, C. With `top_k_videos` at 1, A becomes
 `selected`. With `backfill_pool` at 1, B becomes `backfill`. C is ranked but

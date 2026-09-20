@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest import mock
 
-from tests.helpers import NoNetworkTestCase, run_cli, temp_project
+from tests.helpers import PRE_WEEKLY_CONFIG, NoNetworkTestCase, run_cli, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
@@ -39,10 +39,12 @@ NO_GLOBAL_ENV = {"CONTENTOS_CONFIG_DIR": ""}
 
 
 def _write_config(project: Path, overrides: Dict[str, Any]) -> None:
-    """Write `<project>/.contentos/config.json` with exactly `overrides`."""
+    """Write `<project>/.contentos/config.json` with `PRE_WEEKLY_CONFIG` overlaid with `overrides`."""
     config_dir = project / ".contentos"
     config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "config.json").write_text(json.dumps(overrides), encoding="utf-8")
+    (config_dir / "config.json").write_text(
+        json.dumps(dict(PRE_WEEKLY_CONFIG, **overrides)), encoding="utf-8"
+    )
 
 
 def _mock_keys() -> Keys:
@@ -139,15 +141,20 @@ class MockResearchTests(NoNetworkTestCase):
         # test_fixture_outliers_selected): 17 normalized reels across the
         # three healthy accounts (one, SPA004, has no usable play count;
         # one, DWN007, is pinned and dropped before normalization even
-        # produces it), 9 pass every select_outliers filter with room
+        # produces it), 11 pass every select_outliers filter with room
         # under the default top_k_videos=20, so none spill into backfill.
+        # 0.4.0 soft cap: dailywins and habitlab each have 5 survivors
+        # against max_per_account=4; their 5th reel used to be excluded
+        # as per_account_cap, but the soft cap now ranks it into
+        # `selected` since top_k_videos has room, so selected went from
+        # 9 to 11 and excluded from 8 to 6.
         self.assertEqual(result["mode"], "mock")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["accounts"], 4)
         self.assertEqual(result["reels_total"], 17)
-        self.assertEqual(result["selected"], 9)
+        self.assertEqual(result["selected"], 11)
         self.assertEqual(result["backfill"], 0)
-        self.assertEqual(result["excluded"], 8)
+        self.assertEqual(result["excluded"], 6)
         self.assertIn("ghostaccount: not_found", result["warnings"])
 
         self.assertEqual(len(reels), 17)
@@ -162,9 +169,10 @@ class MockResearchTests(NoNetworkTestCase):
             set(outliers_doc),
             {"selected", "backfill", "excluded", "account_status", "baselines"},
         )
-        self.assertEqual(len(outliers_doc["selected"]), 9)
+        # 0.4.0 soft cap: see the comment above on result["selected"].
+        self.assertEqual(len(outliers_doc["selected"]), 11)
         self.assertEqual(outliers_doc["backfill"], [])
-        self.assertEqual(len(outliers_doc["excluded"]), 8)
+        self.assertEqual(len(outliers_doc["excluded"]), 6)
         for reel in outliers_doc["selected"] + outliers_doc["backfill"]:
             self.assertEqual(reel["video_status"], "pending")
             self.assertEqual(reel["frames_status"], "pending")
@@ -183,9 +191,10 @@ class MockResearchTests(NoNetworkTestCase):
         research_stage = run_doc["stages"]["research"]
         self.assertEqual(research_stage["status"], "ok")
         self.assertEqual(research_stage["reels_total"], 17)
-        self.assertEqual(research_stage["selected"], 9)
+        # 0.4.0 soft cap: see the comment above on result["selected"].
+        self.assertEqual(research_stage["selected"], 11)
         self.assertEqual(research_stage["backfill"], 0)
-        self.assertEqual(research_stage["excluded"], 8)
+        self.assertEqual(research_stage["excluded"], 6)
         self.assertIn("started_at", research_stage)
         self.assertIn("finished_at", research_stage)
         self.assertEqual(run_doc["costs"]["apify"]["max_items"], 120)

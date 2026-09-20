@@ -425,7 +425,10 @@ class ReadableReportTests(NoNetworkTestCase):
         self.assertIn("B01", head)  # passed: fill and film
         self.assertIn("B04", head)  # needs a human: intake then revision 2
         self.assertIn("intake", head)
-        self.assertIn("B05", head)  # pending: write it
+        # B05 has no script yet: one summary line, not a to-do of its own.
+        self.assertIn("- [ ] 1 idea has no script yet. Pick more from briefs.md, "
+                      "or leave it to carry over next week.", head)
+        self.assertNotIn("B05", head)
         self.assertNotIn("—", text)
 
     def test_report_prints_per_score_lines_from_the_latest_qa(self) -> None:
@@ -510,6 +513,68 @@ class ReadableCliTests(NoNetworkTestCase):
             history_path = Path(out.strip())
             self.assertEqual(history_path.name, "history.md")
             self.assertIn("https://www.instagram.com/p/X/", history_path.read_text(encoding="utf-8"))
+
+
+def _make_b05_a_fill_brief(run_dir: Path) -> None:
+    """Turn B05 into a fill brief whose topic differs from its proof reel's title."""
+    doc = store.read_json(run_dir / "03-briefs.json")
+    brief = next(item for item in doc["briefs"] if item["brief_id"] == "B05")
+    brief.update({"kind": "fill", "idea_title": "My own Sunday week card"})
+    store.write_json_atomic(run_dir / "03-briefs.json", doc)
+
+
+class FillTitleTests(NoNetworkTestCase):
+    def test_report_titles_a_fill_brief_by_its_idea_title(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _make_b05_a_fill_brief(run_dir)
+            text = report.render_report(run_dir)
+        table = text.split("## Briefs")[1].split("\n## ")[0]
+        self.assertIn("| B05 | My own Sunday week card | pending | - |", table)
+        self.assertNotIn("Pending brief", table)
+        self.assertIn("| B01 | Pass brief | pass | pass |", table)
+
+    def test_status_titles_a_fill_brief_by_its_idea_title(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _make_b05_a_fill_brief(run_dir)
+            by_id = {state["brief_id"]: state for state in report.status(run_dir)["briefs"]}
+        self.assertEqual(by_id["B05"]["title"], "My own Sunday week card")
+        self.assertEqual(by_id["B01"]["title"], "Pass brief")
+
+
+class UnpickedIdeasNextStepTests(NoNetworkTestCase):
+    def _add_pending(self, run_dir: Path, *brief_ids: str) -> None:
+        doc = store.read_json(run_dir / "03-briefs.json")
+        doc["briefs"].extend({"brief_id": brief_id, "brief_title": f"Idea {brief_id}"} for brief_id in brief_ids)
+        store.write_json_atomic(run_dir / "03-briefs.json", doc)
+
+    def test_every_idea_with_no_script_collapses_into_one_line(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            self._add_pending(run_dir, "B06", "B07")
+            steps = report.next_steps(run_dir, report._brief_states(run_dir))
+            status_text = report.render_status_text(run_dir)
+        unpicked = [step for step in steps if "no script yet" in step]
+        self.assertEqual(
+            unpicked,
+            ["3 ideas have no script yet. Pick more from briefs.md, or leave them to carry over next week."],
+        )
+        self.assertEqual(steps[-1], unpicked[0])
+        for brief_id in ("B05", "B06", "B07"):
+            self.assertFalse(any(step.startswith(brief_id) for step in steps), brief_id)
+        # Briefs that have a script keep a line each.
+        for brief_id in ("B01", "B02", "B03", "B04"):
+            self.assertTrue(any(step.startswith(brief_id) for step in steps), brief_id)
+        self.assertIn("- 3 ideas have no script yet.", status_text)
+
+    def test_no_summary_line_when_every_idea_has_a_script(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _write_script_text(run_dir, "B05", 0)
+            steps = report.next_steps(run_dir, report._brief_states(run_dir))
+        self.assertFalse(any("no script yet" in step for step in steps))
+        self.assertIn("B05: run QA on 04-scripts/B05.r0.md.", steps)
 
 
 class FinalRevisionNextStepTests(NoNetworkTestCase):

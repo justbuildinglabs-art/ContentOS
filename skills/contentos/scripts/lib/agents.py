@@ -796,7 +796,7 @@ def intake_questions(project: Path, run_dir: Path, brief_id: str) -> str:
         questions.append(f"{question} Leave blank if you do not know.")
         answer_lines.append(f"- {label}: ")
 
-    title = str(brief.get("brief_title") or "").strip()
+    title = str(director.display_title(brief)).strip()
     lines: List[str] = [f"# Intake for {brief_id}" + (f": {title}" if title else ""), ""]
     lines.append(
         "Ask the creator these questions. Only real answers go in. A blank answer "
@@ -1276,7 +1276,7 @@ def verify_qa(path: Path, threshold: int) -> List[str]:
 
 
 def _brief_title(run_dir: Path, brief_id: str) -> Optional[str]:
-    """This brief's `brief_title` from `03-briefs.json`, or None."""
+    """This brief's title (`director.display_title`) from `03-briefs.json`, or None."""
     briefs_path = Path(run_dir) / "03-briefs.json"
     if not briefs_path.exists():
         return None
@@ -1286,7 +1286,7 @@ def _brief_title(run_dir: Path, brief_id: str) -> Optional[str]:
         return None
     for brief in doc.get("briefs") or []:
         if brief.get("brief_id") == brief_id:
-            return brief.get("brief_title")
+            return director.display_title(brief)
     return None
 
 

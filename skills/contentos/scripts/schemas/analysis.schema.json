@@ -3,6 +3,7 @@
   "type": "object",
   "properties": {
     "brief_title": { "type": "string" },
+    "idea_title": { "type": "string" },
     "hook_spoken": { "type": ["string", "null"] },
     "hook_on_screen_text": { "type": ["string", "null"] },
     "hook_type": {

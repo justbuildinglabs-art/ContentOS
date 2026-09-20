@@ -24,7 +24,7 @@ reads them.
 | stage | command | outputs |
 | --- | --- | --- |
 | 1. research | `research` | `run.json`, `01-reels.json`, `01-profiles.json`, `02-outliers.json`, downloaded videos, keyframes |
-| 2. direct | `direct-prompt`, `synth-prompt`, `rank` | `03-analyses/<shortCode>.json`, `03-patterns.md`, `03-briefs.json`, `briefs.md` |
+| 2. direct | `direct-prompt`, `synth-prompt`, `rank` | `03-analyses/<shortCode>.json`, `03-patterns.md`, `03-fill.json`, `03-briefs.json`, `briefs.md` |
 | 3. write | `write-prompt` | `04-scripts/<brief-id>.r<N>.md` |
 | 4. qa | `qa-prompt` | `05-qa/<brief-id>.r<N>.json`, then `report.md` |
 
@@ -163,7 +163,8 @@ them. When there is no run at all, say so and offer `/contentos research`.
 no network. The reels come from four sample accounts, so the creator's own
 competitors show as `empty` in the per-account table. Say so once, so nobody
 reads it as a scrape that failed. `--yes` skips the spend confirmation.
-`--auto` skips the brief question and takes the top `briefs` from config.
+`--auto` skips the brief question and takes the top `auto_scripts` briefs
+(default 3).
 
 ## The setup flow
 
@@ -273,13 +274,19 @@ got a transcript (the `transcripts` counts in `RESULT`), and name any account
 that came back `private`, `not_found`, or `empty`. Reels already briefed in an
 earlier run are skipped as `already_briefed`, so each week brings new sources.
 
-**In `--mock`, skip steps 4 and 5** and run this at step 6 instead. It seeds the
-fixture analyses and `03-patterns.md`, so a mock run reaches briefs without
-dispatching a subagent:
+**In `--mock`, skip steps 4 and 5** and run this at step 6 instead. It seeds
+the fixture analyses and `03-patterns.md`, so a mock run reaches briefs
+without dispatching a subagent. It also seeds `03-fill.json` from the
+fixture, but only when the run has an analysis for one of the fixture's
+`format_from` reels:
 
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" rank --project "$PWD" --run <run_id> --mock
 ```
+
+If research selected no reels (no new outliers this week), skip the director
+loop and the synthesis and go straight to `rank`. It lists last weeks'
+unpicked ideas.
 
 4. **Director loop.** Loop 1 below, one dispatch per selected reel.
 5. **Synthesis.** Loop 2 below, one dispatch for the whole run.
@@ -336,6 +343,13 @@ money or time, and one tradeoff or alternative. Write
 ```
 - Remotion renders videos from React code. Source: https://www.remotion.dev/docs. Checked 2026-09-18.
 ```
+
+**A format fill brief.** When the brief's `kind` is `fill` (`briefs.md` labels
+it `Format fill`), its topic is the creator's own: the brief's `idea_title` and
+`adaptation`. The proof reel lends only the format and the hook. So research
+the fill topic: look up 4 to 8 facts about what `idea_title` and `adaptation`
+name, plus any public specifics the brief itself lists. Write the fact sheet
+from that research, not from the proof reel's specifics, transcript, or steps.
 
 Then check it:
 
@@ -412,10 +426,14 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <ru
 
 Dispatch `contentos:content-director` at `synth.md` between them. It writes
 `03-patterns.md`: proven hooks, recurring formats, saturated angles, a
-structural recommendation, and a language bank. On exit 7 the file is missing a
-heading; append the problems with the same recipe, using `<name>` = `synth`,
-re-dispatch once, then carry on either way.
-`rank` does not need this file, so a failed synthesis is not a reason to stop.
+structural recommendation, and a language bank. When the prompt asks for it,
+it also writes `03-fill.json`, a set of format fill ideas built from this
+week's proven formats and the creator's own pillars. The same
+`verify --stage synth` checks both files. On exit 7 a file is missing a
+heading or does not match its schema; append the problems with the same
+recipe, using `<name>` = `synth`, re-dispatch once, then carry on either way.
+`rank` needs neither file, so a failed synthesis is not a reason to stop.
+Without `03-fill.json`, the list just has no format fill.
 
 ### Loop 3: writer, one per chosen brief
 
@@ -479,26 +497,48 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" verify --project "$PWD" --run <ru
 
 ## Choosing briefs
 
-After `rank`, read `<run_dir>/briefs.md` and show the creator the ranked list:
-the id, the title, the format, the hook type, and the brief score. Each brief
-also names its source kind, `niche` or `format`. A niche brief comes from an
-account in their own niche and is scored on topic fit. A format brief comes
-from a format account in another niche and is scored on how cleanly the
-mechanism transfers. At most `max_format_briefs` of the ranked briefs (2 by
-default) come from format accounts, unless too few niche reels survived analysis
-to fill the list. Then `rank` fills the remaining slots from the format briefs
-it had set aside, best score first, and the list can be mostly or entirely
-format briefs. Read each brief's source line rather than assuming the split.
-Then ask with AskUserQuestion, options `All <n> briefs`, `Top 3`, `Top 1`, and
-let them type specific ids such as `B02 B05` through Other.
+After `rank`, read `<run_dir>/briefs.md`. It opens with the numbered list from
+`# This week's ideas`: one line per brief, its kind, the idea title, and the
+proof behind it. Show that list to the creator as it is written.
 
-With `--auto`, skip the question and take the top `briefs` from
-`.contentos/config.json` (default 5).
+Every brief is one of three kinds:
 
-`rank` already cuts the list to `briefs` before it writes `briefs.md`, so `All
-<n> briefs` never offers more than that, and `--auto` takes all of them. To
-choose from a longer list, raise `briefs` in `.contentos/config.json` and run
-`rank` again.
+- **New.** A reel this run just analyzed. The proof is its own numbers: the
+  account, how many times it beat that account's usual plays, and how old the
+  source reel is.
+- **Carried over.** An idea from an earlier week that nobody picked yet. The
+  proof reads just like a new idea's. The kind label says which week of
+  carrying it is, and the brief's detail section below names the run that
+  first showed it.
+- **Format fill.** A format that worked this week, applied to one of the
+  creator's own pillars. There is no source reel behind it yet, so the proof
+  says which account's hook it borrows instead.
+
+Each brief also names its source kind, `niche` or `format`. A niche brief
+comes from an account in their own niche and is scored on topic fit. A format
+brief comes from a format account in another niche and is scored on how
+cleanly the mechanism transfers. At most `max_format_briefs` of the ranked
+briefs (2 by default) come from format accounts, unless too few niche reels
+survived analysis to fill the list. Then `rank` fills the remaining slots from
+the format briefs it had set aside, best score first, and the list can be
+mostly or entirely format briefs. Read each brief's source line rather than
+assuming the split.
+
+Then ask with AskUserQuestion, options `Top 3`, `Top 5`, and `All <n>`, and let
+them type specific ids such as `B02 B07` through Other. Offer `Top 5` only when
+the list has more than 5 ideas, and `Top 3` only when it has more than 3, so no
+two options pick the same briefs.
+
+With `--auto`, skip the question and take the top `auto_scripts` briefs from
+`.contentos/config.json` (default 3).
+
+`rank` already cuts the list to `briefs` (default 20) before it writes
+`briefs.md`, so `All <n>` never offers more than that. To choose from a longer
+list, raise `briefs` in `.contentos/config.json` and run `rank` again. This
+only works before any script is written or any brief is marked for that run.
+After that, `rank` refuses with exit 2, because a re-rank renumbers the briefs
+and a script or mark would land on the wrong idea. Never add `--force` unless
+the creator asks for it knowing that.
 
 ## Offering a rule
 
@@ -568,7 +608,10 @@ ContentOS is built to run once a week in the same project folder.
    `contentos.py mark --run <run_id> --brief B01 --state posted --url <post url>`.
    The states are `filmed`, `posted`, and `skipped`.
 2. Each week, `/contentos run`. Research skips any source reel an earlier run
-   already briefed, so the briefs are new.
+   already briefed, so every new idea is a reel the creator has not seen.
+   Ideas they have not picked yet come back as carried over, for up to
+   `carry_weeks` more runs (2 by default). `mark --state skipped` on a brief
+   stops that idea from carrying over.
 3. `contentos.py history` writes `.contentos/history.md`: one row per run with
    the cost, the briefs, how many passed, and how many were filmed and posted.
 4. When a creator answers an intake question with a fact they will reuse, such

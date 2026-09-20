@@ -142,12 +142,15 @@ transfers to one of her pillars. A synthesis pass writes `03-patterns.md`: the
 proven hooks across the set, the recurring formats, the saturated angles, and a
 language bank taken from the comments.
 
-Ranking writes `briefs.md`. B01 reads: source, a dev creator's "one command
-replaced my whole morning routine" screen demo, the one research found at 11x
-its account's own baseline; adaptation, the same reveal structure with a
-coding-agent skill running end to end as the payoff; hypothesis, "If we ...
-using the ... hook, we expect above-baseline plays because ...". At most two
-of the five briefs come from format accounts. Mara picks three.
+Ranking writes `briefs.md`, opening with a numbered "This week's ideas" list
+of up to 20 ideas, each tagged New, Carried over, or Format fill. B01 is New:
+idea title, "one coding-agent skill that runs a dev's whole morning setup";
+source, a dev creator's screen demo research found at 11x its account's own
+baseline; adaptation, the same reveal structure with that skill running end to
+end as the payoff; then the bet it makes and why the source worked. Format
+accounts get at most two slots (`max_format_briefs`) while niche ideas can fill
+the list. Only when niche ideas run short do more format ideas take the rest.
+Mara picks three.
 
 For each brief the writer produces a shoot-ready script: two hooks under 25
 words that take different approaches, a beats table with visual cues and
@@ -159,6 +162,26 @@ and that the payoff is real. One revision round is allowed. `report.md` lists
 the scripts, their scores, and the `[NEED NUMBER]` placeholders Mara fills in
 with real figures.
 
+## Running it every week
+
+ContentOS is built to run once a week against the same watch list. Each run
+gives you up to 20 ranked ideas (`briefs`, default 20), of three kinds:
+
+- **New.** Outliers found this week.
+- **Carried over.** Ideas from an earlier run that you have not picked yet.
+  Each one comes back for up to two more weeks (`carry_weeks`, default 2),
+  then drops off. `carry_weeks` 0 turns carry-over off. Mark an idea skipped
+  (`/contentos mark B04 skipped`) to stop it coming back sooner.
+- **Format fill.** A format that worked this week, applied to one of your
+  pillars. The synthesis writes up to `fill_ideas` of them (default 8) to the
+  run's `03-fill.json`. They only take slots left after every real idea, so a
+  week with plenty of outliers has none. `fill_ideas` 0 turns format fill off.
+
+Pick what you want to script and leave the rest. A ledger in
+`.contentos/ideas.json` keeps track of each idea: when it was first shown, and
+whether it was scripted, filmed, posted, skipped, or expired. Weeks are counted
+in runs, so two runs in one week count as two.
+
 ## What a run costs
 
 About $0.67 of Apify credit for eight accounts at the default 30 reels each,
@@ -167,14 +190,21 @@ profiles: accounts times reels times $0.0027, plus $0.0027 per account. Nothing
 else in ContentOS costs money, unless you turn on the Apify transcript
 fallback, which is added to the estimate and to the cost cap. The estimate is printed before anything is
 spent, and a run stops on its own if the estimate goes over
-`apify_max_charge_usd` in your config.
+`apify_max_charge_usd` in your config. A week's cost is one run: running it
+weekly does not cost more than running it any other time.
+
+If your project was set up before 0.4.0, `.contentos/config.json` still pins
+`lookback_days: 90` and `briefs: 5`. Change them to 14 and 20 to get the
+weekly list, or delete both lines to pick up the new defaults. Projects
+upgrading from 0.3.0 start with an empty ideas ledger, so briefs from earlier
+runs that you never picked do not carry over.
 
 ## Commands
 
 | command | what it does |
 | --- | --- |
 | `/contentos setup` | Interview, then write `creator.md`, `config.json`, and `rules.md` |
-| `/contentos run` | All four stages, end to end. `--auto` skips the brief question, `--yes` skips the spend question, `--mock` uses fixtures |
+| `/contentos run` | All four stages, end to end. `--auto` skips the brief question and scripts only the top `auto_scripts` ideas (default 3), `--yes` skips the spend question, `--mock` uses fixtures |
 | `/contentos research` | Stage 1 only: scrape, score, select, download, keyframes |
 | `/contentos direct` | Stage 2 only: analyze each selected reel, find the patterns, rank the briefs |
 | `/contentos write B01 B02` | Stage 3 only: write the named briefs |
@@ -196,6 +226,7 @@ Your state lives in your own project, never in the plugin:
 ├── creator.md            # your profile: pillars, audience, voice, what you promote, payoff moments, claims, CTA, accounts
 ├── rules.md              # your corrections, one per line
 ├── log.json              # what you filmed and posted, from `mark`
+├── ideas.json            # every idea shown so far, and whether it is still open, from `rank`
 ├── history.md            # one row per run, from `history`
 ├── config.json           # niche accounts, format accounts, thresholds, cost cap, QA threshold
 ├── .env                  # optional Apify key, chmod 600
@@ -205,7 +236,7 @@ Your state lives in your own project, never in the plugin:
     ├── videos/  frames/         # gitignored, they get large
     ├── transcripts/<shortCode>.txt
     ├── prompts/                 # gitignored, the exact prompt each subagent got
-    ├── 03-analyses/  03-patterns.md  03-briefs.json  briefs.md
+    ├── 03-analyses/  03-patterns.md  03-fill.json  03-briefs.json  briefs.md
     ├── 04-intake/<brief-id>.md  04-facts/<brief-id>.md
     ├── 04-scripts/<brief-id>.r<N>.md
     ├── 05-qa/<brief-id>.r<N>.json

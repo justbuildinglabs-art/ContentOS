@@ -19,7 +19,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "competitors": [],
     "format_accounts": [],
     "max_format_briefs": 2,
-    "lookback_days": 90,
+    "lookback_days": 14,
     "baseline_lookback_days": 365,
     "reels_per_account": 30,
     "min_reels_for_median": 8,
@@ -36,7 +36,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "max_video_seconds": 180,
     "frames_per_reel": 8,
     "frame_long_edge_px": 1024,
-    "briefs": 5,
+    "briefs": 20,
     "parallel_agents": 3,
     "qa_pass_threshold": 8,
     "length_tolerance": 0.10,
@@ -47,20 +47,30 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "apify_transcript_usd_per_min": 0.0,
     "whisper_model": "",
     "min_specifics": 3,
+    # 0.4.0: the weekly ideas list (design spec, "0.4.0 changes").
+    "min_outlier_ratio": 2.0,
+    "carry_weeks": 2,
+    "fill_ideas": 8,
+    "auto_scripts": 3,
 }
 
 TRANSCRIPT_MODES = ("auto", "local", "apify", "off")
 
+# Counts that are allowed to be 0 -- a creator turning the thing off --
+# unlike every other _NUMERIC_CONFIG_KEYS entry, which must be strictly
+# greater than 0: max_format_briefs (no format-account briefs at all),
+# carry_weeks (no carrying ideas forward), and fill_ideas (no filling the
+# list up to `briefs`).
+_COUNT_KEYS_ALLOWING_ZERO = ("max_format_briefs", "carry_weeks", "fill_ideas")
+
 # Every DEFAULT_CONFIG key whose default is a plain number (this excludes
 # "competitors" and "format_accounts", both lists, "video_source", a
-# string, and "max_format_briefs", a count that is allowed to be 0 --
-# unlike every other key here, which the loop below requires to be
-# strictly greater than 0. load_config requires each of these to hold a
-# positive, non-bool int/float.
+# string, and _COUNT_KEYS_ALLOWING_ZERO -- load_config requires each of
+# these to hold a positive, non-bool int/float.
 _NUMERIC_CONFIG_KEYS = tuple(
     key
     for key, default in DEFAULT_CONFIG.items()
-    if key not in ("max_format_briefs", "apify_transcript_usd_per_min")
+    if key not in _COUNT_KEYS_ALLOWING_ZERO + ("apify_transcript_usd_per_min",)
     and isinstance(default, (int, float))
     and not isinstance(default, bool)
 )
@@ -95,6 +105,7 @@ _INT_CONFIG_KEYS = (
     "apify_timeout_s",
     "poll_interval_s",
     "min_specifics",
+    "auto_scripts",
 )
 
 _GITIGNORE_LINES = (
@@ -183,18 +194,16 @@ def _validate_config(config: Dict[str, Any]) -> None:
         if key in _INT_CONFIG_KEYS and not isinstance(value, int):
             raise ConfigError(f"{key} must be a whole number greater than 0")
 
-    # max_format_briefs is excluded from _NUMERIC_CONFIG_KEYS above
-    # because, unlike every key in that loop, 0 is a legitimate value
-    # (a creator who wants no format-account briefs at all) rather than
-    # an error -- so it gets its own "whole number, >= 0" check here.
-    max_format_briefs = config.get("max_format_briefs")
-    valid_max_format_briefs = (
-        isinstance(max_format_briefs, int)
-        and not isinstance(max_format_briefs, bool)
-        and max_format_briefs >= 0
-    )
-    if not valid_max_format_briefs:
-        raise ConfigError("max_format_briefs must be a whole number greater than or equal to 0")
+    # _COUNT_KEYS_ALLOWING_ZERO are excluded from _NUMERIC_CONFIG_KEYS
+    # above because, unlike every key in that loop, 0 is a legitimate
+    # value for each of them (a creator turning the thing off) rather
+    # than an error -- so they each get their own "whole number, >= 0"
+    # check here instead.
+    for key in _COUNT_KEYS_ALLOWING_ZERO:
+        value = config.get(key)
+        is_valid = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        if not is_valid:
+            raise ConfigError(f"{key} must be a whole number greater than or equal to 0")
 
     if not 1 <= config["qa_pass_threshold"] <= 10:
         raise ConfigError("qa_pass_threshold must be between 1 and 10")

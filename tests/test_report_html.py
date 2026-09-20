@@ -98,6 +98,34 @@ class ReportHtmlTests(NoNetworkTestCase):
     def test_no_em_dashes(self) -> None:
         self.assertNotIn("—", self._render())
 
+    def test_a_fill_brief_is_titled_by_its_idea_title(self) -> None:
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            _enrich_briefs(run_dir)
+            doc = store.read_json(run_dir / "03-briefs.json")
+            doc["briefs"][4].update({"kind": "fill", "idea_title": "My own Sunday week card"})
+            store.write_json_atomic(run_dir / "03-briefs.json", doc)
+            html = report_html.render_report_html(run_dir)
+        self.assertIn("<h3>My own Sunday week card</h3>", html)
+        self.assertIn("<td>My own Sunday week card</td>", html)
+        self.assertNotIn("<h3>Pending brief</h3>", html)
+        self.assertNotIn("<td>Pending brief</td>", html)
+
+    def test_funnel_names_the_ratio_floor_in_plain_words(self) -> None:
+        # Final review M1: `below_min_ratio` gets a label from the run's
+        # own `min_outlier_ratio`, never the raw reason key.
+        with temp_project() as project:
+            run_dir = _build_run_with_every_status(project)
+            store.update_run(run_dir, config=dict(store.read_json(run_dir / "run.json")["config"],
+                                                  min_outlier_ratio=2.0))
+            doc = store.read_json(run_dir / "02-outliers.json")
+            doc["excluded"] = [{"shortCode": "X1", "reason": "below_min_ratio"},
+                               {"shortCode": "X2", "reason": "below_min_ratio"}]
+            store.write_json_atomic(run_dir / "02-outliers.json", doc)
+            html = report_html.render_report_html(run_dir)
+        self.assertIn("minus <b>2</b> below 2x their usual", html)
+        self.assertNotIn("below_min_ratio", html)
+
     def test_a_run_with_no_briefs_still_renders(self) -> None:
         with temp_project() as project:
             config_dir = store.contentos_dir(project)
