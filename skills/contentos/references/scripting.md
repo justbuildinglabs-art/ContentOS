@@ -12,7 +12,7 @@ matching format section in `formats.md` and the gold script in `examples/` befor
   setting, the example, the number. Everything else about the structure stays.
 - Under 10 percent changed is a clone. Over 20 percent and you have thrown away the thing that worked.
 - Do not re-research. Everything you are allowed to say is already in `creator.md`, the brief, the
-  analysis, and `03-patterns.md`.
+  analysis, `03-patterns.md`, and, when the prompt lists them, the brief's intake answers and fact sheet.
 - Read the `avoid` line in the brief before you start. That is the obvious version everyone in the niche
   will post this month. If your draft matches it, start again.
 
@@ -51,19 +51,39 @@ Never write that a thing is simple, fast, or easy. Show what makes a viewer conc
 For a screen demo the rule is harder. Say only what the screen is already showing. If the voice describes
 something the viewer cannot see, either shoot it or cut the line.
 
-## Evidence only
+## Evidence only: three claim tiers
 
-- Every claim must trace to `creator.md`: Allowed claims, Proof assets, Payoff moments, or What you
-  promote. If it is not there, it does not go in the script.
-- Never invent a statistic, a rating, a user count, or a funding number. Write `[NEED NUMBER]` in place of
-  the figure and keep the sentence. The creator fills it in later. Placeholders are expected and never
-  count against the script.
-- Use the same convention for other missing facts: `[NEED NAME]`, `[NEED SCREENSHOT]`, `[NEED DATE]`.
+Any reasonable claim is fine inside these three tiers.
+
+- About the world: name the tools, products, repos, places, and steps from the brief's specifics
+  (anything marked `public: true`), the source transcript, and the fact sheet. State them plainly, the way
+  anyone could check them.
+- About the creator: first-person framing is fine ("I use", "here is how I set it up") as long as the
+  screen can show it. The creator's own results come from `creator.md` (Allowed claims, Proof assets,
+  Inventory, when filled in) or this brief's intake answers.
+- Never: anything under Forbidden claims.
+- Placeholders are only for facts about the creator's own results. Never invent a statistic, a rating, a
+  user count, or a result about the creator. Write `[NEED NUMBER]` in place of the figure and keep the
+  sentence. The creator fills it in later. Never placehold a tool or a step you can name from the brief or
+  the fact sheet: name it.
+- Use the same convention for a shot only the creator can capture: `[NEED SCREENSHOT]`.
 - No testimonial, quote, review, or message screenshot unless it is listed under Proof assets.
 - Nothing under Forbidden claims, and no medical, income, or legal promise even when the creator would
   like one.
 - When the brief pushes you toward a claim `creator.md` cannot support, write the beat without the claim
   and note it in `## What changed vs source`.
+
+## Name real things
+
+A script any account in the niche could post is a failed script, however clean the lines are.
+
+- Where the source reel names a tool, a number, a place, or a step, name it: a public specific from the
+  brief, a step, a fact from the fact sheet, or an Inventory item or intake answer when there is one.
+- Use at least `min_specifics` concrete named items, the number the prompt gives you, 3 by default. A
+  placeholder does not count toward it. QA checks this as `not_generic` and scores it as
+  `body_specificity`.
+- A proof beat names what the thing is, who it is for, what it costs in money or time, and the tradeoff.
+  `specificity.md` has examples per niche when the prompt lists it.
 
 ## Hook rules
 
@@ -78,6 +98,9 @@ something the viewer cannot see, either shoot it or cut the line.
 
 - Two CTAs. The primary is a direct ask. The backup is an open loop.
 - Each under 20 words.
+- Creator rules in `rules.md` outrank the default offer placement. When a rule says the offer or the
+  community only goes in the backup CTA, follow the rule, even though the default puts the offer in the
+  Payoff beat.
 - The offer decides both halves of the primary. When `creator.md` has something under What you promote,
   the primary asks for that offer and answers the offer's objection in the same breath. When What you
   promote is blank, the primary asks for a follow, comment, save, or share, and answers the audience's
@@ -87,6 +110,15 @@ something the viewer cannot see, either shoot it or cut the line.
 - The open loop leaves a question that only the action resolves. Good for cold audiences.
 - Urgency only when it is real. No invented deadlines, no fake scarcity.
 - The CTA must land as the last step of the argument, never as a sales pitch glued onto the end.
+
+## Lead magnet rules
+
+- Every script suggests the free guide its comment keyword delivers. The reel shows that it works; the
+  guide hands over the how.
+- Build it only from the brief's steps, its public specifics, and the fact sheet. Never promise a result.
+- Shape: a `Keyword: <ONEWORD>` line in capitals, a `Title:` line, then 3 to 7 bullets naming what the
+  guide contains. The primary CTA asks for that keyword.
+- When `creator.md`'s CTA already names a specific guide, use that guide instead of suggesting one.
 
 ## Caption rules
 
@@ -144,6 +176,11 @@ On revision 1 you get the previous script and the QA JSON.
 - If a QA issue cannot be fixed without breaking a rule in this file, say so in `## What changed vs source`
   and leave the line alone.
 
+After a second revise or a reject, the brief needs a human. When the creator answers the intake
+questions, the brief gets one more try, revision 2. You get the prior script, its QA issues, and the
+intake answers. Replace each placeholder the answers cover with the real answer, then fix the QA issues
+the same way as above. A blank answer stays a placeholder. There is no revision 3.
+
 ## Sources
 
 Paraphrased from "How to Make Your Writing Not Sound Like AI" (the tells, the fixes, the number
@@ -151,4 +188,5 @@ placeholder convention, the one honest complaint), "The 20-Agent Script System: 
 Pipeline That Actually Produces Good Work" (execute the brief, the beat structure, show do not describe,
 the word budget, the draft and diagnosis loop), and "How to Build a 5-Agent Content Pipeline That Writes,
 Edits, and Publishes for You" (the writer executes and does not re-research, evidence before claims),
-all by Ray Cfu.
+all by Ray Cfu. The three claim tiers, the `min_specifics` rule, the intake answers, and the fact sheet are
+ContentOS decisions from the design spec's 0.3.0 changes, not the guides'.

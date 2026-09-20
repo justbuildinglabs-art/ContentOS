@@ -41,7 +41,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "qa_pass_threshold": 8,
     "length_tolerance": 0.10,
     "video_source": "cdn",
+    # 0.3.0: transcripts (lib/transcribe.py) and the QA specificity floor.
+    "transcripts": "auto",
+    "apify_transcripts": False,
+    "apify_transcript_usd_per_min": 0.0,
+    "whisper_model": "",
+    "min_specifics": 3,
 }
+
+TRANSCRIPT_MODES = ("auto", "local", "apify", "off")
 
 # Every DEFAULT_CONFIG key whose default is a plain number (this excludes
 # "competitors" and "format_accounts", both lists, "video_source", a
@@ -52,7 +60,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 _NUMERIC_CONFIG_KEYS = tuple(
     key
     for key, default in DEFAULT_CONFIG.items()
-    if key != "max_format_briefs"
+    if key not in ("max_format_briefs", "apify_transcript_usd_per_min")
     and isinstance(default, (int, float))
     and not isinstance(default, bool)
 )
@@ -86,6 +94,7 @@ _INT_CONFIG_KEYS = (
     "parallel_agents",
     "apify_timeout_s",
     "poll_interval_s",
+    "min_specifics",
 )
 
 _GITIGNORE_LINES = (
@@ -195,6 +204,29 @@ def _validate_config(config: Dict[str, Any]) -> None:
 
     if config.get("video_source") != "cdn":
         raise ConfigError('video_source must be "cdn"')
+
+    if config.get("transcripts") not in TRANSCRIPT_MODES:
+        raise ConfigError('transcripts must be one of "auto", "local", "apify", "off"')
+    if not isinstance(config.get("apify_transcripts"), bool):
+        raise ConfigError("apify_transcripts must be true or false")
+    if not isinstance(config.get("whisper_model"), str):
+        raise ConfigError("whisper_model must be a path string, or empty")
+
+    # Like max_format_briefs, 0 is legitimate here (the paid backend is
+    # off), so this key is outside the positive-number loop above.
+    per_min = config.get("apify_transcript_usd_per_min")
+    valid_per_min = (
+        isinstance(per_min, (int, float)) and not isinstance(per_min, bool) and per_min >= 0
+    )
+    if not valid_per_min:
+        raise ConfigError("apify_transcript_usd_per_min must be a number greater than or equal to 0")
+    # A paid backend with no price would estimate $0 and slip past the
+    # cost cap, so it must be priced before it can be switched on.
+    if config["apify_transcripts"] and per_min == 0:
+        raise ConfigError(
+            "apify_transcripts is on but apify_transcript_usd_per_min is 0; "
+            "set it to the per-minute price shown in your Apify console"
+        )
 
 
 def load_config(project: Path) -> Dict[str, Any]:

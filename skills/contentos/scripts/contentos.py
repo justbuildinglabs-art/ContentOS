@@ -2,8 +2,8 @@
 
 The deterministic half of the four-stage pipeline (design spec, "Stage
 1" through "Stage 4"): `diagnose`, `setup`, `research`, `frames`,
-`direct-prompt`, `synth-prompt`, `rank`, `write-prompt`, `qa-prompt`,
-`verify`, `report`, `status`, `sync-plugin-key`. The SKILL.md
+`transcribe`, `direct-prompt`, `synth-prompt`, `rank`, `intake`, `write-prompt`,
+`qa-prompt`, `verify`, `report`, `status`, `sync-plugin-key`, `mark`, `history`. The SKILL.md
 orchestrator dispatches the `contentos:content-director`,
 `contentos:script-writer`, and `contentos:qa-reviewer` subagents around
 these commands; nothing here calls a model.
@@ -27,22 +27,29 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from lib import agents, apify, codes, direct, env, frames, report, research, setup, store
+from lib import (
+    agents, apify, codes, direct, env, frames, history, report, report_html, research, setup,
+    store, transcribe,
+)
 
 SUBCOMMANDS = [
     "diagnose",
     "setup",
     "research",
     "frames",
+    "transcribe",
     "direct-prompt",
     "synth-prompt",
     "rank",
+    "intake",
     "write-prompt",
     "qa-prompt",
     "verify",
     "report",
     "status",
     "sync-plugin-key",
+    "mark",
+    "history",
 ]
 
 
@@ -226,6 +233,41 @@ def _frames_handler(args: argparse.Namespace) -> int:
     return codes.EXIT_OK
 
 
+def _transcribe_handler(args: argparse.Namespace) -> int:
+    """Backfill transcripts for one run's selected reels, like `frames` does.
+
+    Prints the JSON summary `transcribe.run_transcribe` returns and exits
+    0; a reel that could not be transcribed is a status in that summary,
+    never an error. `--mock` copies fixture transcripts and never runs
+    whisper or calls Apify. An unresolvable `--run`, a run with no
+    `02-outliers.json` yet, or a bad config exits 2, message on stderr.
+    """
+    project_dir = args.project.resolve()
+    try:
+        cfg = store.load_config(project_dir)
+        # The Apify fallback is paid, so it asks first, like research does:
+        # print the estimate and exit 3 until the creator passes --yes.
+        if not args.mock and not args.yes and transcribe.apify_planned(cfg):
+            print(json.dumps({"transcripts_usd": transcribe.estimate_usd(cfg),
+                              "cap_usd": cfg["apify_max_charge_usd"]}))
+            print("confirmation required; re-run with --yes to spend on Apify transcripts", file=sys.stderr)
+            return codes.EXIT_CONFIRM
+        keys = env.resolve_keys(project_dir)
+        result = transcribe.run_transcribe(
+            project_dir,
+            args.run,
+            cfg,
+            keys.apify,
+            mock=args.mock,
+            fixtures_dir=research.FIXTURES_DIR,
+        )
+    except (store.ConfigError, store.RunNotFound, transcribe.OutliersMissing) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    print(json.dumps(result))
+    return codes.EXIT_OK
+
+
 def references_dir() -> Path:
     """Return the skills/contentos/references directory the prompts cite."""
     return skill_root() / "references"
@@ -280,7 +322,8 @@ def _verify_write(project_dir: Path, args: argparse.Namespace) -> int:
         return codes.EXIT_VERIFY
     print(
         f"ok {path.resolve()} words={check.word_count} "
-        f"read_time_s={check.read_time_s} placeholders={len(check.placeholders)}"
+        f"read_time_s={check.read_time_s} placeholders={len(check.placeholders)} "
+        f"placeholder_ratio={agents.placeholder_ratio(len(check.placeholders), check.word_count)}"
     )
     return codes.EXIT_OK
 
@@ -305,11 +348,26 @@ def _verify_qa(project_dir: Path, args: argparse.Namespace) -> int:
     return codes.EXIT_OK
 
 
+def _verify_facts(project_dir: Path, args: argparse.Namespace) -> int:
+    """`verify --stage facts`: every bullet in `04-facts/<B>.md` has an https source."""
+    if not args.brief:
+        print("verify --stage facts needs --brief", file=sys.stderr)
+        return codes.EXIT_USAGE
+    run_dir = store.resolve_run(project_dir, args.run)
+    path = agents.facts_path(run_dir, args.brief)
+    problems, count = agents.verify_facts(path)
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return codes.EXIT_VERIFY
+    print(f"ok {path.resolve()} facts={count}")
+    return codes.EXIT_OK
+
+
 def _verify_handler(args: argparse.Namespace) -> int:
     """Verify one stage's output file, printing `ok <path> ...` or its problems.
 
     `direct` and `synth` are Stage 2's own checks (`lib/direct.py`);
-    `write` and `qa` are Stage 3/4's (`lib/agents.py`).
+    `facts`, `write`, and `qa` are Stage 3/4's (`lib/agents.py`).
     """
     project_dir = args.project.resolve()
     try:
@@ -321,6 +379,8 @@ def _verify_handler(args: argparse.Namespace) -> int:
             path = direct.verify_synth(project_dir, args.run)
             print(f"ok {path}")
             return codes.EXIT_OK
+        if args.stage == "facts":
+            return _verify_facts(project_dir, args)
         if args.stage == "write":
             return _verify_write(project_dir, args)
         return _verify_qa(project_dir, args)
@@ -335,12 +395,34 @@ def _verify_handler(args: argparse.Namespace) -> int:
         return codes.EXIT_USAGE
 
 
+def _intake_handler(args: argparse.Namespace) -> int:
+    """Print the intake question list for one brief (stdout, exit 0).
+
+    The orchestrator asks the creator these questions and writes the
+    answers to `runs/<id>/04-intake/<B>.md`. An unresolvable run or a
+    brief not in `03-briefs.json` exits 2, message on stderr.
+    """
+    project_dir = args.project.resolve()
+    try:
+        run_dir = store.resolve_run(project_dir, args.run)
+        text = agents.intake_questions(project_dir, run_dir, args.brief)
+    except store.RunNotFound as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    except agents.AgentsError as exc:
+        print(str(exc), file=sys.stderr)
+        return exc.exit_code
+    print(text)
+    return codes.EXIT_OK
+
+
 def _write_prompt_handler(args: argparse.Namespace) -> int:
     """Print the `script-writer` dispatch prompt for one brief.
 
     Every refusal (`agents.AgentsError`) carries its own exit code: 2
-    for an unresolvable run, a brief not in `03-briefs.json`, or a
-    missing `creator.md`.
+    for an unresolvable run, a brief not in `03-briefs.json`, a
+    missing `creator.md`, a revision past 2, or a revision 2 the brief
+    has not unlocked (it must be needs_human and have intake answers).
     """
     project_dir = args.project.resolve()
     try:
@@ -401,6 +483,8 @@ def _report_handler(args: argparse.Namespace) -> int:
     report_path = run_dir / "report.md"
     report_path.write_text(report.render_report(run_dir), encoding="utf-8")
     print(report_path.resolve())
+    if args.html:
+        print(report_html.write_report_html(run_dir).resolve())
     return codes.EXIT_OK
 
 
@@ -412,7 +496,32 @@ def _status_handler(args: argparse.Namespace) -> int:
     except store.RunNotFound as exc:
         print(str(exc), file=sys.stderr)
         return codes.EXIT_USAGE
-    print(json.dumps(report.status(run_dir), indent=2))
+    if args.text:
+        print(report.render_status_text(run_dir), end="")
+    else:
+        print(json.dumps(report.status(run_dir), indent=2))
+    return codes.EXIT_OK
+
+
+def _mark_handler(args: argparse.Namespace) -> int:
+    """Record that a brief was filmed, posted, or skipped in `.contentos/log.json`."""
+    project_dir = args.project.resolve()
+    try:
+        entry = history.mark(project_dir, args.run, args.brief, args.state, url=args.url)
+    except (store.RunNotFound, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    print(json.dumps(entry))
+    return codes.EXIT_OK
+
+
+def _history_handler(args: argparse.Namespace) -> int:
+    """Write `.contentos/history.md`, one row per run, and print its path."""
+    project_dir = args.project.resolve()
+    path = store.contentos_dir(project_dir) / "history.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(history.render_history(project_dir), encoding="utf-8")
+    print(path.resolve())
     return codes.EXIT_OK
 
 
@@ -445,15 +554,19 @@ HANDLERS["diagnose"] = _diagnose_handler
 HANDLERS["setup"] = _setup_handler
 HANDLERS["research"] = _research_handler
 HANDLERS["frames"] = _frames_handler
+HANDLERS["transcribe"] = _transcribe_handler
 HANDLERS["direct-prompt"] = _direct_prompt_handler
 HANDLERS["synth-prompt"] = _synth_prompt_handler
 HANDLERS["rank"] = _rank_handler
+HANDLERS["intake"] = _intake_handler
 HANDLERS["verify"] = _verify_handler
 HANDLERS["write-prompt"] = _write_prompt_handler
 HANDLERS["qa-prompt"] = _qa_prompt_handler
 HANDLERS["report"] = _report_handler
 HANDLERS["status"] = _status_handler
 HANDLERS["sync-plugin-key"] = _sync_plugin_key_handler
+HANDLERS["mark"] = _mark_handler
+HANDLERS["history"] = _history_handler
 
 
 def is_stub(name: str) -> bool:
@@ -484,18 +597,32 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "frames":
             sub.add_argument("--run", required=True)
             sub.add_argument("--refresh-expired", action="store_true")
+        if name == "transcribe":
+            sub.add_argument("--yes", action="store_true")
+            sub.add_argument("--run", required=True)
         if name in (
-            "direct-prompt", "synth-prompt", "rank", "verify",
+            "direct-prompt", "synth-prompt", "rank", "intake", "verify",
             "write-prompt", "qa-prompt", "report", "status",
         ):
             sub.add_argument("--run", required=True)
+        if name == "report":
+            sub.add_argument("--html", action="store_true")
+        if name == "status":
+            sub.add_argument("--text", action="store_true")
+        if name == "mark":
+            sub.add_argument("--run", required=True)
+            sub.add_argument("--brief", required=True)
+            sub.add_argument("--state", required=True, choices=list(history.LOG_STATES))
+            sub.add_argument("--url", default=None)
         if name == "direct-prompt":
             sub.add_argument("--shortcode", required=True)
+        if name == "intake":
+            sub.add_argument("--brief", required=True)
         if name in ("write-prompt", "qa-prompt"):
             sub.add_argument("--brief", required=True)
             sub.add_argument("--revision", type=int, default=None)
         if name == "verify":
-            sub.add_argument("--stage", required=True, choices=["direct", "synth", "write", "qa"])
+            sub.add_argument("--stage", required=True, choices=["direct", "synth", "facts", "write", "qa"])
             sub.add_argument("--shortcode", default=None)
             sub.add_argument("--brief", default=None)
             sub.add_argument("--revision", type=int, default=None)

@@ -54,6 +54,18 @@ guarantees, or anything you are not ready to defend to a regulator.
 List the testimonials, reviews, screenshots, numbers, or results that
 genuinely exist and may be shown on screen.
 
+## Inventory
+Optional. List the things you actually use, built, make, or teach, one per
+line, with proof or one number when you have it. Without this section, scripts
+still name real things: the tools and steps from the source reels and the
+researched fact sheet. With it, scripts can also name yours.
+
+Short examples, one per niche:
+A cook: cast iron skillet I have used for 6 years, 3 dinners a week.
+A coach: the 12 week beginner plan, 40 clients through it.
+A developer: my open source CLI on GitHub, 900 stars.
+An app maker: the budgeting app I built, 4.8 stars on the App Store.
+
 ## Brand voice
 Describe how you sound when you talk, specific enough that two different
 writers would land on the same voice.

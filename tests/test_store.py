@@ -288,6 +288,60 @@ class FormatAccountsConfigTests(NoNetworkTestCase):
                         load_config(project_dir)
 
 
+class SpecificityConfigTests(NoNetworkTestCase):
+    """0.3.0 config keys: transcripts and the QA specificity floor."""
+
+    def test_defaults(self) -> None:
+        self.assertEqual(DEFAULT_CONFIG["transcripts"], "auto")
+        self.assertIs(DEFAULT_CONFIG["apify_transcripts"], False)
+        self.assertEqual(DEFAULT_CONFIG["apify_transcript_usd_per_min"], 0.0)
+        self.assertEqual(DEFAULT_CONFIG["whisper_model"], "")
+        self.assertEqual(DEFAULT_CONFIG["min_specifics"], 3)
+
+    def test_defaults_load(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acme"]})
+            config = load_config(project_dir)
+        self.assertEqual(config["transcripts"], "auto")
+        self.assertEqual(config["min_specifics"], 3)
+
+    def test_accepts_valid_values(self) -> None:
+        good = {
+            "competitors": ["acme"],
+            "transcripts": "local",
+            "apify_transcripts": True,
+            "apify_transcript_usd_per_min": 0.02,
+            "whisper_model": "/tmp/ggml-small.bin",
+            "min_specifics": 5,
+        }
+        with temp_project() as project_dir:
+            _write_config(project_dir, good)
+            config = load_config(project_dir)
+        self.assertEqual(config["apify_transcript_usd_per_min"], 0.02)
+
+    def test_rejects_bad_values(self) -> None:
+        bad_cases = [
+            {"transcripts": "cloud"},
+            {"transcripts": None},
+            {"apify_transcripts": "yes"},
+            {"apify_transcript_usd_per_min": -0.01},
+            {"apify_transcript_usd_per_min": "0.02"},
+            {"apify_transcript_usd_per_min": True},
+            {"whisper_model": 3},
+            {"min_specifics": 0},
+            {"min_specifics": 2.5},
+            # A paid backend with no price would estimate $0 and slip past
+            # the cost cap, so it has to be priced before it can be on.
+            {"apify_transcripts": True, "apify_transcript_usd_per_min": 0},
+        ]
+        for overrides in bad_cases:
+            with self.subTest(overrides=overrides):
+                with temp_project() as project_dir:
+                    _write_config(project_dir, {"competitors": ["acme"], **overrides})
+                    with self.assertRaises(ConfigError):
+                        load_config(project_dir)
+
+
 class ResolveRunTests(NoNetworkTestCase):
     def test_resolve_latest_picks_newest_and_unknown_raises(self) -> None:
         with temp_project() as project_dir:

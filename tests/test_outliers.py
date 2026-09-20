@@ -444,6 +444,22 @@ class SelectOutliersTests(NoNetworkTestCase):
         )
         self.assertNotIn("C", listed)
 
+    def test_selection_skips_reels_briefed_in_an_earlier_run(self) -> None:
+        # A reel an earlier run already turned into a brief would win
+        # again every week inside the lookback window. It is excluded
+        # with its own reason and its slot goes to the next outlier.
+        cfg = _cfg(lookback_days=90, min_plays=0, top_k_videos=1, backfill_pool=0)
+        reels = [
+            _scored_reel(shortCode="OLD", ownerUsername="acct", outlier_ratio=9.0),
+            _scored_reel(shortCode="NEW", ownerUsername="acct", outlier_ratio=4.0),
+        ]
+        selection = outliers.select_outliers(reels, cfg, NOW, already_briefed={"OLD"})
+        self.assertEqual([r["shortCode"] for r in selection.selected], ["NEW"])
+        self.assertIn({"shortCode": "OLD", "reason": "already_briefed"}, selection.excluded)
+
+        default = outliers.select_outliers(reels, cfg, NOW)
+        self.assertEqual([r["shortCode"] for r in default.selected], ["OLD"])
+
     def test_selection_deterministic_tiebreak(self) -> None:
         cfg = _cfg(
             lookback_days=90, min_plays=0, max_per_account=10, top_k_videos=10, backfill_pool=10

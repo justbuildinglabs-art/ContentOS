@@ -601,6 +601,7 @@ class ResearchGateTests(NoNetworkTestCase):
                 "reels_per_account": 30,
                 "reels_usd": 0.162,
                 "details_usd": 0.0054,
+                "transcripts_usd": 0.0,
                 "total_usd": 0.1674,
                 "max_items": 60,
                 "cap_usd": 3.0,
@@ -684,7 +685,7 @@ class ResearchCliTests(NoNetworkTestCase):
             {
                 "run_id", "run_dir", "mode", "status", "accounts", "format_accounts",
                 "reels_total", "selected", "backfill", "excluded", "videos", "frames",
-                "warnings",
+                "transcripts", "warnings",
             },
         )
         self.assertEqual(payload["mode"], "mock")

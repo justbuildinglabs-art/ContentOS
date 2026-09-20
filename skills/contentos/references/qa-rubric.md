@@ -1,12 +1,32 @@
 # QA rubric
 
-The reviewer reads the script, the brief, the analysis, `03-patterns.md`, and `creator.md`, then fills
-`qa.schema.json`. Every check gets pass, fail, or na. Every score gets 1 to 10. The verdict follows the
-rules at the bottom, not your mood. Quote the offending line in every issue so the writer can find it.
+The reviewer reads the script, the brief, the analysis, `03-patterns.md`, and `creator.md`, plus the
+brief's intake answers and fact sheet when the prompt lists them, then fills `qa.schema.json`. Every
+check gets pass, fail, or na. Every score gets 1 to 10. The verdict follows the rules at the bottom, not
+your mood. Quote the offending line in every issue so the writer can find it.
 
 The guides demand a 10 on every dimension. ContentOS sets the bar at `qa_pass_threshold`, default 8,
 because the loop allows one revision before a human looks at it. Score honestly against the 10 anchor
 anyway. A generous 8 wastes the revision.
+
+## Claim tiers
+
+Every claim in a script sits in one of three tiers. Judge it against its own tier. Any reasonable claim
+is fine inside them.
+
+- About the world: a tool, product, repo, place, or step from the brief's specifics (`public: true`), the
+  source transcript, or the fact sheet. It is stated plainly, the way anyone could check it.
+- About the creator: first-person framing is fine when the screen can show it. A number about the
+  creator's own results must be in `creator.md` (Allowed claims, Proof assets, Inventory) or this brief's
+  intake answers, or be a placeholder.
+- Never: anything under Forbidden claims, and any medical, income, or legal promise.
+
+Placeholders are only for facts about the creator's own results. A `[NEED ...]` standing in for a
+nameable tool, step, or world fact is a problem: the writer should have named it from the brief or the
+fact sheet.
+
+The `## Lead magnet` section, when present, is judged under `cta_action_clarity`: the primary CTA asks for
+its keyword, and the guide lists only what the brief and the fact sheet support.
 
 ## Checks
 
@@ -25,7 +45,8 @@ Pass when `## Payoff` names a concrete on-screen moment that delivers what the h
 `creator.md` has something under What you promote, the payoff must show that offer through a moment
 listed under Payoff moments. Fail when the payoff is vague, invented, or missing, or when it pays off
 something the hook never promised. Do not use na. Every format has a payoff, even the ones with no
-screen recording in them.
+screen recording in them. A creator rule in `rules.md` about where the offer appears outranks this
+default placement. A script that follows such a rule never fails `payoff_present`.
 
 ### consistent_with_profile
 Pass when every fact about the creator, the tools or topics covered, and anything promoted matches
@@ -33,9 +54,10 @@ Pass when every fact about the creator, the tools or topics covered, and anythin
 contradiction with Allowed claims or What you promote.
 
 ### no_fabricated_claims
-Pass when every number and factual claim traces to Allowed claims, Proof assets, Payoff moments, or
-What you promote in `creator.md`, or is written as a placeholder. Fail on any invented statistic,
-rating, user count, or result. A `[NEED NUMBER]` is a pass.
+Pass when every number and factual claim traces to its tier. For the creator, that is Allowed claims,
+Proof assets, Payoff moments, What you promote, or Inventory in `creator.md`, or the brief's intake answers. For the world,
+that is the fact sheet, a public brief specific, or the source transcript. A creator fact written as a
+placeholder also passes. Fail on any invented statistic, rating, user count, or result.
 
 ### no_fake_testimonial
 Pass when no quote, review, message screenshot, or customer story appears unless it is listed under Proof
@@ -59,6 +81,17 @@ Pass when the script obeys the Brand voice section of `creator.md`: the three ad
 three it should not, the sentence rules, and the word lists. Fail on any off-limits word, and on any
 creator rule the script breaks. Use na when the creator has not filled in the Brand voice section and the
 prompt carries no creator rules.
+
+### not_generic
+Count the concrete named items in the script: an inventory item, a public specific, a fact from the
+fact sheet, a number or name from the intake answers. Placeholders do not count. Fail when the count is
+under `min_specifics` from the prompt, 3 by default. Quote what you counted in the issue, so the writer
+sees how short it fell.
+
+### facts_sourced
+Pass when every fact about the world in the script appears in the brief's fact sheet or is a brief
+specific marked `public: true`. Fail when a world fact appears that is in neither, even when it is true.
+Use na when the script states no fact about the world at all.
 
 ### ai_tells
 Pass when sentence length varies, contractions appear where speech would use them, numbers are textured or
@@ -101,8 +134,15 @@ the point. 4: a list of things with no argument holding them together.
 coherent line of thought with one flat note. 4: the same note from start to finish.
 
 ### body_proof_density
-10: every claim carries a number, a comparison, a demonstration, or a placeholder. 7: one claim floating
-without support. 4: mostly assertion, the thing is described rather than shown.
+10: every claim carries a real number, a comparison, a demonstration, or a sourced fact. 7: one claim
+floating without support, or proof that leans on placeholders. 4: mostly assertion, the thing is
+described rather than shown. A placeholder is not proof. It keeps the script honest, but a proof beat
+that rests on one cannot score 10.
+
+### body_specificity
+10: every beat names a real thing from the inventory, the intake answers, the fact sheet, or the brief's
+public specifics. 7: some beats do, and the rest fall back on general language. 4: category language any
+account in the niche could say. Placeholders do not count as named things.
 
 ### body_pacing
 10: no dead spots, every beat moves. 7: one beat drags or repeats the one before it. 4: a whole beat could
@@ -164,7 +204,9 @@ with the line quoted, and a concrete `fix` the writer can apply without guessing
 sentences the creator can read on its own. `confidence` is 1 to 10 on how sure you are about this review;
 below the threshold, say in the summary what would raise it.
 
-A second `revise` on the same brief sends it to a human. Say clearly what a human needs to decide.
+A second `revise` on the same brief sends it to a human. Say clearly what a human needs to decide. When
+the creator then answers the intake questions, the brief gets one more try, revision 2. Its verdict is
+final: a pass is a pass, and a revise or a reject goes back to a human.
 
 ## One watch test (one_watch_test)
 
@@ -192,9 +234,10 @@ Quote the line in each entry. Both arrays are empty when the script is clean.
 ## Placeholders
 
 List every bracketed placeholder in `placeholders`, exactly as written, including `[NEED NUMBER]`,
-`[NEED NAME]`, and the rest. Placeholders never fail a check, never lower a score, and never change the
-verdict. They are the creator's to-do list in the final report. Never ask the writer to fill one in with an
-estimate.
+`[NEED NAME]`, and the rest. A placeholder never fails a check by itself and is never a reason to reject.
+It is not proof either: it earns no credit in `body_proof_density` or `body_specificity`, and it does not
+count toward `not_generic`. Placeholders are the creator's to-do list in the final report. Never ask the
+writer to fill one in with an estimate.
 
 ## Sources
 
@@ -203,4 +246,5 @@ Good Work" (the manager scoring dimensions, the filler questions, the character 
 the spoken flow and cringe checks), "How to Make Your Writing Not Sound Like AI" (the tells behind the
 `ai_tells` check), and "How to Build a 5-Agent Content Pipeline That Writes, Edits, and Publishes for You"
 (the editor's evidence rule and banned vocabulary), all by Ray Cfu. The pass threshold of 8 and the verdict
-rules are ContentOS decisions, not the guides'.
+rules are ContentOS decisions, not the guides'. So are the claim tiers, `body_specificity`,
+`not_generic`, and `facts_sourced`, from the design spec's 0.3.0 changes.

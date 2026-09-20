@@ -24,7 +24,10 @@ Constraints").
 """
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 import unittest
 from typing import Dict, List, Tuple
 
@@ -97,6 +100,8 @@ SETUP_ANSWER_KEYS = [
     "hashtag_seeds",
     "competitors",
     "format_accounts",
+    "inventory",
+    "lead_magnet",
 ]
 
 # Names from the 0.1.x product-and-founder vocabulary. After 0.2.0 none
@@ -196,8 +201,9 @@ def _answer_keys_setup_reads() -> set:
     keys.update(setup_lib.LIST_SECTIONS.values())
     for mapping in setup_lib.BULLET_SECTIONS.values():
         keys.update(mapping.values())
-    # The offer block is rendered by hand, not through a section map.
-    keys.update({"offer", "offer_objection"})
+    # The offer block and the lead magnet line are rendered by hand, not
+    # through a section map.
+    keys.update({"offer", "offer_objection", "lead_magnet"})
     return keys
 
 
@@ -511,6 +517,106 @@ class ReadmeTests(NoNetworkTestCase):
         for phrase in ("payoff", "creator profile"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, prose.lower())
+
+
+def _key_command(text: str) -> List[str]:
+    """Every fenced bash block that saves the Apify token, stripped."""
+    blocks = re.findall(r"```bash\n(.*?)```", text, flags=re.DOTALL)
+    return [block.strip() for block in blocks if "APIFY_API_TOKEN=%s" in block]
+
+
+def _run_key_command(command: str, stdin: str) -> Tuple["subprocess.CompletedProcess", "object"]:
+    """Run the terminal command against a throwaway HOME with `stdin` as the paste."""
+    with temp_project() as home:
+        env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        done = subprocess.run(
+            ["bash", "-c", command],
+            input=stdin,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            timeout=30,
+        )
+        saved = home / ".config" / "contentos" / ".env"
+        result = {
+            "exists": saved.exists(),
+            "text": saved.read_text(encoding="utf-8") if saved.exists() else None,
+            "mode": (saved.stat().st_mode & 0o777) if saved.exists() else None,
+        }
+        return done, result
+
+
+class ApifyKeyStepsTests(NoNetworkTestCase):
+    """Adding the Apify key is a guided, step-by-step task the creator does.
+
+    The token must never pass through a chat, so the README and the skill
+    both hand the creator one terminal command that asks for it with the
+    input hidden. These tests pin that the two documents carry the same
+    command, that the command really does what the docs say, and that the
+    skill tells Claude to hand over the steps and never touch the token.
+    """
+
+    def test_readme_and_skill_share_one_terminal_command(self) -> None:
+        readme = _key_command(README.read_text(encoding="utf-8"))
+        skill = _key_command(SKILL_MD.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(readme), 1, "README needs exactly one key command")
+        self.assertEqual(len(skill), 1, "SKILL.md needs exactly one key command")
+        self.assertEqual(readme, skill)
+
+    def test_terminal_command_saves_the_token_with_owner_only_permissions(self) -> None:
+        if shutil.which("bash") is None:
+            self.skipTest("bash is not installed")
+        command = _key_command(README.read_text(encoding="utf-8"))[0]
+
+        done, saved = _run_key_command(command, "fake_test_token_123\n")
+
+        self.assertTrue(saved["exists"])
+        self.assertEqual(saved["text"], "APIFY_API_TOKEN=fake_test_token_123\n")
+        self.assertEqual(saved["mode"], 0o600)
+        self.assertIn("Saved.", done.stdout)
+        # The paste is hidden: the token never shows in the output.
+        self.assertNotIn("fake_test_token_123", done.stdout + done.stderr)
+
+    def test_terminal_command_writes_nothing_on_empty_input(self) -> None:
+        if shutil.which("bash") is None:
+            self.skipTest("bash is not installed")
+        command = _key_command(README.read_text(encoding="utf-8"))[0]
+
+        done, saved = _run_key_command(command, "\n")
+
+        self.assertFalse(saved["exists"])
+        self.assertNotIn("Saved.", done.stdout)
+
+    def test_readme_walks_through_the_key_steps(self) -> None:
+        prose = _collapse(README.read_text(encoding="utf-8"))
+
+        # Where to get the token, where to run the command, what success
+        # looks like, and how to confirm it.
+        self.assertIn("API & Integrations", prose)
+        self.assertIn("real Terminal", prose)
+        self.assertIn("cannot take typed input", prose)
+        self.assertIn("Saved.", prose)
+        self.assertIn("owner-only permissions", prose)
+        self.assertIn("/contentos diagnose", prose)
+        # The token never goes through a chat.
+        self.assertIn("never paste the token into a chat", prose.lower())
+
+    def test_skill_hands_over_the_steps_and_never_touches_the_token(self) -> None:
+        prose = _collapse(SKILL_MD.read_text(encoding="utf-8"))
+
+        self.assertIn("Never ask the creator to paste the token into the chat", prose)
+        self.assertIn("never write it to a file for them", prose)
+        self.assertIn("API & Integrations", prose)
+        self.assertIn("real Terminal window", prose)
+        self.assertIn("cannot take typed input", prose)
+        self.assertIn("Saved.", prose)
+        # After the creator confirms, Claude checks it live.
+        self.assertIn("diagnose --live", prose)
+        self.assertIn("apify_live", prose)
+        # Exit 4 sends the creator to the same steps.
+        self.assertIn("the key steps from Step 1", prose)
 
 
 class CreatorRenameTests(NoNetworkTestCase):
