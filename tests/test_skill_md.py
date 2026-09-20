@@ -42,11 +42,11 @@ SKILL_MD = SKILL_DIR / "SKILL.md"
 README = REPO_ROOT / "README.md"
 
 ARGUMENT_HINT = (
-    "setup | run [--auto] [--yes] | research | direct | write [B01 B02] | "
+    "setup | discover | run [--auto] [--yes] | research | direct | write [B01 B02] | "
     "qa [B01] | status | diagnose [--mock]"
 )
 ALLOWED_TOOLS = (
-    "Bash, Read, Write, Glob, AskUserQuestion, "
+    "Bash, Read, Write, Glob, AskUserQuestion, WebSearch, "
     "Agent(contentos:content-director, contentos:script-writer, contentos:qa-reviewer)"
 )
 
@@ -573,6 +573,16 @@ class WeeklyReleaseNoteTests(NoNetworkTestCase):
                     self.assertIn(phrase, prose)
             with self.subTest(doc=name):
                 self.assertNotIn("—", prose)
+
+    def test_readme_and_changelog_cover_discovery_and_paid_partnerships(self) -> None:
+        readme = README.read_text(encoding="utf-8")
+        changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        for text, name in ((readme, "README.md"), (changelog, "CHANGELOG.md")):
+            for phrase in ("/contentos discover", "exclude_paid_partnerships", "paid partnership"):
+                with self.subTest(file=name, phrase=phrase):
+                    self.assertIn(phrase, text)
+            self.assertNotIn("—", text)
+        self.assertIn("find them for me", readme)
 
     def test_readme_auto_row_names_auto_scripts(self) -> None:
         text = README.read_text(encoding="utf-8")

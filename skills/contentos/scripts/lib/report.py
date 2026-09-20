@@ -41,6 +41,19 @@ def _briefs(run_dir: Path) -> List[Dict[str, Any]]:
     return doc.get("briefs") or []
 
 
+def skipped_paid(run_dir: Path) -> List[Dict[str, Any]]:
+    """Reels `rank` left out as paid partnerships (0.5.0); `[]` for an older run."""
+    briefs_path = Path(run_dir) / "03-briefs.json"
+    if not briefs_path.exists():
+        return []
+    try:
+        doc = store.read_json(briefs_path)
+    except (ValueError, OSError):
+        return []
+    items = doc.get("skipped_paid") if isinstance(doc, dict) else None
+    return [item for item in items or [] if isinstance(item, dict)]
+
+
 def _brief_states(run_dir: Path) -> List[Dict[str, Any]]:
     """`agents.brief_state` for every brief in this run, in ranked order."""
     return [agents.brief_state(run_dir, brief["brief_id"]) for brief in _briefs(run_dir)]
@@ -408,6 +421,17 @@ def render_report(run_dir: Path) -> str:
     else:
         lines.append("None.")
     lines.append("")
+
+    paid = skipped_paid(run_dir)
+    if paid:
+        lines.append("## Skipped: paid partnership")
+        lines.append("")
+        for item in paid:
+            owner = f" (@{item['ownerUsername']})" if item.get("ownerUsername") else ""
+            lines.append(
+                f"- {item.get('shortCode', '?')}{owner}: {item.get('evidence') or 'no evidence given'}"
+            )
+        lines.append("")
 
     lines.append("## Costs and timings")
     lines.append("")

@@ -587,6 +587,47 @@ def _load_carried(
     return carried
 
 
+def _drop_paid_partnerships(
+    analyses: Dict[str, Dict[str, Any]],
+    carried: List[Dict[str, Any]],
+    selected: List[Dict[str, Any]],
+    log: Callable[[str], None],
+) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Split out every analysis the director marked as a paid partnership.
+
+    Returns `(analyses, carried, skipped_paid)`. Instagram's own label is
+    app UI and never in a keyframe, so the caption check at selection
+    misses a reel that only discloses on screen or out loud; the
+    director sees those (design spec, "0.5.0 changes"). A fill idea that
+    borrows its format from a dropped reel loses its proof and is left
+    out by `rank_briefs`, which is the intent. No backfill reel is
+    promoted here.
+    """
+    owners = {reel.get("shortCode"): reel.get("ownerUsername") for reel in selected}
+    skipped_paid: List[Dict[str, Any]] = []
+
+    def skip(shortcode: str, owner: Any, analysis: Dict[str, Any]) -> None:
+        evidence = analysis["paid_partnership"]["evidence"]
+        skipped_paid.append({"shortCode": shortcode, "ownerUsername": owner, "evidence": evidence})
+        log(f"{shortcode}: left out, paid partnership ({evidence or 'no evidence given'})")
+
+    kept: Dict[str, Dict[str, Any]] = {}
+    for shortcode, analysis in analyses.items():
+        if director.is_paid_partnership(analysis):
+            skip(shortcode, owners.get(shortcode), analysis)
+        else:
+            kept[shortcode] = analysis
+
+    kept_carried: List[Dict[str, Any]] = []
+    for item in carried:
+        if director.is_paid_partnership(item["analysis"]):
+            reel = item["reel"]
+            skip(reel.get("shortCode") or "?", reel.get("ownerUsername"), item["analysis"])
+        else:
+            kept_carried.append(item)
+    return kept, kept_carried, skipped_paid
+
+
 def _rank_now(run_dir: Path) -> datetime:
     """The `now` `rank_briefs` uses to compute `days_old`, always UTC-aware.
 
@@ -669,7 +710,8 @@ def run_rank(
     before anything is written. A week with no new outliers still
     produces a list from carry-overs alone. Returns the JSON-able
     summary `contentos.py` prints: `{"run_id", "analyzed", "briefs",
-    "skipped", "new", "carried", "fill"}`.
+    "skipped", "skipped_paid", "new", "carried", "fill"}` (`skipped_paid`
+    is a count; `03-briefs.json` holds the list).
     """
     if log is None:
         log = _default_log
@@ -697,6 +739,11 @@ def run_rank(
     ideas.forget_run(ledger, run_dir.name)
     ideas.close_entries(project, ledger, run_dir.name, cfg["carry_weeks"])
     carried = [] if cfg["carry_weeks"] == 0 else _load_carried(analyses, ledger, run_dir.name, log)
+    # Counted before the paid-partnership drop: those reels were analyzed.
+    analyzed_count = len(analyses)
+    skipped_paid: List[Dict[str, Any]] = []
+    if cfg.get("exclude_paid_partnerships", True):
+        analyses, carried, skipped_paid = _drop_paid_partnerships(analyses, carried, selected, log)
     fill: List[Dict[str, Any]] = []
     if analyses and cfg["fill_ideas"] > 0:
         fill_problems = director.verify_fill(run_dir)
@@ -729,8 +776,9 @@ def run_rank(
         {
             "briefs": briefs,
             "ranked_at": ranked_at,
-            "analyzed": len(analyses),
+            "analyzed": analyzed_count,
             "skipped": skipped,
+            "skipped_paid": skipped_paid,
             "counts": counts,
         },
     )
@@ -741,7 +789,7 @@ def run_rank(
         stages={
             "direct": {
                 "status": "ok",
-                "analyzed": len(analyses),
+                "analyzed": analyzed_count,
                 "briefs": len(briefs),
                 "finished_at": ranked_at,
             }
@@ -756,9 +804,10 @@ def run_rank(
 
     return {
         "run_id": run_dir.name,
-        "analyzed": len(analyses),
+        "analyzed": analyzed_count,
         "briefs": len(briefs),
         "skipped": skipped,
+        "skipped_paid": len(skipped_paid),
         "new": counts["new"],
         "carried": counts["carried"],
         "fill": counts["fill"],

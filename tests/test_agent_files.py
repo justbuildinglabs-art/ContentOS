@@ -214,6 +214,7 @@ class ContentDirectorAgentTests(NoNetworkTestCase):
             "score_fit",
             "risk_flags",
             "confidence",
+            "paid_partnership",
             "creator.md",
         ):
             with self.subTest(term=term):

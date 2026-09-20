@@ -326,6 +326,23 @@ def _coerce_steps(value: Any) -> List[str]:
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
+def _coerce_paid_partnership(value: Any) -> Dict[str, Any]:
+    """`{"detected", "evidence"}`; anything malformed reads as not detected.
+
+    A missing or odd value must never drop a reel from the creator's
+    list, so only an explicit boolean `true` counts as detected.
+    """
+    if not isinstance(value, dict) or value.get("detected") is not True:
+        return {"detected": False, "evidence": ""}
+    evidence = value.get("evidence")
+    return {"detected": True, "evidence": evidence.strip() if isinstance(evidence, str) else ""}
+
+
+def is_paid_partnership(analysis: Dict[str, Any]) -> bool:
+    """Whether the director marked this analysis as a paid partnership."""
+    return _coerce_paid_partnership(analysis.get("paid_partnership"))["detected"]
+
+
 def coerce_analysis(obj: Any) -> Dict[str, Any]:
     """Repair a subagent's analysis JSON into one that always passes `validate_analysis`.
 
@@ -354,6 +371,8 @@ def coerce_analysis(obj: Any) -> Dict[str, Any]:
     - The optional `idea_title` (0.4.0) is kept, stripped, when it is a
       non-blank string; otherwise it falls back to the coerced
       `brief_title`, so it is never missing or blank.
+    - The optional `paid_partnership` (0.5.0) defaults to not detected
+      (see `_coerce_paid_partnership`).
 
     `obj` need not even be a dict -- a non-dict input is treated as `{}`,
     so this never raises.
@@ -396,6 +415,7 @@ def coerce_analysis(obj: Any) -> Dict[str, Any]:
         "confidence": _coerce_enum(source.get("confidence"), _CONFIDENCE_VALUES, "low"),
         "specifics": _coerce_specifics(source.get("specifics")),
         "steps": _coerce_steps(source.get("steps")),
+        "paid_partnership": _coerce_paid_partnership(source.get("paid_partnership")),
     }
 
 
@@ -666,6 +686,14 @@ def build_director_prompt(
         "- adaptation must name the concrete replacement: an item from the ## Inventory "
         "section of creator.md, or a public specific from this reel. Name the real thing, "
         "never a category like 'an AI tool' or 'a healthy snack'."
+    )
+    lines.append(
+        "- Set paid_partnership.detected to true only when you can see or read that a brand "
+        "paid for this reel: on-screen text like 'AD' or 'sponsored', a discount code or "
+        "'use my code', a disclosure in the caption or the transcript. Quote what you saw "
+        "in paid_partnership.evidence and say where, like 'frame 2' or 'caption'. A product "
+        "that is only shown or named is not enough. Otherwise set detected to false and "
+        "evidence to an empty string."
     )
     lines.append(
         "- transferable_mechanism stays topic-free: the move itself, with no tool, product, "

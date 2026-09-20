@@ -116,17 +116,22 @@ an approximation of that number, not a different rule.
 
 Every scored reel gets at most one exclusion reason, checked in this order:
 
-1. `no_plays`: the reel has no `plays` value. This always catches a reel
+1. `paid_partnership`: the caption or hashtags mark the reel as sponsored
+   (`#ad`, "sponsored by", "in partnership with", and the like). Reach a
+   brand paid for teaches the wrong lesson. Only checked when
+   `exclude_paid_partnerships` is true (the default). The reel still counts
+   toward its account's baseline.
+2. `no_plays`: the reel has no `plays` value. This always catches a reel
    scored against a likes-fallback baseline.
-2. `no_baseline`: the account's baseline confidence is `none`.
-3. `outside_lookback`: the reel is older than `lookback_days` (default 14).
-4. `below_min_plays`: `plays` is under `min_plays` (default 5000).
-5. `below_min_ratio`: `outlier_ratio` is under `min_outlier_ratio` (default
+3. `no_baseline`: the account's baseline confidence is `none`.
+4. `outside_lookback`: the reel is older than `lookback_days` (default 14).
+5. `below_min_plays`: `plays` is under `min_plays` (default 5000).
+6. `below_min_ratio`: `outlier_ratio` is under `min_outlier_ratio` (default
    2.0). `outlier_threshold` (default 3.0) is a different setting and never a
    filter here; it only feeds `small_account_proof` above, and stays as the
    higher bar a small account's own reel has to clear to count as proof.
 
-A reel that clears all five, but whose `shortCode` an earlier run already
+A reel that clears all six, but whose `shortCode` an earlier run already
 put in front of the creator, still gets excluded, with reason
 `already_briefed`; a reel the creator has already seen should not come back
 and count as new just because it is still inside the window.

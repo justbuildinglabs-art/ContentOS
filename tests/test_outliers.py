@@ -593,6 +593,35 @@ class WeeklySelectionTests(NoNetworkTestCase):
         self.assertEqual(selection.excluded, [{"shortCode": "B2", "reason": "per_account_cap"}])
 
 
+class PaidPartnershipSelectionTests(NoNetworkTestCase):
+    def test_flagged_reel_is_excluded_first(self) -> None:
+        # Also has no plays: paid_partnership is checked before no_plays.
+        paid = _scored_reel(shortCode="PAID", paid_partnership=True, plays=None)
+        ok = _scored_reel(shortCode="OK", paid_partnership=False)
+
+        selection = outliers.select_outliers([paid, ok], _cfg(), NOW)
+
+        self.assertEqual(selection.excluded, [{"shortCode": "PAID", "reason": "paid_partnership"}])
+        self.assertEqual([r["shortCode"] for r in selection.selected], ["OK"])
+
+    def test_flagged_reel_is_kept_when_the_filter_is_off(self) -> None:
+        paid = _scored_reel(shortCode="PAID", paid_partnership=True)
+        selection = outliers.select_outliers(
+            [paid], _cfg(exclude_paid_partnerships=False), NOW
+        )
+        self.assertEqual([r["shortCode"] for r in selection.selected], ["PAID"])
+
+    def test_reel_without_the_key_is_kept(self) -> None:
+        # Reels written by a pre-0.5.0 run have no paid_partnership key.
+        selection = outliers.select_outliers([_scored_reel(shortCode="OLD")], _cfg(), NOW)
+        self.assertEqual([r["shortCode"] for r in selection.selected], ["OLD"])
+
+    def test_flagged_reel_still_counts_toward_the_baseline(self) -> None:
+        reels = [_reel(shortCode=f"R{i}", plays=1000, paid_partnership=(i == 0)) for i in range(8)]
+        baselines = outliers.compute_baselines(reels, min_n=8)
+        self.assertEqual(baselines[reels[0]["ownerUsername"]].n, 8)
+
+
 class FixtureOutlierTests(NoNetworkTestCase):
     def test_fixture_outliers_selected(self) -> None:
         reel_items = _load_fixture("apify_reels_sample.json")

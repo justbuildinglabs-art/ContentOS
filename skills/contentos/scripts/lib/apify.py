@@ -58,6 +58,63 @@ def build_details_input(handles: List[str]) -> dict:
     }
 
 
+def build_hashtag_reels_input(
+    hashtags: List[str], results_limit: int, lookback_days: int
+) -> dict:
+    """Build the actor input for a discovery "reels" run over hashtag pages.
+
+    Checked with a live probe on 2026-09-19: a hashtag reel has the same
+    item shape as a profile reel, plus `inputUrl` naming its tag page.
+    `results_limit` applies per hashtag URL.
+    """
+    return {
+        "directUrls": [f"https://www.instagram.com/explore/tags/{tag}/" for tag in hashtags],
+        "resultsType": "reels",
+        "resultsLimit": results_limit,
+        "onlyPostsNewerThan": f"{lookback_days} days",
+    }
+
+
+def build_profile_search_input(keyword: str, search_limit: int) -> dict:
+    """Build the actor input for one discovery profile search (one run per keyword).
+
+    Checked with a live probe on 2026-09-19: items have the "details"
+    profile shape plus `searchTerm`.
+    """
+    return {
+        "search": keyword,
+        "searchType": "profile",
+        "searchLimit": search_limit,
+        "resultsType": "details",
+    }
+
+
+def estimate_discover_cost(
+    n_hashtags: int,
+    reels_per_hashtag: int,
+    n_keywords: int,
+    search_limit: int,
+    n_candidates: int,
+    n_web_handles: int,
+    price: float = PRICE_PER_RESULT,
+) -> Dict[str, float]:
+    """Estimate one discovery pass (design spec, "0.5.0 changes").
+
+    One result per hashtag reel, one per profile-search hit, and one
+    per profile checked in the details run: at most `n_candidates`
+    hashtag authors, every search hit, and every web handle.
+    """
+    raw_reels = n_hashtags * reels_per_hashtag * price
+    raw_search = n_keywords * search_limit * price
+    raw_details = (n_candidates + n_keywords * search_limit + n_web_handles) * price
+    return {
+        "hashtag_reels_usd": round(raw_reels, 4),
+        "profile_search_usd": round(raw_search, 4),
+        "details_usd": round(raw_details, 4),
+        "total_usd": round(raw_reels + raw_search + raw_details, 4),
+    }
+
+
 def build_transcript_input(reel_urls: List[str]) -> dict:
     """Build the `apify~instagram-reel-scraper` input for the transcript fallback.
 
@@ -186,17 +243,29 @@ class FixtureTransport:
     need those sequences build their own small scripted transport.
     """
 
-    def __init__(self, reels_items: List[dict], details_items: List[dict]) -> None:
+    def __init__(
+        self,
+        reels_items: List[dict],
+        details_items: List[dict],
+        hashtag_items: Optional[List[dict]] = None,
+        search_items: Optional[List[dict]] = None,
+    ) -> None:
         self.reels_items = reels_items
         self.details_items = details_items
         self.calls: List[Dict[str, Any]] = []
+        # 0.5.0: `discover --mock` also starts a hashtag reels run and
+        # profile searches; both default to empty for the research stage.
         self._datasets: Dict[str, List[dict]] = {
             "ds-reels": reels_items,
             "ds-details": details_items,
+            "ds-hashtag": hashtag_items or [],
+            "ds-search": search_items or [],
         }
         self._dataset_of_run: Dict[str, str] = {
             "mock-reels": "ds-reels",
             "mock-details": "ds-details",
+            "mock-hashtag": "ds-hashtag",
+            "mock-search": "ds-search",
         }
 
     def request_json(
@@ -219,8 +288,15 @@ class FixtureTransport:
 
         runs_url = f"{API_BASE}{ACTOR_RUNS_PATH}"
         if method == "POST" and url == runs_url:
-            results_type = (json_body or {}).get("resultsType")
-            run_id = "mock-reels" if results_type == "reels" else "mock-details"
+            body = json_body or {}
+            results_type = body.get("resultsType")
+            urls = body.get("directUrls") or []
+            if "search" in body:
+                run_id = "mock-search"
+            elif results_type == "reels" and any("/explore/tags/" in url for url in urls):
+                run_id = "mock-hashtag"
+            else:
+                run_id = "mock-reels" if results_type == "reels" else "mock-details"
             return {
                 "data": {
                     "id": run_id,

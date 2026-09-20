@@ -231,6 +231,28 @@ class RenderReportTests(NoNetworkTestCase):
             self.assertIn("None.", placeholders_section)
             self.assertIn("None.", needs_human_section)
 
+    def test_report_lists_reels_left_out_as_paid_partnerships(self) -> None:
+        with temp_project() as project:
+            run_dir = _new_run(project)
+            doc = {
+                "briefs": [{"brief_id": "B01", "brief_title": "Clean brief"}],
+                "ranked_at": "t", "analyzed": 2, "skipped": [],
+                "skipped_paid": [
+                    {"shortCode": "PAID1", "ownerUsername": "acme", "evidence": "frame 2: use code DANA"},
+                    {"shortCode": "PAID2", "ownerUsername": None, "evidence": ""},
+                ],
+            }
+            store.write_json_atomic(run_dir / "03-briefs.json", doc)
+
+            text = report.render_report(run_dir)
+            section = next(s for s in text.split("## ") if s.startswith("Skipped: paid partnership"))
+            self.assertIn("- PAID1 (@acme): frame 2: use code DANA", section)
+            self.assertIn("- PAID2: no evidence given", section)
+
+            doc["skipped_paid"] = []
+            store.write_json_atomic(run_dir / "03-briefs.json", doc)
+            self.assertNotIn("Skipped: paid partnership", report.render_report(run_dir))
+
     def test_report_handles_a_run_with_no_briefs_yet(self) -> None:
         with temp_project() as project:
             run_dir = _new_run(project)

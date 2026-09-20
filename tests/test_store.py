@@ -668,6 +668,27 @@ class WeeklyConfigTests(NoNetworkTestCase):
                     load_config(project_dir)
 
 
+class PaidPartnershipConfigTests(NoNetworkTestCase):
+    def test_filter_defaults_to_on(self) -> None:
+        self.assertIs(DEFAULT_CONFIG["exclude_paid_partnerships"], True)
+
+    def test_filter_can_be_turned_off(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acme"], "exclude_paid_partnerships": False})
+            self.assertIs(load_config(project_dir)["exclude_paid_partnerships"], False)
+
+    def test_rejects_a_value_that_is_not_a_boolean(self) -> None:
+        for value in ("no", 0, None):
+            with self.subTest(value=value):
+                with temp_project() as project_dir:
+                    _write_config(
+                        project_dir, {"competitors": ["acme"], "exclude_paid_partnerships": value}
+                    )
+                    with self.assertRaises(ConfigError) as caught:
+                        load_config(project_dir)
+                self.assertIn("exclude_paid_partnerships", str(caught.exception))
+
+
 class ReadRulesTests(NoNetworkTestCase):
     def test_read_rules_empty_vs_present(self) -> None:
         with temp_project() as project_dir:

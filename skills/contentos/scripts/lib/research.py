@@ -152,7 +152,7 @@ def _estimate_payload(estimate: apify.CostEstimate, cfg: Dict[str, Any], n_accou
     }
 
 
-def _check_gates(
+def check_gates(
     payload: Dict[str, Any], mock: bool, yes: bool, estimate_only: bool, keys: Optional[Keys]
 ) -> None:
     """Raise the matching `ResearchError`, in the exact order the spec pins down.
@@ -374,7 +374,7 @@ def run_research(
         len(accounts), cfg["reels_per_account"], transcripts_usd=transcribe.estimate_usd(cfg)
     )
     payload = _estimate_payload(estimate, cfg, len(accounts))
-    _check_gates(payload, mock, yes, estimate_only, keys)
+    check_gates(payload, mock, yes, estimate_only, keys)
 
     mode = "mock" if mock else "live"
     if now is None:

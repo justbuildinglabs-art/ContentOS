@@ -40,6 +40,7 @@ METRIC_PLAYS = "plays"
 METRIC_LIKES = "likes"
 
 # select_outliers exclusion reasons, in the order they are checked.
+REASON_PAID_PARTNERSHIP = "paid_partnership"
 REASON_NO_PLAYS = "no_plays"
 REASON_NO_BASELINE = "no_baseline"
 REASON_OUTSIDE_LOOKBACK = "outside_lookback"
@@ -243,6 +244,10 @@ def _exclusion_reason(
     Checked in order -- a reel gets at most one reason, even when it
     would also trip a later check.
     """
+    # 0.5.0: bought or brand-driven reach teaches the wrong lesson. The
+    # reel still counted toward its account's baseline above.
+    if cfg.get("exclude_paid_partnerships", True) and reel.get("paid_partnership"):
+        return REASON_PAID_PARTNERSHIP
     if reel.get("plays") is None:
         return REASON_NO_PLAYS
     if reel.get("baseline_confidence") == CONFIDENCE_NONE:
@@ -266,6 +271,7 @@ def select_outliers(
 
     `reels` must already carry the keys `score_reel` adds. `now` is a
     UTC-aware datetime. Reasons are applied in this order per reel:
+    `paid_partnership` (0.5.0, only when `cfg["exclude_paid_partnerships"]`),
     `no_plays`, `no_baseline`, `outside_lookback` (older than
     `now - lookback_days`), `below_min_plays`, `below_min_ratio`
     (`outlier_ratio` under `cfg["min_outlier_ratio"]`; `outlier_threshold`
