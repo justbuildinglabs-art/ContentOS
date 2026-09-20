@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["ideas"],
+  "properties": {
+    "ideas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["idea_title", "pillar", "format_from", "angle", "why", "specifics"],
+        "properties": {
+          "idea_title": {"type": "string", "minLength": 1},
+          "pillar": {"type": "string", "minLength": 1},
+          "format_from": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "angle": {"type": "string", "minLength": 1},
+          "why": {"type": "string", "minLength": 1},
+          "specifics": {"type": "array", "items": {"type": "object"}}
+        }
+      }
+    }
+  }
+}

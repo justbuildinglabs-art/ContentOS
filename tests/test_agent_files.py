@@ -214,6 +214,7 @@ class ContentDirectorAgentTests(NoNetworkTestCase):
             "score_fit",
             "risk_flags",
             "confidence",
+            "paid_partnership",
             "creator.md",
         ):
             with self.subTest(term=term):
@@ -347,6 +348,8 @@ class WriterAndQaAgentTests(NoNetworkTestCase):
         roles = {match.group(1) for match in matches if match}
         self.assertEqual(roles, {"Primary", "Backup"})
 
+        self.assertIn("`kind` is `fill`", writer_body)
+
         qa_body = _body(QA_AGENT)
         qa_prose = _collapse(qa_body)
         qa_schema = director.load_schema("qa")
@@ -359,6 +362,12 @@ class WriterAndQaAgentTests(NoNetworkTestCase):
                 self.assertIn(score, qa_body)
         for phrase in QA_VERDICT_PHRASES:
             with self.subTest(verdict_phrase=phrase):
+                self.assertIn(phrase, qa_prose)
+
+        # Final review I3: a fill brief is judged on its own topic.
+        for phrase in ("`kind` is `fill`", "`idea_title`", "`adaptation`", "format and the hook only",
+                       "not the proof reel's subject"):
+            with self.subTest(fill_phrase=phrase):
                 self.assertIn(phrase, qa_prose)
 
 

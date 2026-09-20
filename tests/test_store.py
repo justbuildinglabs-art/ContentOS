@@ -633,6 +633,62 @@ class EnsureGitignoreTests(NoNetworkTestCase):
             self.assertIn(line, lines)
 
 
+class WeeklyConfigTests(NoNetworkTestCase):
+    def test_weekly_defaults(self) -> None:
+        self.assertEqual(DEFAULT_CONFIG["lookback_days"], 14)
+        self.assertEqual(DEFAULT_CONFIG["briefs"], 20)
+        self.assertEqual(DEFAULT_CONFIG["min_outlier_ratio"], 2.0)
+        self.assertEqual(DEFAULT_CONFIG["carry_weeks"], 2)
+        self.assertEqual(DEFAULT_CONFIG["fill_ideas"], 8)
+        self.assertEqual(DEFAULT_CONFIG["auto_scripts"], 3)
+
+    def test_zero_turns_off_carry_and_fill(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(
+                project_dir,
+                {"competitors": ["a"], "carry_weeks": 0, "fill_ideas": 0},
+            )
+            config = load_config(project_dir)
+        self.assertEqual((config["carry_weeks"], config["fill_ideas"]), (0, 0))
+
+    def test_rejects_bad_weekly_values(self) -> None:
+        bad = [
+            {"min_outlier_ratio": 0},
+            {"min_outlier_ratio": "2"},
+            {"carry_weeks": -1},
+            {"carry_weeks": 1.5},
+            {"fill_ideas": True},
+            {"auto_scripts": 0},
+            {"auto_scripts": 2.5},
+        ]
+        for override in bad:
+            with self.subTest(override=override), temp_project() as project_dir:
+                _write_config(project_dir, dict({"competitors": ["a"]}, **override))
+                with self.assertRaises(ConfigError):
+                    load_config(project_dir)
+
+
+class PaidPartnershipConfigTests(NoNetworkTestCase):
+    def test_filter_defaults_to_on(self) -> None:
+        self.assertIs(DEFAULT_CONFIG["exclude_paid_partnerships"], True)
+
+    def test_filter_can_be_turned_off(self) -> None:
+        with temp_project() as project_dir:
+            _write_config(project_dir, {"competitors": ["acme"], "exclude_paid_partnerships": False})
+            self.assertIs(load_config(project_dir)["exclude_paid_partnerships"], False)
+
+    def test_rejects_a_value_that_is_not_a_boolean(self) -> None:
+        for value in ("no", 0, None):
+            with self.subTest(value=value):
+                with temp_project() as project_dir:
+                    _write_config(
+                        project_dir, {"competitors": ["acme"], "exclude_paid_partnerships": value}
+                    )
+                    with self.assertRaises(ConfigError) as caught:
+                        load_config(project_dir)
+                self.assertIn("exclude_paid_partnerships", str(caught.exception))
+
+
 class ReadRulesTests(NoNetworkTestCase):
     def test_read_rules_empty_vs_present(self) -> None:
         with temp_project() as project_dir:

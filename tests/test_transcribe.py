@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest import mock
 
-from tests.helpers import NoNetworkTestCase, REPO_ROOT, run_cli, temp_project
+from tests.helpers import PRE_WEEKLY_CONFIG, NoNetworkTestCase, REPO_ROOT, run_cli, temp_project
 
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
@@ -503,9 +503,12 @@ class TranscriptsForSelectedTests(NoNetworkTestCase):
 
 
 def _write_config(project: Path, overrides: Dict[str, Any]) -> None:
+    """Write `<project>/.contentos/config.json` with `PRE_WEEKLY_CONFIG` overlaid with `overrides`."""
     config_dir = project / ".contentos"
     config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "config.json").write_text(json.dumps(overrides), encoding="utf-8")
+    (config_dir / "config.json").write_text(
+        json.dumps(dict(PRE_WEEKLY_CONFIG, **overrides)), encoding="utf-8"
+    )
 
 
 def _mock_research(project: Path, **extra: Any) -> Dict[str, Any]:
@@ -528,7 +531,11 @@ class ResearchWiringTests(NoNetworkTestCase):
             self.assertTrue((run_dir / "transcripts" / "DWN003.txt").exists())
             self.assertTrue((run_dir / "transcripts" / "HAB001.txt").exists())
 
-        self.assertEqual(result["transcripts"], {"ok": 2, "apify": 0, "none": 7, "failed": 0})
+        # 0.4.0 soft cap: select_outliers now selects 11 fixture reels
+        # instead of 9 (see tests/test_research.py's
+        # test_mock_research_writes_01_02_and_run_json), so 9 of them
+        # (not 7) get transcript_status "none".
+        self.assertEqual(result["transcripts"], {"ok": 2, "apify": 0, "none": 9, "failed": 0})
         self.assertEqual(run_doc["stages"]["research"]["transcripts"], result["transcripts"])
         by_sc = {r["shortCode"]: r["transcript_status"] for r in outliers_doc["selected"]}
         self.assertEqual(by_sc["DWN003"], "ok")
@@ -604,7 +611,9 @@ class TranscribeCliTests(NoNetworkTestCase):
             self.assertTrue((run_dir / "transcripts" / "DWN003.txt").exists())
         payload = json.loads(out)
         self.assertEqual(payload["run_id"], run_dir.name)
-        self.assertEqual(payload["transcripts"], {"ok": 2, "apify": 0, "none": 7, "failed": 0})
+        # 0.4.0 soft cap: see the comment in
+        # test_mock_research_transcribes_selected_reels.
+        self.assertEqual(payload["transcripts"], {"ok": 2, "apify": 0, "none": 9, "failed": 0})
 
     def test_transcribe_unresolvable_run_exits_2(self) -> None:
         with temp_project() as project:

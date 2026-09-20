@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from lib import agents, store
+from lib import agents, director, store
 
 # Sections whose placeholders only repeat or explain the ones in the lines
 # the creator films; listing them again would double the to-do list.
@@ -39,6 +39,19 @@ def _briefs(run_dir: Path) -> List[Dict[str, Any]]:
     except (ValueError, OSError):
         return []
     return doc.get("briefs") or []
+
+
+def skipped_paid(run_dir: Path) -> List[Dict[str, Any]]:
+    """Reels `rank` left out as paid partnerships (0.5.0); `[]` for an older run."""
+    briefs_path = Path(run_dir) / "03-briefs.json"
+    if not briefs_path.exists():
+        return []
+    try:
+        doc = store.read_json(briefs_path)
+    except (ValueError, OSError):
+        return []
+    items = doc.get("skipped_paid") if isinstance(doc, dict) else None
+    return [item for item in items or [] if isinstance(item, dict)]
 
 
 def _brief_states(run_dir: Path) -> List[Dict[str, Any]]:
@@ -200,12 +213,15 @@ def next_steps(run_dir: Path, states: List[Dict[str, Any]]) -> List[str]:
     """The creator's to-do list for this run, most useful first.
 
     Ready scripts come first, then the briefs that need the creator's
-    call, then the pipeline steps still to run.
+    call, then the pipeline steps still to run. Briefs with no script
+    yet are ideas the creator has not picked, not to-dos, so they are
+    one closing line with their count rather than a line each.
     """
     run_id = Path(run_dir).name
     ready: List[str] = []
     human: List[str] = []
     pipeline: List[str] = []
+    unpicked = 0
     for state in states:
         brief_id = state["brief_id"]
         script = _rel(run_dir, state.get("script_path"))
@@ -230,7 +246,16 @@ def next_steps(run_dir: Path, states: List[Dict[str, Any]]) -> List[str]:
         elif state["status"] == "written":
             pipeline.append(f"{brief_id}: run QA on {script}.")
         elif state["status"] == "pending":
-            pipeline.append(f"{brief_id}: write the script.")
+            unpicked += 1
+    if unpicked == 1:
+        pipeline.append(
+            "1 idea has no script yet. Pick more from briefs.md, or leave it to carry over next week."
+        )
+    elif unpicked:
+        pipeline.append(
+            f"{unpicked} ideas have no script yet. Pick more from briefs.md, "
+            "or leave them to carry over next week."
+        )
     return ready + human + pipeline
 
 
@@ -285,7 +310,7 @@ def render_report(run_dir: Path) -> str:
     run_dir = Path(run_dir)
     run_data = store.read_json(run_dir / "run.json")
     briefs = _briefs(run_dir)
-    titles = {brief["brief_id"]: brief.get("brief_title", "") for brief in briefs}
+    titles = {brief["brief_id"]: director.display_title(brief) for brief in briefs}
     states = _brief_states(run_dir)
 
     lines: List[str] = [f"# ContentOS report: {run_data.get('run_id')}", ""]
@@ -396,6 +421,17 @@ def render_report(run_dir: Path) -> str:
     else:
         lines.append("None.")
     lines.append("")
+
+    paid = skipped_paid(run_dir)
+    if paid:
+        lines.append("## Skipped: paid partnership")
+        lines.append("")
+        for item in paid:
+            owner = f" (@{item['ownerUsername']})" if item.get("ownerUsername") else ""
+            lines.append(
+                f"- {item.get('shortCode', '?')}{owner}: {item.get('evidence') or 'no evidence given'}"
+            )
+        lines.append("")
 
     lines.append("## Costs and timings")
     lines.append("")

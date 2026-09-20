@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
+from lib import sponsored
+
 # account_status values normalize_dataset assigns each handle, in the
 # order they are checked.
 STATUS_NOT_FOUND = "not_found"
@@ -171,6 +173,10 @@ def normalize_reel(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     duration_raw = _to_number(item.get("videoDuration"))
     duration_s = float(duration_raw) if duration_raw is not None else None
 
+    # The transcript does not exist yet at scrape time, so this reads the
+    # caption and hashtags only (design spec, "0.5.0 changes").
+    paid = sponsored.detect(item)
+
     return {
         "shortCode": short_code,
         "url": item.get("url") or f"https://www.instagram.com/reel/{short_code}/",
@@ -189,6 +195,8 @@ def normalize_reel(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "isPinned": bool(item.get("isPinned", False)),
         "latestComments": _latest_comments(item),
         "musicInfo": item.get("musicInfo"),
+        "paid_partnership": paid["detected"],
+        "paid_signals": paid["signals"],
     }
 
 

@@ -68,6 +68,9 @@ a frame, and for every line of the transcript.
 ## Filling in the analysis
 
 - `brief_title`: one short line the creator can scan in a list.
+- `idea_title`: the creator's version as a topic line of 12 words or fewer.
+  Name the subject of their reel, not the source format. Example: "Claude can
+  now turn a doc into slides", not "Tool claim with three on-screen steps".
 - `hook_spoken`: your best guess at the first spoken line, taken from the
   burned in captions. Use null when nothing readable is there.
 - `hook_on_screen_text`: the text actually shown in the first frames.
@@ -107,6 +110,15 @@ a frame, and for every line of the transcript.
   small: a price, a rep count, or a setting is exactly what the writer needs.
 - `steps`: the method the reel teaches, in order, one short step per entry.
   Leave it empty when the reel teaches no method.
+- `paid_partnership`: did a brand pay for this reel? Instagram's own "Paid
+  partnership" label is part of the app, not the video, so you will never see
+  it in a frame. Look for what is in your inputs: on-screen text like "AD" or
+  "sponsored", a discount code or "use my code", a disclosure in the caption,
+  or one spoken in the transcript. Set `detected` to true only when you can
+  quote it, and put the quote and where you found it in `evidence`, like
+  `frame 2: use code DANA`. A product that is only shown or named is not
+  enough. Otherwise `detected` is false and `evidence` is an empty string. A
+  detected reel is left out of the creator's ideas, so do not guess.
 
 What specifics look like, by niche (`specificity.md` has the full table):
 
@@ -186,7 +198,16 @@ creator or from what they promote, quoted as they were written.
 Plain language. Short sentences. No em dashes. Same output contract: one file,
 at the path given, then `WROTE <path>` or `FAILED <reason>`.
 
+When the prompt also has a `## Fill ideas` section, write a second file:
+`03-fill.json`, at the path that section gives you. It is a JSON object with
+one key, `ideas`, a list of format fill ideas: a format that worked this week,
+applied to one of this creator's pillars. Each idea needs exactly the six keys
+the section lists: `idea_title`, `pillar`, `format_from`, `angle`, `why`, and
+`specifics`. Take `pillar` from the `## Pillars` section of `creator.md`,
+copied as written. Do not repeat a topic the analyses already cover. This is
+still valid JSON, no markdown fences, no extra keys.
+
 ## Never
 
 Never dispatch another agent. Never run a command. Never reach the network.
-Never write a file other than the one the prompt names.
+Never write a file other than the file or files the prompt names.

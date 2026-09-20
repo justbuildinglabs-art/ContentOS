@@ -3,6 +3,7 @@
   "type": "object",
   "properties": {
     "brief_title": { "type": "string" },
+    "idea_title": { "type": "string" },
     "hook_spoken": { "type": ["string", "null"] },
     "hook_on_screen_text": { "type": ["string", "null"] },
     "hook_type": {
@@ -87,6 +88,14 @@
     "steps": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "paid_partnership": {
+      "type": "object",
+      "properties": {
+        "detected": { "type": "boolean" },
+        "evidence": { "type": "string" }
+      },
+      "required": ["detected", "evidence"]
     }
   },
   "required": [

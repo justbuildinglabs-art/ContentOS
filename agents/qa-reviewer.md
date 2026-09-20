@@ -36,6 +36,11 @@ the script as it stands. Do not redo the writer's job, do not rewrite a hook to
 prove you could, and do not re-analyze the source reel. Judge what is on the
 page against the brief, `creator.md`, and the rubric.
 
+When the brief's `kind` is `fill`, its topic comes from the brief's
+`idea_title` and `adaptation`. The analysis supplies the format and the hook
+only. Judge topic fit against `idea_title` and `adaptation`, not the proof
+reel's subject.
+
 ## Read first
 
 Read `formats.md` for this format's budget and beat skeleton, and

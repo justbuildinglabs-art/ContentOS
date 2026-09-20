@@ -40,10 +40,12 @@ METRIC_PLAYS = "plays"
 METRIC_LIKES = "likes"
 
 # select_outliers exclusion reasons, in the order they are checked.
+REASON_PAID_PARTNERSHIP = "paid_partnership"
 REASON_NO_PLAYS = "no_plays"
 REASON_NO_BASELINE = "no_baseline"
 REASON_OUTSIDE_LOOKBACK = "outside_lookback"
 REASON_BELOW_MIN_PLAYS = "below_min_plays"
+REASON_BELOW_MIN_RATIO = "below_min_ratio"
 REASON_PER_ACCOUNT_CAP = "per_account_cap"
 REASON_ALREADY_BRIEFED = "already_briefed"
 
@@ -242,6 +244,10 @@ def _exclusion_reason(
     Checked in order -- a reel gets at most one reason, even when it
     would also trip a later check.
     """
+    # 0.5.0: bought or brand-driven reach teaches the wrong lesson. The
+    # reel still counted toward its account's baseline above.
+    if cfg.get("exclude_paid_partnerships", True) and reel.get("paid_partnership"):
+        return REASON_PAID_PARTNERSHIP
     if reel.get("plays") is None:
         return REASON_NO_PLAYS
     if reel.get("baseline_confidence") == CONFIDENCE_NONE:
@@ -250,6 +256,8 @@ def _exclusion_reason(
         return REASON_OUTSIDE_LOOKBACK
     if reel["plays"] < cfg["min_plays"]:
         return REASON_BELOW_MIN_PLAYS
+    if (reel.get("outlier_ratio") or 0) < cfg.get("min_outlier_ratio", 0):
+        return REASON_BELOW_MIN_RATIO
     return None
 
 
@@ -263,14 +271,22 @@ def select_outliers(
 
     `reels` must already carry the keys `score_reel` adds. `now` is a
     UTC-aware datetime. Reasons are applied in this order per reel:
+    `paid_partnership` (0.5.0, only when `cfg["exclude_paid_partnerships"]`),
     `no_plays`, `no_baseline`, `outside_lookback` (older than
-    `now - lookback_days`), `below_min_plays`. Survivors are sorted by
-    `outlier_ratio` descending, then `shortCode` ascending; walking that
-    order, at most `max_per_account` reels per account are kept (the
-    rest excluded as `per_account_cap`). The first `top_k_videos` of
-    what remains become `selected`, the next `backfill_pool` become
-    `backfill`; anything ranked past that is simply not listed anywhere
-    (`outlier_threshold` is not a filter here -- only ranking/display).
+    `now - lookback_days`), `below_min_plays`, `below_min_ratio`
+    (`outlier_ratio` under `cfg["min_outlier_ratio"]`; `outlier_threshold`
+    is a different config key and never a filter here -- only
+    ranking/display). Survivors are sorted by `outlier_ratio` descending,
+    then `shortCode` ascending.
+
+    The per-account cap is soft (0.4.0): walking that order, the first
+    `max_per_account` reels per account form the capped list and the
+    rest form an overflow list, in the same ratio order. The ranked list
+    is the capped list followed by the overflow list. `selected` is its
+    first `top_k_videos` and `backfill` the next `backfill_pool`; only
+    overflow reels ranked past both are excluded as `per_account_cap`,
+    so a real outlier from a busy account beats an empty slot while
+    diversity still wins once there are enough candidates.
 
     `no_plays` also catches every reel scored against a likes-fallback
     Baseline: such a reel has `plays is None` by construction (that is
@@ -300,6 +316,7 @@ def select_outliers(
     max_per_account = cfg["max_per_account"]
     per_account_counts: Dict[str, int] = {}
     capped: List[Dict[str, Any]] = []
+    overflow: List[Dict[str, Any]] = []
     for reel in survivors:
         account = _account(reel)
         count = per_account_counts.get(account, 0)
@@ -307,11 +324,18 @@ def select_outliers(
             capped.append(reel)
             per_account_counts[account] = count + 1
         else:
-            excluded.append({"shortCode": reel["shortCode"], "reason": REASON_PER_ACCOUNT_CAP})
+            overflow.append(reel)
 
+    # 0.4.0 soft cap: a busy account's extra outliers rank after every
+    # capped reel but still beat an empty slot (design spec, "0.4.0 changes").
+    ranked = capped + overflow
     top_k = cfg["top_k_videos"]
     backfill_pool = cfg["backfill_pool"]
-    selected = capped[:top_k]
-    backfill = capped[top_k : top_k + backfill_pool]
+    selected = ranked[:top_k]
+    backfill = ranked[top_k : top_k + backfill_pool]
+    listed = {reel["shortCode"] for reel in selected + backfill}
+    for reel in overflow:
+        if reel["shortCode"] not in listed:
+            excluded.append({"shortCode": reel["shortCode"], "reason": REASON_PER_ACCOUNT_CAP})
 
     return Selection(selected=selected, backfill=backfill, excluded=excluded)

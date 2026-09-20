@@ -88,7 +88,8 @@ narrow to your exact niche.
 
 ## Competitors
 List the 3 to 8 Instagram accounts in your niche that research scrapes for
-outliers, by handle.
+outliers, by handle. Not sure who they are? Run `/contentos discover` and pick
+from what it finds.
 
 ## Format accounts
 Optional. List up to 5 Instagram accounts, from any niche, whose formats

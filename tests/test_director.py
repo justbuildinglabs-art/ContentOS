@@ -31,6 +31,7 @@ import copy
 import json
 import unittest
 from contextlib import redirect_stdout
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -284,8 +285,9 @@ _ANALYSIS_ENUMS = {
 }
 
 # Analysis properties that are optional on purpose (design spec, "0.3.0
-# changes": older analyses without them must still validate and rank).
-_OPTIONAL_ANALYSIS_PROPERTIES = {"specifics", "steps"}
+# changes": older analyses without them must still validate and rank;
+# "0.4.0 changes": idea_title falls back to brief_title when absent).
+_OPTIONAL_ANALYSIS_PROPERTIES = {"specifics", "steps", "idea_title", "paid_partnership"}
 
 _QA_ENUMS = {"verdict": ["pass", "revise", "reject"]}
 _QA_ENUMS.update({f"checks.{name}": ["pass", "fail", "na"] for name in _QA_CHECK_NAMES})
@@ -363,6 +365,7 @@ class SchemaShapeTests(NoNetworkTestCase):
         for schema, optional in (
             (analysis_schema, _OPTIONAL_ANALYSIS_PROPERTIES),
             (qa_schema, set()),
+            (director.load_schema("fill"), set()),
         ):
             self.assertEqual(schema.get("$schema"), "http://json-schema.org/draft-07/schema#")
             self.assertEqual(schema.get("type"), "object")
@@ -569,6 +572,8 @@ class CoerceAnalysisTests(NoNetworkTestCase):
             _valid_specific(kind="number", name="47 days", public=False),
         ]
         valid["steps"] = ["Open the app", "Tap the streak"]
+        valid["idea_title"] = "The four-times habit callout"
+        valid["paid_partnership"] = {"detected": True, "evidence": "caption: #ad"}
         coerced = director.coerce_analysis(valid)
         self.assertEqual(coerced, valid)
 
@@ -578,7 +583,11 @@ class CoerceAnalysisTests(NoNetworkTestCase):
 
         self.assertEqual(coerced["specifics"], [])
         self.assertEqual(coerced["steps"], [])
-        expected = dict(old_style, specifics=[], steps=[])
+        # idea_title is also new (0.4.0) and falls back to brief_title.
+        expected = dict(
+            old_style, specifics=[], steps=[], idea_title=old_style["brief_title"],
+            paid_partnership={"detected": False, "evidence": ""},
+        )
         self.assertEqual(coerced, expected)
         self.assertEqual(director.validate_analysis(coerced), [])
 
@@ -612,6 +621,42 @@ class CoerceAnalysisTests(NoNetworkTestCase):
         coerced = director.coerce_analysis({"specifics": "Cursor", "steps": {"1": "a"}})
         self.assertEqual(coerced["specifics"], [])
         self.assertEqual(coerced["steps"], [])
+
+
+class IdeaTitleTests(NoNetworkTestCase):
+    def test_idea_title_kept_when_given(self) -> None:
+        raw = dict(_valid_analysis_raw(), idea_title="  Claude can now design your slides  ")
+        self.assertEqual(director.coerce_analysis(raw)["idea_title"], "Claude can now design your slides")
+
+    def test_idea_title_falls_back_to_brief_title(self) -> None:
+        raw = dict(_valid_analysis_raw(), brief_title="Tool claim, 3 steps")
+        raw.pop("idea_title", None)
+        coerced = director.coerce_analysis(raw)
+        self.assertEqual(coerced["idea_title"], "Tool claim, 3 steps")
+        self.assertEqual(director.validate_analysis(coerced), [])
+        blank = director.coerce_analysis(dict(raw, idea_title="   "))
+        self.assertEqual(blank["idea_title"], "Tool claim, 3 steps")
+
+
+class PaidPartnershipAnalysisTests(NoNetworkTestCase):
+    def test_malformed_values_become_not_detected(self) -> None:
+        for value in (None, "yes", True, [], {"detected": "true"}, {"evidence": "x"}):
+            with self.subTest(value=value):
+                coerced = director.coerce_analysis(dict(_valid_analysis_raw(), paid_partnership=value))
+                self.assertEqual(coerced["paid_partnership"], {"detected": False, "evidence": ""})
+                self.assertEqual(director.validate_analysis(coerced), [])
+
+    def test_detected_keeps_stripped_evidence(self) -> None:
+        raw = dict(_valid_analysis_raw(), paid_partnership={"detected": True, "evidence": "  frame 2: AD  ", "x": 1})
+        self.assertEqual(
+            director.coerce_analysis(raw)["paid_partnership"],
+            {"detected": True, "evidence": "frame 2: AD"},
+        )
+
+    def test_is_paid_partnership_reads_a_coerced_or_raw_analysis(self) -> None:
+        self.assertTrue(director.is_paid_partnership({"paid_partnership": {"detected": True, "evidence": ""}}))
+        self.assertFalse(director.is_paid_partnership({"paid_partnership": {"detected": False, "evidence": ""}}))
+        self.assertFalse(director.is_paid_partnership({}))
 
 
 # ---------------------------------------------------------------------------
@@ -891,6 +936,206 @@ class RankBriefsTests(NoNetworkTestCase):
 
 
 # ---------------------------------------------------------------------------
+# rank_briefs: 0.4.0 weekly ideas -- carried and format fill
+# ---------------------------------------------------------------------------
+
+WEEKLY_NOW = datetime(2026, 9, 16, tzinfo=timezone.utc)
+
+
+def _pair(sc: str, viral: float, ts: str = "2026-09-12T00:00:00+00:00"):
+    reel = _scored_reel(sc, viral_proof=viral, timestamp=ts)
+    analysis = director.coerce_analysis(
+        dict(_valid_analysis_raw(), brief_title=f"F {sc}", idea_title=f"I {sc}")
+    )
+    return reel, analysis
+
+
+def _carried(sc: str, viral: float, weeks: int) -> Dict[str, Any]:
+    reel, analysis = _pair(sc, viral, ts="2026-09-02T00:00:00+00:00")
+    return {
+        "reel": reel, "analysis": analysis, "weeks_carried": weeks, "first_run": "R0",
+        "analysis_path": f"/old/03-analyses/{sc}.json", "frames_dir": f"/old/frames/{sc}",
+    }
+
+
+class WeeklyRankTests(NoNetworkTestCase):
+    def test_strong_carried_idea_beats_weak_new_one(self) -> None:
+        reel, analysis = _pair("NEW1", 3.0)  # 6.2
+        with temp_project() as root:
+            briefs = director.rank_briefs(
+                {"NEW1": analysis}, [reel], 20, root,
+                carried=[_carried("OLD1", 10.0, 1)], now=WEEKLY_NOW,  # 8.65 - 1 = 7.65
+            )
+        self.assertEqual([b["shortCode"] for b in briefs], ["OLD1", "NEW1"])
+        old = briefs[0]
+        self.assertEqual((old["kind"], old["weeks_carried"], old["first_run"]), ("carried", 1, "R0"))
+        self.assertEqual(old["brief_score"], 7.65)
+        self.assertEqual(old["analysis_path"], "/old/03-analyses/OLD1.json")
+        self.assertEqual(old["frames_dir"], "/old/frames/OLD1")
+        self.assertEqual(old["days_old"], 14)
+
+    def test_weeks_carried_can_sink_an_idea(self) -> None:
+        reel, analysis = _pair("NEW1", 3.0)  # 6.2
+        with temp_project() as root:
+            briefs = director.rank_briefs(
+                {"NEW1": analysis}, [reel], 20, root,
+                carried=[_carried("OLD1", 4.0, 2)], now=WEEKLY_NOW,  # 6.55 - 2 = 4.55
+            )
+        self.assertEqual([b["shortCode"] for b in briefs], ["NEW1", "OLD1"])
+        self.assertEqual(briefs[1]["brief_score"], 4.55)
+
+    def test_fill_only_takes_leftover_slots_below_real_ideas(self) -> None:
+        reel, analysis = _pair("NEW1", 3.0)
+        fill = [
+            {"idea_title": "Fill A", "pillar": "P", "format_from": ["NEW1"], "angle": "Angle A",
+             "why": "W", "specifics": []},
+            {"idea_title": "Fill B", "pillar": "P", "format_from": ["MISSING"], "angle": "B",
+             "why": "W", "specifics": []},
+            {"idea_title": "Fill C", "pillar": "P", "format_from": ["NEW1"], "angle": "Angle C",
+             "why": "W", "specifics": []},
+        ]
+        with temp_project() as root:
+            briefs = director.rank_briefs({"NEW1": analysis}, [reel], 2, root, fill=fill, now=WEEKLY_NOW)
+        self.assertEqual([b["kind"] for b in briefs], ["new", "fill"])
+        filled = briefs[1]
+        self.assertEqual((filled["idea_title"], filled["adaptation"]), ("Fill A", "Angle A"))
+        for key in ("brief_score", "viral_proof", "score_scalable", "score_convertible",
+                    "score_fit", "days_old", "outlier_ratio"):
+            self.assertIsNone(filled[key], key)
+        self.assertEqual((filled["specifics"], filled["steps"]), ([], []))
+        self.assertEqual(filled["format"], analysis["format"])
+        self.assertEqual(filled["brief_title"], "F NEW1")
+        self.assertEqual([b["brief_id"] for b in briefs], ["B01", "B02"])
+
+    def test_fill_specifics_are_coerced_like_an_analysis(self) -> None:
+        # Final review M3: fill specifics go through `_coerce_specifics`.
+        reel, analysis = _pair("NEW1", 3.0)
+        fill = [{"idea_title": "Fill A", "pillar": "P", "format_from": ["NEW1"], "angle": "A", "why": "W",
+                 "specifics": ["junk", {"kind": "tool"},
+                               {"name": " Todoist ", "kind": "weird", "public": "yes", "extra": 1}]}]
+        with temp_project() as root:
+            briefs = director.rank_briefs({"NEW1": analysis}, [reel], 2, root, fill=fill, now=WEEKLY_NOW)
+        self.assertEqual(
+            briefs[1]["specifics"],
+            [{"kind": "other", "name": "Todoist", "detail": "", "evidence": "", "public": False}],
+        )
+
+    def test_new_brief_fields(self) -> None:
+        reel, analysis = _pair("NEW1", 3.0)
+        with temp_project() as root:
+            brief = director.rank_briefs({"NEW1": analysis}, [reel], 5, root, now=WEEKLY_NOW)[0]
+        self.assertEqual(
+            (brief["kind"], brief["weeks_carried"], brief["idea_title"], brief["days_old"],
+             brief["outlier_ratio"]),
+            ("new", 0, "I NEW1", 4, 4.0),
+        )
+        self.assertNotIn("first_run", brief)
+
+
+class DisplayTitleTests(NoNetworkTestCase):
+    def test_idea_title_first_then_brief_title(self) -> None:
+        self.assertEqual(
+            director.display_title({"idea_title": "Your own week card", "brief_title": "Tool claim"}),
+            "Your own week card",
+        )
+        self.assertEqual(director.display_title({"brief_title": "Tool claim"}), "Tool claim")
+        self.assertEqual(
+            director.display_title({"idea_title": None, "brief_title": "Tool claim"}), "Tool claim"
+        )
+        self.assertEqual(director.display_title({"idea_title": "", "brief_title": "Tool claim"}), "Tool claim")
+        self.assertEqual(director.display_title({}), "")
+        self.assertEqual(director.display_title({"brief_title": None}), "")
+
+
+# ---------------------------------------------------------------------------
+# render_briefs_md: digest
+# ---------------------------------------------------------------------------
+
+
+class DigestTests(NoNetworkTestCase):
+    def test_digest_lines_per_kind(self) -> None:
+        base = {
+            "source_url": "https://x", "source_kind": "niche", "format": "screen_demo",
+            "hook_type": "bold_claim", "emotion_lead": "curiosity", "brief_score": 7.5,
+            "viral_proof": 6.0, "score_convertible": 7, "score_scalable": 6, "score_fit": 8,
+            "risk_flags": ["none"], "confidence": "high", "transferable_mechanism": "M",
+            "why_it_worked": "W.", "adaptation": "A", "avoid": "V", "specifics": [], "steps": [],
+            "frames_dir": "/f", "brief_title": "Tool claim, 3 steps", "outlier_ratio": 52.97,
+        }
+        briefs = [
+            dict(base, brief_id="B01", kind="new", weeks_carried=0, idea_title="New idea",
+                 ownerUsername="mavgpt", days_old=4),
+            dict(base, brief_id="B02", kind="carried", weeks_carried=1, idea_title="Old idea",
+                 ownerUsername="raycfu", days_old=11, first_run="20260912-090000"),
+            dict(base, brief_id="B03", kind="fill", weeks_carried=0, idea_title="Fill idea",
+                 ownerUsername="mavgpt", days_old=None, brief_score=None, viral_proof=None,
+                 score_convertible=None, score_scalable=None, score_fit=None),
+        ]
+        text = director.render_briefs_md(briefs)
+        lines = text.splitlines()
+        self.assertEqual(lines[0], "# This week's ideas")
+        self.assertIn("1. B01 · New · New idea. @mavgpt, 52.97x their usual, 4 days old.", lines)
+        self.assertIn("2. B02 · Carried over, week 2 · Old idea. @raycfu, 52.97x their usual, 11 days old.", lines)
+        self.assertIn("3. B03 · Format fill, less proven · Fill idea. Borrows the bold_claim hook from @mavgpt.", lines)
+        self.assertIn("# Briefs", lines)
+        self.assertIn("## B02: Old idea", lines)
+        self.assertIn("- Kind: Carried over, week 2 (first shown in 20260912-090000).", lines)
+        self.assertIn("- Source format: Tool claim, 3 steps", lines)
+        self.assertNotIn("—", text)
+
+    def test_a_title_that_already_ends_a_sentence_gets_no_extra_period(self) -> None:
+        # Final review M5: no "title?. @owner".
+        base = {
+            "source_url": "https://x", "source_kind": "niche", "format": "screen_demo",
+            "hook_type": "bold_claim", "emotion_lead": "curiosity", "brief_score": 7.5,
+            "viral_proof": 6.0, "score_convertible": 7, "score_scalable": 6, "score_fit": 8,
+            "risk_flags": ["none"], "confidence": "high", "transferable_mechanism": "M",
+            "why_it_worked": "W.", "adaptation": "A", "avoid": "V", "specifics": [], "steps": [],
+            "frames_dir": "/f", "brief_title": "Tool claim", "outlier_ratio": 3.0,
+            "kind": "new", "weeks_carried": 0, "ownerUsername": "acct", "days_old": 2,
+        }
+        briefs = [
+            dict(base, brief_id="B01", idea_title="Is your week plan lying to you?"),
+            dict(base, brief_id="B02", idea_title="Stop planning on Monday!"),
+            dict(base, brief_id="B03", idea_title="Plan on Sunday."),
+        ]
+        lines = director.render_briefs_md(briefs).splitlines()
+        self.assertIn("1. B01 · New · Is your week plan lying to you? @acct, 3.00x their usual, 2 days old.", lines)
+        self.assertIn("2. B02 · New · Stop planning on Monday! @acct, 3.00x their usual, 2 days old.", lines)
+        self.assertIn("3. B03 · New · Plan on Sunday. @acct, 3.00x their usual, 2 days old.", lines)
+
+    def test_a_genuinely_0_3_0_brief_renders_as_new_with_fallbacks(self) -> None:
+        # A real 0.3.0 03-briefs.json brief: no `kind`, `idea_title`, `outlier_ratio`,
+        # or `days_old` keys at all (not even set to None) -- these four are all
+        # 0.4.0 additions. Every other key here is one 0.3.0 already had, including
+        # a numeric `brief_score` (so the Scores: line still prints).
+        brief = {
+            "brief_id": "B01", "source_url": "https://y", "ownerUsername": "oldacct",
+            "source_kind": "niche", "format": "talking_head", "hook_type": "story_open",
+            "emotion_lead": "hope", "brief_score": 5.0, "viral_proof": 3.0,
+            "score_convertible": 5, "score_scalable": 5, "score_fit": 5,
+            "risk_flags": ["none"], "confidence": "medium", "transferable_mechanism": "M",
+            "why_it_worked": "W.", "adaptation": "A", "avoid": "V", "specifics": [],
+            "steps": [], "frames_dir": "/f", "brief_title": "Old-style brief title",
+        }
+        for key in ("kind", "idea_title", "outlier_ratio", "days_old", "first_run"):
+            self.assertNotIn(key, brief, key)
+
+        text = director.render_briefs_md([brief])
+        lines = text.splitlines()
+
+        self.assertEqual(lines[0], "# This week's ideas")
+        # kind absent -> New; idea_title absent -> falls back to brief_title in the
+        # digest line; outlier_ratio and days_old absent -> proof is a bare "@owner.".
+        self.assertIn("1. B01 · New · Old-style brief title. @oldacct.", lines)
+        # idea_title absent -> falls back to brief_title in the `##` heading too.
+        self.assertIn("## B01: Old-style brief title", lines)
+        self.assertIn("- Kind: New.", lines)
+        self.assertIn("- Source format: Old-style brief title", lines)
+        self.assertNotIn("—", text)
+
+
+# ---------------------------------------------------------------------------
 # render_briefs_md
 # ---------------------------------------------------------------------------
 
@@ -918,7 +1163,8 @@ class RenderBriefsMdTests(NoNetworkTestCase):
 
             markdown = director.render_briefs_md(briefs)
 
-        self.assertTrue(markdown.startswith("# Briefs"))
+        self.assertTrue(markdown.startswith("# This week's ideas"))
+        self.assertIn("\n# Briefs\n", markdown)
         self.assertIn("## B01: Morning habit callout", markdown)
         self.assertIn("acct1", markdown)
         self.assertIn(reel["url"], markdown)
@@ -1256,6 +1502,21 @@ class DirectorPromptTests(NoNetworkTestCase):
                 self.assertIn(phrase, rules)
         self.assertNotIn("—", prompt)
 
+    def test_director_prompt_asks_for_the_paid_partnership_check(self) -> None:
+        with temp_project() as project_dir:
+            run_dir = _write_run_dir(project_dir, "AAA001")
+            schema = director.load_schema("analysis")
+            prompt = director.build_director_prompt(
+                run_dir, "AAA001", REFERENCES_DIR, project_dir / "creator.md", schema
+            )
+
+        self.assertIn("paid_partnership", schema["properties"])
+        self.assertNotIn("paid_partnership", schema["required"])
+        rules = prompt.split("## Rules", 1)[1].split("## Output schema", 1)[0]
+        for phrase in ("paid_partnership", "discount code", "transcript", "evidence"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, rules)
+
 
 class DirectorPromptRealRunTests(NoNetworkTestCase):
     def test_prompt_over_a_real_mock_research_run(self) -> None:
@@ -1386,6 +1647,62 @@ class VerifyPatternsTests(NoNetworkTestCase):
             out_of_order_file.write_text(out_of_order_text, encoding="utf-8")
             errors = director.verify_patterns(out_of_order_file)
             self.assertTrue(errors)
+
+
+# ---------------------------------------------------------------------------
+# verify_fill / load_fill
+# ---------------------------------------------------------------------------
+
+
+class FillTests(NoNetworkTestCase):
+    def _run_dir(self, root: Path, analyses=("HAB005",)) -> Path:
+        run_dir = root / "run"
+        (run_dir / "03-analyses").mkdir(parents=True)
+        for sc in analyses:
+            (run_dir / "03-analyses" / f"{sc}.json").write_text("{}", encoding="utf-8")
+        return run_dir
+
+    def test_missing_fill_is_fine(self) -> None:
+        with temp_project() as root:
+            run_dir = self._run_dir(root)
+            self.assertEqual(director.verify_fill(run_dir), [])
+            self.assertEqual(director.load_fill(run_dir), [])
+
+    def test_fill_must_match_schema_and_borrow_analyzed_reels(self) -> None:
+        with temp_project() as root:
+            run_dir = self._run_dir(root)
+            idea = {"idea_title": "T", "pillar": "P", "format_from": ["NOPE"], "angle": "A", "why": "W", "specifics": []}
+            (run_dir / "03-fill.json").write_text(json.dumps({"ideas": [idea]}), encoding="utf-8")
+            problems = director.verify_fill(run_dir)
+            self.assertTrue(any("NOPE" in p for p in problems), problems)
+            self.assertEqual(director.load_fill(run_dir), [])
+            (run_dir / "03-fill.json").write_text(json.dumps({"ideas": [{"idea_title": "T"}]}), encoding="utf-8")
+            self.assertTrue(director.verify_fill(run_dir))
+
+    def test_valid_fill_loads(self) -> None:
+        with temp_project() as root:
+            run_dir = self._run_dir(root)
+            idea = {"idea_title": "T", "pillar": "P", "format_from": ["HAB005"], "angle": "A", "why": "W", "specifics": []}
+            (run_dir / "03-fill.json").write_text(json.dumps({"ideas": [idea]}), encoding="utf-8")
+            self.assertEqual(director.verify_fill(run_dir), [])
+            self.assertEqual(director.load_fill(run_dir), [idea])
+
+    def test_synth_prompt_asks_for_fill(self) -> None:
+        with temp_project() as root:
+            run_dir = self._run_dir(root)
+            creator = root / "creator.md"
+            creator.write_text("# Creator\n", encoding="utf-8")
+            prompt = director.build_synth_prompt(run_dir, REFERENCES_DIR, creator, fill_ideas=5)
+            self.assertIn(str((run_dir / "03-fill.json").resolve()), prompt)
+            self.assertIn("at most 5", prompt)
+            # Final review I3: ask for public specifics about each fill
+            # idea's own topic, never guessed, and still allow none.
+            self.assertIn("2 to 3 public specifics", prompt)
+            self.assertIn("without guessing", prompt)
+            self.assertIn("[]", prompt)
+            self.assertNotIn("—", prompt)
+            none = director.build_synth_prompt(run_dir, REFERENCES_DIR, creator, fill_ideas=0)
+            self.assertNotIn("03-fill.json", none)
 
 
 if __name__ == "__main__":

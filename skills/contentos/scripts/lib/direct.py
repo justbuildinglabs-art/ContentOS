@@ -23,14 +23,18 @@ call one function here, print what it returns -- exactly like the
   problem on stderr, so the skill can re-dispatch once and then mark
   the reel failed.
 - `run_rank` is the deterministic `rank` subcommand: collect every
-  valid analysis, rank them with `director.rank_briefs`, write
-  `03-briefs.json` and `briefs.md`, and record the stage in `run.json`.
-  `--mock` first seeds `03-analyses/` and `03-patterns.md` from the
-  committed fixtures, so a mock run reaches briefs without dispatching
-  a single subagent.
+  valid analysis, fold in the ideas ledger's still-open carry-overs
+  (`lib/ideas.py`) and this run's format fill, rank them all with
+  `director.rank_briefs`, write `03-briefs.json` and `briefs.md`,
+  record the stage in `run.json`, and record the ranked briefs back
+  into `.contentos/ideas.json` so next week can carry the unpicked
+  ones forward. `--mock` first seeds `03-analyses/` and
+  `03-patterns.md` from the committed fixtures, so a mock run reaches
+  briefs without dispatching a single subagent.
 
-Nothing here touches the network, and nothing writes outside the run
-directory it was pointed at.
+Nothing here touches the network. Every function writes only inside
+the run directory it was pointed at, except `run_rank`, which also
+reads and writes the creator's `.contentos/ideas.json` ledger.
 """
 from __future__ import annotations
 
@@ -41,7 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from lib import codes, director, store
+from lib import codes, director, history, ideas, instagram, research, store
 
 # Repo root / "fixtures": four directories up from this file (lib ->
 # scripts -> contentos -> skills -> repo root). The same directory
@@ -50,6 +54,7 @@ from lib import codes, director, store
 FIXTURES_DIR = Path(__file__).resolve().parents[4] / "fixtures"
 ANALYSES_FIXTURES_SUBDIR = "analyses"
 PATTERNS_FIXTURE_NAME = "patterns.sample.md"
+FILL_FIXTURE_NAME = "fill.sample.json"
 
 # frames_status values a reel can be analyzed from. Anything else
 # (`pending`, `failed`, `no_video`) means the director would have no
@@ -241,12 +246,22 @@ def run_direct_prompt(
     )
 
 
-def run_synth_prompt(project: Path, run_ref: str, references_dir: Path) -> str:
+def run_synth_prompt(
+    project: Path,
+    run_ref: str,
+    references_dir: Path,
+    cfg: Optional[Dict[str, Any]] = None,
+) -> str:
     """The `synth-prompt --run <id>` prompt text for the one synthesis dispatch.
 
     Refuses with exit 2 when the run does not resolve, when
     `03-analyses/` holds no `*.json` files yet (there is nothing to
-    synthesize from), or when `creator.md` is missing.
+    synthesize from), or when `creator.md` is missing. `cfg` is threaded
+    in from the CLI handler (`contentos.py` loads it with
+    `store.load_config`), the same convention `agents.write_prompt`/
+    `agents.qa_prompt` use; a caller with none gets `store.DEFAULT_CONFIG`.
+    Only `cfg["fill_ideas"]` is read, to cap the synthesis dispatch's
+    `## Fill ideas` section (design spec, "0.4.0 changes").
     """
     run_dir = _resolve_run(project, run_ref)
     analyses = sorted((run_dir / "03-analyses").glob("*.json"))
@@ -256,7 +271,10 @@ def run_synth_prompt(project: Path, run_ref: str, references_dir: Path) -> str:
             codes.EXIT_USAGE,
         )
     creator_md = _creator_md(project)
-    return director.build_synth_prompt(run_dir, Path(references_dir), creator_md)
+    cfg = cfg if cfg is not None else store.DEFAULT_CONFIG
+    return director.build_synth_prompt(
+        run_dir, Path(references_dir), creator_md, fill_ideas=cfg["fill_ideas"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -349,16 +367,19 @@ def verify_direct(project: Path, run_ref: str, shortcode: Optional[str]) -> Path
 
 
 def verify_synth(project: Path, run_ref: str) -> Path:
-    """Check this run's `03-patterns.md` for the five required headings.
+    """Check this run's `03-patterns.md` and, when present, `03-fill.json`.
 
     Delegates to `director.verify_patterns` (missing file, empty file,
-    a missing heading, or headings out of order) and raises a
-    `DirectError` with exit code 7 carrying one line per problem.
-    Returns the patterns path on success.
+    a missing heading, or headings out of order) for the patterns half,
+    and `director.verify_fill` (a missing `03-fill.json` is fine; an
+    existing one must match `schemas/fill.schema.json` and every
+    `format_from` shortCode must have an analysis in this run) for the
+    fill half. Raises a `DirectError` with exit code 7 carrying every
+    problem from both checks. Returns the patterns path on success.
     """
     run_dir = _resolve_run(project, run_ref)
     patterns_path = run_dir / "03-patterns.md"
-    problems = director.verify_patterns(patterns_path)
+    problems = director.verify_patterns(patterns_path) + director.verify_fill(run_dir)
     if problems:
         raise DirectError("\n".join(problems), codes.EXIT_VERIFY)
     return patterns_path
@@ -375,7 +396,7 @@ def _seed_mock_analyses(
     fixtures_dir: Path,
     log: Callable[[str], None],
 ) -> None:
-    """Copy the committed fixture analyses and patterns into this run.
+    """Copy the committed fixture analyses, patterns, and fill into this run.
 
     `rank --mock` is what makes a demo run reach `briefs.md` with no
     subagent in the loop: every `selected` reel that has a
@@ -384,6 +405,14 @@ def _seed_mock_analyses(
     `03-patterns.md`. Both copies skip anything already on disk, so a
     real analysis from an actual dispatch is never overwritten by a
     fixture.
+
+    `fixtures/fill.sample.json` becomes `03-fill.json` the same way, but
+    only when at least one of its ideas' `format_from` shortCodes now has
+    an analysis in this run -- otherwise the fixture's own
+    `format_from` references would fail `verify_fill`, and (design spec,
+    "0.4.0 changes", "Format fill") a mock week with no new outliers
+    should have no fill at all, matching a real run where the skill
+    skips the synthesis dispatch entirely.
     """
     analyses_dir = run_dir / "03-analyses"
     fixtures_analyses = Path(fixtures_dir) / ANALYSES_FIXTURES_SUBDIR
@@ -404,6 +433,23 @@ def _seed_mock_analyses(
     if patterns_source.exists() and not patterns_dest.exists():
         shutil.copyfile(patterns_source, patterns_dest)
         log("seeded the fixture 03-patterns.md (mock)")
+
+    fill_dest = run_dir / "03-fill.json"
+    fill_source = Path(fixtures_dir) / FILL_FIXTURE_NAME
+    if fill_source.exists() and not fill_dest.exists():
+        try:
+            fill_doc = json.loads(fill_source.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            fill_doc = None
+        format_froms = [
+            shortcode
+            for idea in (fill_doc.get("ideas") if isinstance(fill_doc, dict) else [])
+            if isinstance(idea, dict)
+            for shortcode in idea.get("format_from") or []
+        ]
+        if any((analyses_dir / f"{sc}.json").exists() for sc in format_froms):
+            shutil.copyfile(fill_source, fill_dest)
+            log("seeded the fixture 03-fill.json (mock)")
 
 
 def _collect_analyses(
@@ -458,6 +504,181 @@ def _collect_analyses(
     return analyses, skipped
 
 
+def _load_carried(
+    analyses: Dict[str, Dict[str, Any]],
+    ledger: Dict[str, Any],
+    run_id: str,
+    log: Callable[[str], None],
+) -> List[Dict[str, Any]]:
+    """This run's open carry-over candidates, in `director.rank_briefs`'s `carried` shape.
+
+    Walks `ideas.carry_candidates(ledger, run_id)` and skips (one `log`
+    line each) an entry that would otherwise reach `rank_briefs` broken
+    or duplicated:
+
+    - its reel's `shortCode` already has a valid analysis in this run's
+      `analyses` (this run re-selected the same reel; without this
+      check it would be ranked twice, as both `"new"` and `"carried"`,
+      and get two `shown` pairs recorded).
+    - its reel snapshot's `timestamp` is missing or does not parse with
+      `instagram.parse_ts` -- a hand-edited ledger must not crash
+      `rank` (`director._brief_dict` parses a timestamp when one is
+      present, to compute `days_old`; a value that reaches `parse_ts`
+      but blows up there, such as an out-of-range epoch number, must be
+      caught here instead). `parse_ts` can raise `ValueError` (bad
+      string, or `NaN`), `TypeError`/`AttributeError` (not a string or
+      number, e.g. `None`), or `OverflowError`/`OSError` (a number
+      `datetime.fromtimestamp` cannot represent, such as `10**20` or
+      `float("inf")`).
+    - its ledger entry has no `analysis_path`, `frames_dir`, or
+      `first_run` (missing key or an explicit `null`) -- a hand-edited
+      or half-written entry must not `KeyError`/`TypeError` here either.
+    - `entry["analysis_path"]` no longer reads as JSON, or the coerced
+      object fails `director.validate_analysis` -- the design spec's
+      "whose analysis file still loads and validates".
+
+    Every surviving entry becomes one `{"reel", "analysis",
+    "weeks_carried", "first_run", "analysis_path", "frames_dir"}` dict,
+    exactly what `rank_briefs`'s `carried` parameter expects.
+    """
+    carried: List[Dict[str, Any]] = []
+    for entry in ideas.carry_candidates(ledger, run_id):
+        reel = entry.get("reel") or {}
+        shortcode = reel.get("shortCode") or "?"
+
+        if reel.get("shortCode") in analyses:
+            log(f"{shortcode}: not carried over, already a new analysis this run")
+            continue
+
+        try:
+            instagram.parse_ts(reel.get("timestamp"))
+        except (ValueError, TypeError, AttributeError, OverflowError, OSError):
+            log(f"{shortcode}: not carried over, its reel has no parseable timestamp")
+            continue
+
+        analysis_path = entry.get("analysis_path")
+        frames_dir = entry.get("frames_dir")
+        first_run = entry.get("first_run")
+        if not analysis_path or not frames_dir or not first_run:
+            log(f"{shortcode}: not carried over, its ledger entry is missing "
+                "analysis_path, frames_dir, or first_run")
+            continue
+
+        raw, problems = _read_analysis(Path(analysis_path))
+        if raw is None:
+            log(f"{shortcode}: not carried over, {problems[0]}")
+            continue
+        coerced = director.coerce_analysis(raw)
+        errors = director.validate_analysis(coerced)
+        if errors:
+            log(f"{shortcode}: not carried over, {'; '.join(errors)}")
+            continue
+
+        carried.append(
+            {
+                "reel": reel,
+                "analysis": coerced,
+                "weeks_carried": entry["weeks_carried"],
+                "first_run": first_run,
+                "analysis_path": analysis_path,
+                "frames_dir": frames_dir,
+            }
+        )
+    return carried
+
+
+def _drop_paid_partnerships(
+    analyses: Dict[str, Dict[str, Any]],
+    carried: List[Dict[str, Any]],
+    selected: List[Dict[str, Any]],
+    log: Callable[[str], None],
+) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Split out every analysis the director marked as a paid partnership.
+
+    Returns `(analyses, carried, skipped_paid)`. Instagram's own label is
+    app UI and never in a keyframe, so the caption check at selection
+    misses a reel that only discloses on screen or out loud; the
+    director sees those (design spec, "0.5.0 changes"). A fill idea that
+    borrows its format from a dropped reel loses its proof and is left
+    out by `rank_briefs`, which is the intent. No backfill reel is
+    promoted here.
+    """
+    owners = {reel.get("shortCode"): reel.get("ownerUsername") for reel in selected}
+    skipped_paid: List[Dict[str, Any]] = []
+
+    def skip(shortcode: str, owner: Any, analysis: Dict[str, Any]) -> None:
+        evidence = analysis["paid_partnership"]["evidence"]
+        skipped_paid.append({"shortCode": shortcode, "ownerUsername": owner, "evidence": evidence})
+        log(f"{shortcode}: left out, paid partnership ({evidence or 'no evidence given'})")
+
+    kept: Dict[str, Dict[str, Any]] = {}
+    for shortcode, analysis in analyses.items():
+        if director.is_paid_partnership(analysis):
+            skip(shortcode, owners.get(shortcode), analysis)
+        else:
+            kept[shortcode] = analysis
+
+    kept_carried: List[Dict[str, Any]] = []
+    for item in carried:
+        if director.is_paid_partnership(item["analysis"]):
+            reel = item["reel"]
+            skip(reel.get("shortCode") or "?", reel.get("ownerUsername"), item["analysis"])
+        else:
+            kept_carried.append(item)
+    return kept, kept_carried, skipped_paid
+
+
+def _rank_now(run_dir: Path) -> datetime:
+    """The `now` `rank_briefs` uses to compute `days_old`, always UTC-aware.
+
+    `research.MOCK_NOW` when this run's `run.json` has `mode: "mock"`
+    (matching `--mock` research's own `days_old` clock), else
+    `run.json["created_at"]` parsed back into a datetime, else
+    `datetime.now(timezone.utc)` when `run.json` is missing, unreadable,
+    or its `created_at` will not parse -- `rank` should never crash over
+    this, only fall back to the current time.
+    """
+    try:
+        run_data = store.read_json(run_dir / "run.json")
+    except (ValueError, OSError):
+        return datetime.now(timezone.utc)
+    if not isinstance(run_data, dict):
+        return datetime.now(timezone.utc)
+
+    if run_data.get("mode") == "mock":
+        return research.MOCK_NOW
+
+    created_at = run_data.get("created_at")
+    if isinstance(created_at, str):
+        try:
+            parsed = datetime.fromisoformat(created_at)
+        except ValueError:
+            return datetime.now(timezone.utc)
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+    return datetime.now(timezone.utc)
+
+
+def _rerank_blockers(project: Path, run_dir: Path) -> List[str]:
+    """What in this run a re-rank would orphan: its scripts and its `log.json` marks.
+
+    `rank` renumbers `B01`, `B02`, ... from scratch, so a script or a
+    mark keyed to an old number would end up attached to a different
+    idea (or to none). Only this run's own files and marks count; other
+    runs' scripts and marks are exactly what the ledger reads.
+    """
+    blockers = [
+        f"04-scripts/{path.name}" for path in sorted((run_dir / "04-scripts").glob("*.md"))
+    ]
+    prefix = f"{run_dir.name}/"
+    blockers.extend(
+        f"a log.json mark for {key[len(prefix):]}"
+        for key in sorted(history.load_log(project)["briefs"])
+        if key.startswith(prefix)
+    )
+    return blockers
+
+
 def run_rank(
     project: Path,
     run_ref: str,
@@ -465,26 +686,45 @@ def run_rank(
     mock: bool = False,
     fixtures_dir: Optional[Path] = None,
     log: Optional[Callable[[str], None]] = None,
+    force: bool = False,
 ) -> Dict[str, Any]:
-    """Run `contentos.py rank --run <id|latest> [--mock]`.
+    """Run `contentos.py rank --run <id|latest> [--mock] [--force]`.
 
     Deterministic end to end: no model call, no network. Collects every
-    `selected` reel's valid analysis, ranks them with
+    `selected` reel's valid analysis, folds in this run's still-open
+    ledger carry-overs and format fill, ranks them all with
     `director.rank_briefs` (the design spec's `brief_score` formula,
-    top `cfg["briefs"]`), writes `03-briefs.json` and `briefs.md`, and
-    records the `direct` stage in `run.json`. `--mock` first seeds the
-    fixture analyses and patterns (see `_seed_mock_analyses`).
+    top `cfg["briefs"]`), writes `03-briefs.json` and `briefs.md`,
+    records the `direct` stage in `run.json`, then records the briefs
+    just ranked in `.contentos/ideas.json` (design spec, "0.4.0
+    changes", "The ideas ledger"). `--mock` first seeds the fixture
+    analyses and patterns (see `_seed_mock_analyses`).
 
     Raises a `DirectError` with exit code 2 when the run does not
-    resolve, when it has no `02-outliers.json`, or when not one
-    selected reel has a valid analysis -- there is nothing to rank, and
-    an empty `briefs.md` would read like a real (empty) result.
-    Returns the JSON-able summary `contentos.py` prints:
-    `{"run_id", "analyzed", "briefs", "skipped"}`.
+    resolve, when it has no `02-outliers.json`, when there is nothing
+    at all to rank -- no valid analysis this run, no open carry-over,
+    and no fill -- or, unless `force`, when this run already has any
+    `04-scripts/*.md` file or any `log.json` mark keyed
+    `<this run id>/...` (a re-rank renumbers the briefs, so those would
+    end up on the wrong idea; see `_rerank_blockers`). That check runs
+    before anything is written. A week with no new outliers still
+    produces a list from carry-overs alone. Returns the JSON-able
+    summary `contentos.py` prints: `{"run_id", "analyzed", "briefs",
+    "skipped", "skipped_paid", "new", "carried", "fill"}` (`skipped_paid`
+    is a count; `03-briefs.json` holds the list).
     """
     if log is None:
         log = _default_log
     run_dir = _resolve_run(project, run_ref)
+    if not force:
+        blockers = _rerank_blockers(project, run_dir)
+        if blockers:
+            raise DirectError(
+                f"{run_dir.name}: not re-ranked. Re-ranking would renumber briefs that "
+                f"already have scripts or marks ({', '.join(blockers)}). "
+                "Run `rank` again with --force to re-rank anyway.",
+                codes.EXIT_USAGE,
+            )
     outliers_doc = _read_outliers(run_dir)
     selected = outliers_doc.get("selected") or []
 
@@ -494,7 +734,25 @@ def run_rank(
         )
 
     analyses, skipped = _collect_analyses(run_dir, selected, log)
-    if not analyses:
+
+    ledger = ideas.load_ledger(project)
+    ideas.forget_run(ledger, run_dir.name)
+    ideas.close_entries(project, ledger, run_dir.name, cfg["carry_weeks"])
+    carried = [] if cfg["carry_weeks"] == 0 else _load_carried(analyses, ledger, run_dir.name, log)
+    # Counted before the paid-partnership drop: those reels were analyzed.
+    analyzed_count = len(analyses)
+    skipped_paid: List[Dict[str, Any]] = []
+    if cfg.get("exclude_paid_partnerships", True):
+        analyses, carried, skipped_paid = _drop_paid_partnerships(analyses, carried, selected, log)
+    fill: List[Dict[str, Any]] = []
+    if analyses and cfg["fill_ideas"] > 0:
+        fill_problems = director.verify_fill(run_dir)
+        if fill_problems:
+            log(f"03-fill.json: format fill not used, {fill_problems[0]}")
+        else:
+            fill = director.load_fill(run_dir)
+
+    if not analyses and not carried and not fill:
         raise DirectError(
             f"{run_dir.name}: no valid analysis in 03-analyses/; "
             "run the director dispatches first",
@@ -502,17 +760,26 @@ def run_rank(
         )
 
     briefs = director.rank_briefs(
-        analyses, selected, cfg["briefs"], run_dir, max_format_briefs=cfg["max_format_briefs"]
+        analyses, selected, cfg["briefs"], run_dir,
+        max_format_briefs=cfg["max_format_briefs"], carried=carried, fill=fill,
+        now=_rank_now(run_dir),
     )
     ranked_at = datetime.now(timezone.utc).isoformat()
+    counts = {
+        "new": sum(1 for brief in briefs if brief["kind"] == "new"),
+        "carried": sum(1 for brief in briefs if brief["kind"] == "carried"),
+        "fill": sum(1 for brief in briefs if brief["kind"] == "fill"),
+    }
 
     store.write_json_atomic(
         run_dir / "03-briefs.json",
         {
             "briefs": briefs,
             "ranked_at": ranked_at,
-            "analyzed": len(analyses),
+            "analyzed": analyzed_count,
             "skipped": skipped,
+            "skipped_paid": skipped_paid,
+            "counts": counts,
         },
     )
     (run_dir / "briefs.md").write_text(director.render_briefs_md(briefs), encoding="utf-8")
@@ -522,16 +789,26 @@ def run_rank(
         stages={
             "direct": {
                 "status": "ok",
-                "analyzed": len(analyses),
+                "analyzed": analyzed_count,
                 "briefs": len(briefs),
                 "finished_at": ranked_at,
             }
         },
     )
 
+    reels_by_shortcode = {
+        reel["shortCode"]: reel for reel in selected if reel.get("shortCode")
+    }
+    ideas.record_briefs(ledger, run_dir.name, briefs, reels_by_shortcode)
+    ideas.save_ledger(project, ledger)
+
     return {
         "run_id": run_dir.name,
-        "analyzed": len(analyses),
+        "analyzed": analyzed_count,
         "briefs": len(briefs),
         "skipped": skipped,
+        "skipped_paid": len(skipped_paid),
+        "new": counts["new"],
+        "carried": counts["carried"],
+        "fill": counts["fill"],
     }

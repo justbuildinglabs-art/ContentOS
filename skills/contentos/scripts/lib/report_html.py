@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from lib import report, store
+from lib import director, report, store
 
 # brief_score weights, from the design spec's "Stage 2 -- direct" (and
 # lib/director.py's brief_score). Used only to draw the score bar.
@@ -194,9 +194,13 @@ def _research_section(run_dir: Path, run_data: Dict[str, Any]) -> str:
         if isinstance(item, dict):
             reasons[item.get("reason", "other")] = reasons.get(item.get("reason", "other"), 0) + 1
     cfg = run_data.get("config") or {}
+    ratio = cfg.get("min_outlier_ratio")
+    ratio_text = f"{ratio:g}" if isinstance(ratio, (int, float)) else "?"
     labels = {
+        "paid_partnership": "paid partnerships",
         "outside_lookback": f"older than {cfg.get('lookback_days', '?')} days",
         "below_min_plays": f"under {cfg.get('min_plays', '?')} plays",
+        "below_min_ratio": f"below {ratio_text}x their usual",
         "per_account_cap": f"past the cap of {cfg.get('max_per_account', '?')} per account",
         "already_briefed": "briefed in an earlier run",
     }
@@ -204,6 +208,14 @@ def _research_section(run_dir: Path, run_data: Dict[str, Any]) -> str:
     for reason, count in sorted(reasons.items(), key=lambda item: -item[1]):
         funnel.append(f"<li>minus <b>{count}</b> {_e(labels.get(reason, reason))}</li>")
     funnel.append(f"<li><b>{_e(research.get('selected', '?'))}</b> outliers kept and analyzed</li>")
+    paid = report.skipped_paid(run_dir)
+    if paid:
+        owners = ", ".join(f"@{item['ownerUsername']}" for item in paid if item.get("ownerUsername"))
+        funnel.append(
+            f"<li>minus <b>{len(paid)}</b> left out after analysis as paid partnerships"
+            + (f" ({_e(owners)})" if owners else "")
+            + "</li>"
+        )
 
     profiles_doc = _read(run_dir / "01-profiles.json")
     profiles = profiles_doc.get("profiles", profiles_doc) if isinstance(profiles_doc, dict) else profiles_doc
@@ -256,7 +268,7 @@ def _brief_section(run_dir: Path, brief: Dict[str, Any], state: Dict[str, Any]) 
         f"<p class='eyebrow'>{_e(brief_id)} · {_e(brief.get('format', '-'))} · {_e(brief.get('hook_type', '-'))} hook"
         f" · {_e(brief.get('source_kind', 'niche'))} source</p>"
     )
-    parts.append(f"<h3>{_e(brief.get('brief_title', ''))}</h3>")
+    parts.append(f"<h3>{_e(director.display_title(brief))}</h3>")
     if brief.get("source_url"):
         parts.append(
             f"<p class='small'>Source: <a href='{_e(brief['source_url'])}'>@{_e(brief.get('ownerUsername', ''))}"
@@ -419,7 +431,7 @@ def render_report_html(run_dir: Path) -> str:
             score = brief.get("brief_score")
             rows.append(
                 f"<tr><td><a href='#{_e(brief.get('brief_id'))}'>{_e(brief.get('brief_id'))}</a></td>"
-                f"<td>{_e(brief.get('brief_title', ''))}</td><td>{_status_pill(state)}</td>"
+                f"<td>{_e(director.display_title(brief))}</td><td>{_status_pill(state)}</td>"
                 f"<td class='num'>{_e(f'{score:.2f}' if isinstance(score, (int, float)) else '-')}</td>"
                 f"<td>{_score_bar(brief)}</td></tr>"
             )

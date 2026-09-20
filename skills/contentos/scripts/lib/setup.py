@@ -460,6 +460,65 @@ def _config_for(
     return config
 
 
+def _replace_section(text: str, heading: str, body: List[str]) -> str:
+    """Swap the body of one `## <heading>` section; a missing heading is left alone."""
+    lines = text.splitlines()
+    try:
+        start = lines.index("## " + heading)
+    except ValueError:
+        return text
+    end = start + 1
+    while end < len(lines) and not lines[end].startswith("## "):
+        end += 1
+    tail = lines[end:]
+    rebuilt = lines[: start + 1] + body + ([""] if tail else []) + tail
+    return "\n".join(rebuilt) + "\n"
+
+
+def run_accounts(
+    project: Path, competitors_raw: Any, format_accounts_raw: Any = None
+) -> Dict[str, Any]:
+    """Replace the two account lists of a project that is already set up (0.5.0).
+
+    Same normalization and the same refusal on an empty competitor list
+    as `run_setup`. `config.json` keeps every other key, and
+    `creator.md` keeps every other section, so the two files still
+    agree about which accounts a run scrapes. `format_accounts_raw`
+    None keeps the current format accounts (minus any that just became
+    a competitor). Nothing is written until every check has passed.
+    """
+    project = Path(project)
+    contentos_dir = store.contentos_dir(project)
+    config_path = contentos_dir / "config.json"
+    creator_path = contentos_dir / "creator.md"
+    try:
+        existing = store.read_json(config_path)
+    except (ValueError, OSError):
+        existing = None
+    if not isinstance(existing, dict):
+        raise SetupError("no usable .contentos/config.json; run: /contentos setup")
+
+    handles = normalize_handles(competitors_raw)
+    if not handles:
+        raise SetupError("no competitor accounts; name at least one Instagram handle")
+    current_format = existing.get("format_accounts")
+    format_source = current_format if format_accounts_raw is None else format_accounts_raw
+    format_accounts = normalize_format_accounts(format_source, handles)
+
+    store.write_json_atomic(config_path, _config_for(config_path, handles, format_accounts))
+
+    if creator_path.exists():
+        text = creator_path.read_text(encoding="utf-8")
+        text = _replace_section(text, COMPETITORS_HEADING, ["- " + handle for handle in handles])
+        format_changed = format_accounts_raw is not None or format_accounts != current_format
+        if format_changed:
+            body = ["- " + handle for handle in format_accounts] or [NO_FORMAT_ACCOUNTS_LINE]
+            text = _replace_section(text, FORMAT_ACCOUNTS_HEADING, body)
+        creator_path.write_text(text, encoding="utf-8")
+
+    return {"competitors": handles, "format_accounts": format_accounts}
+
+
 def run_setup(
     project: Path,
     answers: Dict[str, Any],
