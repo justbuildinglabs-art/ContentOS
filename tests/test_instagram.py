@@ -728,6 +728,18 @@ class FixtureTests(NoNetworkTestCase):
         self.assertEqual(profiles["privatepeople"]["followers"], 3000)
 
 
+class PartnerTagReelTests(NoNetworkTestCase):
+    def test_brand_partner_tag_flags_the_reel(self) -> None:
+        item = {
+            "shortCode": "P1", "productType": "clips", "timestamp": "2026-09-13T12:00:00.000Z",
+            "caption": "keep it quiet #higgsfieldpartner", "hashtags": ["higgsfieldpartner"],
+            "videoPlayCount": 203003,
+        }
+        reel = instagram.normalize_reel(item)
+        self.assertTrue(reel["paid_partnership"])
+        self.assertEqual(reel["paid_signals"], ["hashtag:higgsfieldpartner"])
+
+
 if __name__ == "__main__":
     import unittest
 

@@ -102,5 +102,28 @@ class MalformedInputTests(NoNetworkTestCase):
         )
 
 
+class PartnerTagTests(NoNetworkTestCase):
+    def test_brand_partner_tags_are_detected(self) -> None:
+        for caption, tags, signal in (
+            ("keep it quiet #higgsfieldpartner @higgsfield.ai", ["higgsfieldpartner"], "hashtag:higgsfieldpartner"),
+            ("Built it in an hour #LovablePartner", [], "hashtag:lovablepartner"),
+            ("Email flows that sell", ["OmnisendPartner"], "hashtag:omnisendpartner"),
+            ("Slides in seconds", ["gammapartner"], "hashtag:gammapartner"),
+            ("My new app", ["replitpartners"], "hashtag:replitpartners"),
+            ("Prompts that work #chatgpt_partner", [], "hashtag:chatgpt_partner"),
+            ("New drop", ["nikeambassador"], "hashtag:nikeambassador"),
+        ):
+            with self.subTest(signal=signal):
+                self.assertEqual(sponsored.detect(_reel(caption, tags))["signals"], [signal])
+
+    def test_generic_partner_tags_do_not_match(self) -> None:
+        for tag in (
+            "gympartner", "workoutpartner", "lifepartner", "businesspartner", "studypartners",
+            "crimepartner", "partner", "partners", "partnerworkout", "ambassador",
+        ):
+            with self.subTest(tag=tag):
+                self.assertFalse(sponsored.detect(_reel(f"#{tag}", [tag]))["detected"])
+
+
 if __name__ == "__main__":
     unittest.main()
