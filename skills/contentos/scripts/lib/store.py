@@ -131,6 +131,7 @@ _GITIGNORE_LINES = (
     "runs/*/frames/",
     "runs/*/prompts/",
     "setup-answers.json",
+    "ui-session.json",
 )
 
 _RUN_MODES = ("live", "mock")

@@ -257,5 +257,118 @@ class SaveAndCloseTests(NoNetworkTestCase):
         self.assertEqual(app.finished["picks"], [])
 
 
+class _FakeServer:
+    """Stands in for ThreadingHTTPServer: no socket, scripted requests."""
+
+    def __init__(self, address: Tuple[str, int], handler: Any) -> None:
+        self.address = address
+        self.handler = handler
+        self.server_address = ("127.0.0.1", PORT)
+        self.timeout: Optional[float] = None
+        self.closed = False
+        self.steps: List[Any] = []
+        self.app: Optional[ui.App] = None
+
+    def handle_request(self) -> None:
+        if self.steps:
+            self.steps.pop(0)(self)
+
+    def server_close(self) -> None:
+        self.closed = True
+
+
+def _closing_factory(project: Path, made: List[_FakeServer], seen: List[Dict[str, Any]]) -> Any:
+    def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+        server = _FakeServer(address, handler)
+
+        def close(srv: _FakeServer) -> None:
+            session = store.read_json(ui.session_path(project))
+            seen.append(session)
+            token = session["url"].split("#t=", 1)[1]
+            srv.app.handle("POST", "/api/close", {"host": f"127.0.0.1:{PORT}", "x-contentos-token": token,
+                                                  "content-type": "application/json"}, b"{}")
+
+        server.steps = [close]
+        made.append(server)
+        return server
+
+    return factory
+
+
+class ServeTests(NoNetworkTestCase):
+    def test_serve_writes_the_session_file_and_removes_it_on_close(self) -> None:
+        made: List[_FakeServer] = []
+        seen: List[Dict[str, Any]] = []
+        with temp_project() as project:
+            out = StringIO()
+            with redirect_stdout(out):
+                result = ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                                  server_factory=_closing_factory(project, made, seen))
+            self.assertFalse(ui.session_path(project).exists())
+            gitignore = (store.contentos_dir(project) / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("ui-session.json", gitignore.splitlines())
+        self.assertEqual(made[0].address, ("127.0.0.1", 0))
+        self.assertTrue(made[0].closed)
+        self.assertTrue(seen[0]["url"].startswith(f"http://127.0.0.1:{PORT}/#t="))
+        self.assertEqual(seen[0]["pid"], os.getpid())
+        self.assertEqual((result["saved"], result["picks"]), (False, []))
+        self.assertTrue(result["discovery_path"].endswith("discovery.json"))
+        self.assertTrue(out.getvalue().startswith(f"UI http://127.0.0.1:{PORT}/#t="))
+
+    def test_serve_stops_when_idle(self) -> None:
+        ticks = iter([0.0] + [3601.0] * 10)
+        with temp_project() as project, redirect_stdout(StringIO()):
+            result = ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                              idle_minutes=60, server_factory=_FakeServer, clock=lambda: next(ticks))
+        self.assertEqual((result["saved"], result["reason"]), (False, "idle"))
+
+    def test_open_flag_opens_the_link(self) -> None:
+        opened: List[str] = []
+        with temp_project() as project, redirect_stdout(StringIO()):
+            ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                     open_browser=True, opener=opened.append,
+                     server_factory=_closing_factory(project, [], []))
+        self.assertEqual(len(opened), 1)
+        self.assertTrue(opened[0].startswith(f"http://127.0.0.1:{PORT}/#t="))
+
+
+def _main(argv: Sequence[str]) -> Tuple[int, str, str]:
+    out, err = StringIO(), StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = contentos.main(list(argv))
+    return code, out.getvalue(), err.getvalue()
+
+
+class UiCommandTests(NoNetworkTestCase):
+    def test_the_command_serves_and_prints_the_result(self) -> None:
+        captured: Dict[str, Any] = {}
+
+        def fake_serve(project: Path, cfg: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+            captured.update(kwargs)
+            return {"saved": True, "picks": ["planwithpia"], "settings": {}, "discovery_path": "x"}
+
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=fake_serve):
+            code, out, _err = _main([
+                "ui", "--project", str(project), "--mock", "--keywords", "habit coach",
+                "--hashtags", "habits,#Productivity", "--seeds", "HabitLab",
+                "--handles-file", str(WEB_FILE), "--open", "--port", "5055",
+            ])
+        self.assertEqual(code, codes.EXIT_OK)
+        self.assertEqual(captured["keywords"], ["habit coach"])
+        self.assertEqual(captured["hashtags"], ["habits", "productivity"])
+        self.assertEqual(captured["seeds"], ["HabitLab"])
+        self.assertEqual([entry["handle"] for entry in captured["web_entries"]],
+                         ["webwillow", "madeupmaya", "focusfern", "slowsam", "photophoebe"])
+        self.assertEqual((captured["open_browser"], captured["port"], captured["mock"]), (True, 5055, True))
+        self.assertEqual(json.loads(out.strip().splitlines()[-1][len("RESULT "):])["picks"], ["planwithpia"])
+
+    def test_a_bad_handles_file_exits_2(self) -> None:
+        with temp_project() as project:
+            bad = Path(project) / "web.json"
+            bad.write_text("{not json", encoding="utf-8")
+            code, _out, _err = _main(["ui", "--project", str(project), "--handles-file", str(bad)])
+        self.assertEqual(code, codes.EXIT_USAGE)
+
+
 if __name__ == "__main__":
     unittest.main()

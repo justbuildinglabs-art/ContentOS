@@ -750,5 +750,16 @@ class CreatorRenameTests(NoNetworkTestCase):
                 self.assertNotIn("founder", text.lower())
 
 
+class ControlPanelSkillTests(NoNetworkTestCase):
+    def test_the_panel_is_the_default_and_the_only_background_command(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        self.assertIn("Never use `run_in_background`", _collapse(body))
+        self.assertEqual(body.count("run_in_background: true"), 1)
+        self.assertLess(body.index("### The control panel"), body.index("### Discovery in the chat"))
+        for phrase in ("ui-session.json", "discovery-picks.json", '"saved": false', "--open"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, body)
+
+
 if __name__ == "__main__":
     unittest.main()

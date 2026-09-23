@@ -1,9 +1,10 @@
 """ContentOS CLI entry point.
 
 The deterministic half of the four-stage pipeline (design spec, "Stage
-1" through "Stage 4"): `diagnose`, `setup`, `research`, `frames`,
-`transcribe`, `direct-prompt`, `synth-prompt`, `rank`, `intake`, `write-prompt`,
-`qa-prompt`, `verify`, `report`, `status`, `sync-plugin-key`, `mark`, `history`. The SKILL.md
+1" through "Stage 4"): `diagnose`, `setup`, `discover`, `ui`, `accounts`,
+`research`, `frames`, `transcribe`, `direct-prompt`, `synth-prompt`, `rank`,
+`intake`, `write-prompt`, `qa-prompt`, `verify`, `report`, `status`,
+`sync-plugin-key`, `mark`, `history`. The SKILL.md
 orchestrator dispatches the `contentos:content-director`,
 `contentos:script-writer`, and `contentos:qa-reviewer` subagents around
 these commands; nothing here calls a model.
@@ -29,7 +30,7 @@ from typing import Callable, Dict, List, Optional
 
 from lib import (
     agents, apify, codes, direct, discover, env, frames, history, report, report_html, research,
-    setup, store, transcribe,
+    setup, store, transcribe, ui,
 )
 
 SUBCOMMANDS = [
@@ -37,6 +38,7 @@ SUBCOMMANDS = [
     "setup",
     "discover",
     "accounts",
+    "ui",
     "research",
     "frames",
     "transcribe",
@@ -258,6 +260,37 @@ def _discover_handler(args: argparse.Namespace) -> int:
         return codes.EXIT_USAGE
     print(discover.render_table(doc))
     print("RESULT " + json.dumps(discover.result_line(doc, project_dir)))
+    return codes.EXIT_OK
+
+
+def _ui_handler(args: argparse.Namespace) -> int:
+    """Serve the discovery control panel until the creator saves or closes it (0.6.0).
+
+    The skill runs this one command in the background, because it waits
+    for the creator. `UI <url>` comes first and `RESULT {...}` last.
+    """
+    project_dir = args.project.resolve()
+    try:
+        cfg = store.load_discovery_config(project_dir)
+        web_entries, warnings = discover.load_web_handles(args.handles_file)
+    except (store.ConfigError, discover.DiscoverError) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    for warning in warnings:
+        print(warning, file=sys.stderr)
+    result = ui.serve(
+        project_dir,
+        cfg,
+        keywords=discover.normalize_keywords(_split_list(args.keywords)),
+        hashtags=discover.normalize_hashtags(_split_list(args.hashtags)),
+        web_entries=web_entries,
+        seeds=[part.strip() for part in _split_list(args.seeds) if part.strip()],
+        mock=args.mock,
+        port=args.port,
+        open_browser=args.open,
+        idle_minutes=args.idle_minutes,
+    )
+    print("RESULT " + json.dumps(result))
     return codes.EXIT_OK
 
 
@@ -622,6 +655,7 @@ HANDLERS["diagnose"] = _diagnose_handler
 HANDLERS["setup"] = _setup_handler
 HANDLERS["discover"] = _discover_handler
 HANDLERS["accounts"] = _accounts_handler
+HANDLERS["ui"] = _ui_handler
 HANDLERS["research"] = _research_handler
 HANDLERS["frames"] = _frames_handler
 HANDLERS["transcribe"] = _transcribe_handler
@@ -669,6 +703,14 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--handles-file", type=Path, default=None)
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")
+        if name == "ui":
+            sub.add_argument("--keywords", default=None)
+            sub.add_argument("--hashtags", default=None)
+            sub.add_argument("--seeds", default=None)
+            sub.add_argument("--handles-file", type=Path, default=None)
+            sub.add_argument("--port", type=int, default=0)
+            sub.add_argument("--open", action="store_true")
+            sub.add_argument("--idle-minutes", type=float, default=60.0)
         if name == "research":
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")

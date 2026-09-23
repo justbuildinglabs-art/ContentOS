@@ -9,11 +9,14 @@ local Host header, and every run needs a click after the estimate shows.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import threading
 import time
+import webbrowser
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -318,3 +321,101 @@ class App:
             })
         self.finished = {"saved": False, "picks": [], "settings": self.last_settings}
         return json_response(200, {"saved": False})
+
+
+SESSION_FILE_NAME = "ui-session.json"
+MAX_BODY_BYTES = 1_000_000
+_CSP = (
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+    "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+)
+
+
+def session_path(project: Path) -> Path:
+    """`<project>/.contentos/ui-session.json`: where the skill finds the panel's link."""
+    return store.contentos_dir(project) / SESSION_FILE_NAME
+
+
+class _Handler(BaseHTTPRequestHandler):
+    """Hands each request to the server's `App` and writes its answer back."""
+
+    server_version = "ContentOS"
+    sys_version = ""
+
+    def _dispatch(self, method: str) -> None:
+        app: App = self.server.app  # type: ignore[attr-defined]
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0 or length > MAX_BODY_BYTES:
+            response = json_response(413, {"error": "That request is too large."})
+        else:
+            body = self.rfile.read(length) if length else b""
+            response = app.handle(method, self.path, dict(self.headers.items()), body)
+        self.send_response(response.status)
+        self.send_header("Content-Type", response.content_type)
+        self.send_header("Content-Length", str(len(response.body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        if response.content_type.startswith("text/html"):
+            self.send_header("Content-Security-Policy", _CSP)
+        self.end_headers()
+        self.wfile.write(response.body)
+
+    def do_GET(self) -> None:  # noqa: N802 - the base class names it
+        self._dispatch("GET")
+
+    def do_POST(self) -> None:  # noqa: N802 - the base class names it
+        self._dispatch("POST")
+
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - the base class names it
+        return
+
+
+def serve(
+    project: Path,
+    cfg: Dict[str, Any],
+    keywords: List[str],
+    hashtags: List[str],
+    web_entries: List[Dict[str, str]],
+    seeds: List[str],
+    mock: bool = False,
+    port: int = 0,
+    open_browser: bool = False,
+    idle_minutes: float = 60.0,
+    server_factory: Callable[..., Any] = ThreadingHTTPServer,
+    clock: Callable[[], float] = time.monotonic,
+    opener: Callable[[str], Any] = webbrowser.open,
+) -> Dict[str, Any]:
+    """Serve the panel until the creator saves or closes it, or it sits idle.
+
+    Binds 127.0.0.1 only (port 0 lets the OS pick), prints `UI <url>`
+    first, and writes `.contentos/ui-session.json` so the skill can find
+    the link. The session file is removed on the way out, whatever
+    happens. Returns the RESULT dict.
+    """
+    project = Path(project)
+    token = secrets.token_urlsafe(32)
+    server = server_factory(("127.0.0.1", port), _Handler)
+    actual_port = server.server_address[1]
+    app = App(project, cfg, token, actual_port, keywords, hashtags, web_entries, seeds, mock=mock, clock=clock)
+    server.app = app
+    server.timeout = 1.0
+    url = f"http://127.0.0.1:{actual_port}/#t={token}"
+    store.ensure_gitignore(project)
+    path = session_path(project)
+    store.write_json_atomic(path, {"url": url, "pid": os.getpid(), "started_at": datetime.now(timezone.utc).isoformat()})
+    print(f"UI {url}", flush=True)
+    if open_browser:
+        opener(url)
+    try:
+        while app.finished is None:
+            server.handle_request()
+            if app.state != "running" and clock() - app.last_seen > idle_minutes * 60:
+                app.finished = {"saved": False, "picks": [], "settings": app.last_settings, "reason": "idle"}
+    finally:
+        server.server_close()
+        path.unlink(missing_ok=True)
+    return dict(app.finished, discovery_path=str(discover.discovery_path(project)))

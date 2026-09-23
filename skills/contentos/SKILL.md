@@ -32,7 +32,9 @@ reads them.
 
 - **Foreground only.** Every script call goes through Bash with
   `timeout: 600000` (10 minutes). Never use `run_in_background`. You need the
-  full output, and a backgrounded research run cannot be resumed cleanly.
+  full output, and a backgrounded research run cannot be resumed cleanly. The
+  one exception is `contentos.py ui`, the discovery control panel: it waits
+  for the creator, so the discovery flow starts it in the background.
 - **Subagents get Read and Write, nothing else.** They have no Bash and no
   network. Never give a subagent a command to run. Never ask a subagent to
   dispatch another subagent.
@@ -141,7 +143,7 @@ can read.
 | the creator types | run | show them | next |
 | --- | --- | --- | --- |
 | `/contentos setup` | the setup flow below, ending in `contentos.py setup --answers-file <file>` | the new `creator.md` and the headings still marked TODO | offer `/contentos run` |
-| `/contentos discover` | the discovery flow below, ending in `contentos.py accounts --competitors <handles>` when the project is already set up | the creators found, Established first, with a one-line reason each | offer `/contentos run` |
+| `/contentos discover` | the discovery flow below: the search terms and the web search in chat, then `contentos.py ui`, the control panel, or the chat steps | what was saved, from the `RESULT` line | offer `/contentos run` |
 | `/contentos run` | the run flow below, all four stages | the estimate, the brief list, then the final message | nothing, the run is done |
 | `/contentos research` | `contentos.py research --estimate-only`, show the estimate and wait for a yes, then `contentos.py research --yes` | the per-account table and the `RESULT` line, in plain words | offer `/contentos direct` |
 | `/contentos direct` | the director loop, the synthesis, then `contentos.py rank --run <run_id>` | the ranked briefs from `briefs.md` | offer `/contentos write` |
@@ -268,7 +270,40 @@ followers) and Rising (10,000 to 50,000).
    Hashtag pages show recent reels only, which lean to small accounts, so
    they never replace the web search.
 
-Then run discovery in the chat, below.
+Then open the control panel, below. Use the chat steps instead only when the
+creator asks for chat, or the panel cannot open, such as in a remote session
+with no browser.
+
+### The control panel
+
+The panel is one page on the creator's own computer. They set the bar, see
+the cost change as they move it, run discovery, read the evidence for each
+creator, and tick the ones to keep. Only this computer can open it.
+
+1. **Start it in the background.** This is the one command you run with
+   `run_in_background: true`, because it waits for the creator:
+
+```bash
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --open \
+  --keywords "<phrase one,phrase two>" --hashtags "<tag1,tag2>" \
+  --seeds "<handle1,handle2>" --handles-file "$PWD/.contentos/discovery-web.json"
+```
+
+   Leave off any flag you have nothing for. `--open` opens the page in the
+   creator's browser.
+2. **Hand over the link.** Read `.contentos/ui-session.json` and give the
+   creator its `url` as a link, in case the browser did not open. If the file
+   is not there yet, wait a few seconds and read it again. Say what to do:
+   check the settings, press Run, tick the creators to keep, then Save. Never
+   paste the page's contents into the chat.
+3. **Wait for it to finish.** You are told when the command exits. Its last
+   line is `RESULT {...}`:
+   - `"saved": true` in a project that is set up: the picks are already in
+     the watch list. Name them and offer `/contentos run`.
+   - `"saved": true` during setup: the picks are in
+     `.contentos/discovery-picks.json`. Put them in `competitors` in the
+     answers file, after the handles the creator typed.
+   - `"saved": false`: nothing changed. Say so, and offer the chat steps.
 
 ### Discovery in the chat
 
