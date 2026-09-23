@@ -129,6 +129,21 @@ class StateAndEstimateTests(NoNetworkTestCase):
                     self.assertEqual(status, 400)
                     self.assertIn(name, data["error"])
 
+    def test_the_estimate_matches_discovery_when_a_web_find_is_a_format_account(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["habitlab"], "format_accounts": ["webwillow"]})
+            app = _app(project)
+            status, data = _call(app, "POST", "/api/estimate", {})
+            web, _warnings = discover.load_web_handles(WEB_FILE)
+            with self.assertRaises(research.ConfirmationRequired) as ctx:
+                discover.run_discover(
+                    project, store.load_discovery_config(project), None,
+                    hashtags=["habits", "productivity"], keywords=["habit coach"],
+                    web_entries=web, mock=True, estimate_only=True,
+                )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["total_usd"], ctx.exception.payload["total_usd"])
+
 
 class RunTests(NoNetworkTestCase):
     def test_a_mock_run_finishes_and_serves_the_results(self) -> None:
@@ -194,6 +209,14 @@ class RunTests(NoNetworkTestCase):
             _call(app, "POST", "/api/run", {})
             status = _call(app, "GET", "/api/status")[1]
         self.assertEqual((status["state"], status["error"]), ("error", "apify said no"))
+
+    def test_save_and_close_wait_for_a_running_search(self) -> None:
+        with temp_project() as project:
+            app = _app(project, runner=lambda job: None)
+            self.assertEqual(_call(app, "POST", "/api/run", {})[0], 202)
+            self.assertEqual(_call(app, "POST", "/api/save", {"picks": ["planwithpia"]})[0], 409)
+            self.assertEqual(_call(app, "POST", "/api/close", {})[0], 409)
+        self.assertIsNone(app.finished)
 
 
 class SaveAndCloseTests(NoNetworkTestCase):

@@ -185,6 +185,19 @@ def normalize_seeds(raw: List[str]) -> Tuple[List[str], List[str]]:
     return seeds, warnings
 
 
+def never_recommended(cfg: Dict[str, Any], typed_seeds: List[str]) -> Tuple[List[str], List[str], List[str]]:
+    """The handles discovery checks for expansion only, and the ones it never checks.
+
+    Returns `(seeds, format_accounts, warnings)`: seeds are the project's
+    `competitors` plus the handles the creator typed; format accounts come
+    from other niches and are never candidates (design spec, "0.6.0 changes",
+    Sources). Warnings cover seeds only.
+    """
+    seeds, warnings = normalize_seeds(list(cfg.get("competitors") or []) + list(typed_seeds))
+    format_accounts, _unused = normalize_seeds(list(cfg.get("format_accounts") or []))
+    return seeds, format_accounts, warnings
+
+
 def keyword_from_input_url(input_url: Any) -> Optional[str]:
     """The phrase a keyword-search reel's `inputUrl` names, or None (0.6.0)."""
     if not isinstance(input_url, str):
@@ -732,10 +745,9 @@ def run_discover(
         entries, warnings = load_web_handles(handles_file)
     else:
         entries, warnings = normalize_web_entries(web_entries)
-    seed_handles, seed_warnings = normalize_seeds(list(cfg.get("competitors") or []) + list(seeds or []))
-    warnings.extend(seed_warnings)
     # Design spec, "0.6.0 changes" (Sources): format_accounts are never candidates.
-    format_handles, _format_warnings = normalize_seeds(list(cfg.get("format_accounts") or []))
+    seed_handles, format_handles, seed_warnings = never_recommended(cfg, list(seeds or []))
+    warnings.extend(seed_warnings)
     web = web_handles(entries, seed_handles + format_handles)
     if len({entry["handle"] for entry in entries} - set(seed_handles)) > MAX_WEB_HANDLES:
         warnings.append(f"only the first {MAX_WEB_HANDLES} web handles were checked")

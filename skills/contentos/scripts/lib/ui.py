@@ -167,15 +167,12 @@ class App:
             web = []
         return keywords, hashtags, web
 
-    def _seed_handles(self, cfg: Dict[str, Any]) -> List[str]:
-        seeds, _warnings = discover.normalize_seeds(list(cfg.get("competitors") or []) + list(self.seeds))
-        return seeds
-
     def _cost(
         self, cfg: Dict[str, Any], keywords: List[str], hashtags: List[str], web: List[Dict[str, str]]
     ) -> Dict[str, Any]:
-        seeds = self._seed_handles(cfg)
-        cost = discover.estimate(cfg, len(keywords), len(hashtags), len(seeds), len(discover.web_handles(web, seeds)))
+        seeds, format_accounts, _warnings = discover.never_recommended(cfg, self.seeds)
+        checked_web = discover.web_handles(web, seeds + format_accounts)
+        cost = discover.estimate(cfg, len(keywords), len(hashtags), len(seeds), len(checked_web))
         cap = cfg["apify_max_charge_usd"]
         return dict(cost, cap_usd=cap, within_cap=cost["total_usd"] <= cap)
 
@@ -187,6 +184,10 @@ class App:
     def _fail(self, message: str) -> None:
         with self._lock:
             self.state, self.error = "error", message
+
+    def _is_running(self) -> bool:
+        with self._lock:
+            return self.state == "running"
 
     # -- routes --------------------------------------------------------------
 
@@ -222,7 +223,9 @@ class App:
             except store.ConfigError as exc:
                 return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
             keywords, hashtags, web = self._inputs(payload)
-            if not (keywords or hashtags or web or self._seed_handles(cfg)):
+            seeds, format_accounts, _warnings = discover.never_recommended(cfg, self.seeds)
+            checked_web = discover.web_handles(web, seeds + format_accounts)
+            if not (keywords or hashtags or checked_web or seeds):
                 return json_response(400, {
                     "error": "Add a keyword phrase, a hashtag, or a handle first.", "code": codes.EXIT_USAGE,
                 })
@@ -281,6 +284,10 @@ class App:
         return json_response(200, store.read_json(path))
 
     def _save(self, payload: Dict[str, Any]) -> Response:
+        if self._is_running():
+            return json_response(409, {
+                "error": "A search is running. Wait for it to finish, then save or close.",
+            })
         raw = payload.get("picks")
         if not isinstance(raw, list):
             return json_response(400, {"error": "Send picks as a list of handles."})
@@ -305,5 +312,9 @@ class App:
         return json_response(200, answer)
 
     def _close(self, _payload: Dict[str, Any]) -> Response:
+        if self._is_running():
+            return json_response(409, {
+                "error": "A search is running. Wait for it to finish, then save or close.",
+            })
         self.finished = {"saved": False, "picks": [], "settings": self.last_settings}
         return json_response(200, {"saved": False})
