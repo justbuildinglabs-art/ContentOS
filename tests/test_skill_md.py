@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import unittest
@@ -697,6 +698,39 @@ class ApifyKeyStepsTests(NoNetworkTestCase):
         self.assertIn("apify_live", prose)
         # Exit 4 sends the creator to the same steps.
         self.assertIn("the key steps from Step 1", prose)
+
+
+class DiscoveryFlowTests(NoNetworkTestCase):
+    @staticmethod
+    def _flow() -> str:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        return body.split("## The discovery flow", 1)[1].split("\n## ", 1)[0]
+
+    def test_names_the_bar_the_sources_and_the_tiers(self) -> None:
+        flow = _collapse(self._flow())
+        for phrase in (
+            "10,000 or more followers", "every 2 weeks", "1 in 4", "Established", "Rising",
+            "site:instagram.com", "you must use it", "Never add a handle from memory",
+            "--seeds", "--keywords",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flow)
+        self.assertNotIn("small_account", flow)
+
+    def test_every_discover_command_parses(self) -> None:
+        blocks = re.findall(r"```bash\n(.*?)```", self._flow(), flags=re.DOTALL)
+        commands = [block for block in blocks if 'contentos.py" discover' in block]
+        self.assertTrue(commands)
+        parser = contentos.build_parser()
+        for block in commands:
+            argv = shlex.split(block.replace("\\\n", " "))
+            with self.subTest(block=block):
+                parser.parse_args(argv[argv.index("discover"):])
+
+    def test_the_save_step_keeps_the_current_watch_list(self) -> None:
+        self.assertIn(
+            "pass the current `competitors` first, then the picks", _collapse(self._flow())
+        )
 
 
 class CreatorRenameTests(NoNetworkTestCase):
