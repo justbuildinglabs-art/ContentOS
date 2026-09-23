@@ -223,6 +223,69 @@ def normalize_profile(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+def _text_or_empty(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def profile_extras(item: Dict[str, Any]) -> Dict[str, Any]:
+    """The 0.6.0 discovery fields of one raw "details" item, beside `normalize_profile`.
+
+    Design spec, "Discovery probe (2026-09-23)": `businessCategoryName` is
+    null, the literal string "None", or a real category; `relatedProfiles`
+    (Instagram's similar accounts) is sometimes an empty list and sometimes
+    missing; `latestPosts` holds up to 12 posts with up to 3 pinned ones
+    first, and its reels carry `videoViewCount`, never `videoPlayCount`, so
+    no play count is kept here. `normalize_profile` stays as it is because
+    research writes its exact shape to `01-profiles.json`.
+    """
+    category = item.get("businessCategoryName")
+    category = category.strip() if isinstance(category, str) else ""
+    if category == "None":
+        category = ""
+
+    related: List[str] = []
+    raw_related = item.get("relatedProfiles")
+    for entry in (raw_related if isinstance(raw_related, list) else []):
+        if isinstance(entry, dict):
+            name, private = entry.get("username"), entry.get("is_private")
+        else:
+            name, private = entry, False
+        if isinstance(name, str) and name.strip() and not private:
+            handle = name.strip().lower()
+            if handle not in related:
+                related.append(handle)
+
+    latest: List[Dict[str, Any]] = []
+    raw_latest = item.get("latestPosts")
+    for post in (raw_latest if isinstance(raw_latest, list) else []):
+        if not isinstance(post, dict):
+            continue
+        try:
+            timestamp: Optional[str] = parse_ts(post["timestamp"]).isoformat()
+        except (KeyError, AttributeError, ValueError, TypeError, OverflowError):
+            timestamp = None
+        tags = post.get("hashtags")
+        latest.append(
+            {
+                "shortCode": post.get("shortCode"),
+                "timestamp": timestamp,
+                "is_reel": post.get("productType") == "clips",
+                "is_pinned": bool(post.get("isPinned")),
+                "caption": _text_or_empty(post.get("caption")),
+                "hashtags": [tag for tag in tags if isinstance(tag, str)] if isinstance(tags, list) else [],
+            }
+        )
+
+    return {
+        "bio": _text_or_empty(item.get("biography")),
+        "full_name": _text_or_empty(item.get("fullName")),
+        "category": category or None,
+        "is_business": bool(item.get("isBusinessAccount")),
+        "related": related,
+        "latest_posts": latest,
+    }
+
+
 def dedupe_by_shortcode(reels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Drop later duplicates of the same `shortCode`, keeping the first seen."""
     seen = set()
