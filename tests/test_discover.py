@@ -136,7 +136,7 @@ class MockDiscoverTests(NoNetworkTestCase):
                 "quietquill": "private",
                 "goneghost": "not_found",
                 "madeupmaya": "not_found",
-                "tinyhabitshop": "under 1000 followers",
+                "tinyhabitshop": "under 10000 followers",
             },
         )
         self.assertTrue(any("tiktok.com" in warning for warning in doc["warnings"]))

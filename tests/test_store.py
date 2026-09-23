@@ -16,15 +16,18 @@ from lib.store import (  # noqa: E402
     ConfigError,
     RunExists,
     RunNotFound,
+    check_discovery_config,
     contentos_dir,
     ensure_gitignore,
     init_run,
     load_config,
+    load_discovery_config,
     new_run_id,
     read_json,
     read_rules,
     resolve_run,
     run_dir,
+    update_config_keys,
     update_run,
     write_json_atomic,
 )
@@ -725,6 +728,73 @@ class ReadRulesTests(NoNetworkTestCase):
             )
 
             self.assertEqual(read_rules(project_dir), "")
+
+
+class DiscoverConfigTests(NoNetworkTestCase):
+    def test_discover_defaults(self) -> None:
+        self.assertEqual(DEFAULT_CONFIG["discover_min_followers"], 10000)
+        self.assertEqual(DEFAULT_CONFIG["discover_candidates"], 25)
+        self.assertEqual(DEFAULT_CONFIG["discover_shortlist"], 20)
+        self.assertEqual(DEFAULT_CONFIG["discover_min_views"], 5000)
+        self.assertEqual(DEFAULT_CONFIG["discover_post_every_days"], 14)
+
+    def test_min_followers_zero_turns_the_floor_off(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"discover_min_followers": 0})
+            self.assertEqual(load_discovery_config(project)["discover_min_followers"], 0)
+
+    def test_rejects_bad_discover_values(self) -> None:
+        bad = [
+            ({"discover_shortlist": 0}, "discover_shortlist"),
+            ({"discover_shortlist": 2.5}, "discover_shortlist"),
+            ({"discover_shortlist": True}, "discover_shortlist"),
+            ({"discover_min_views": 0}, "discover_min_views"),
+            ({"discover_min_views": "5000"}, "discover_min_views"),
+            ({"discover_post_every_days": 0}, "discover_post_every_days"),
+            ({"discover_post_every_days": 91}, "discover_post_every_days"),
+            ({"discover_post_every_days": 7.5}, "discover_post_every_days"),
+            ({"discover_min_followers": -1}, "discover_min_followers"),
+            ({"discover_min_followers": 1.5}, "discover_min_followers"),
+        ]
+        for override, key in bad:
+            with self.subTest(override=override), temp_project() as project:
+                _write_config(project, override)
+                with self.assertRaises(ConfigError) as ctx:
+                    load_discovery_config(project)
+                self.assertIn(key, str(ctx.exception))
+
+    def test_min_views_may_be_a_fraction(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"discover_min_views": 2500.5})
+            self.assertEqual(load_discovery_config(project)["discover_min_views"], 2500.5)
+
+    def test_check_discovery_config_allows_no_competitors(self) -> None:
+        check_discovery_config(dict(DEFAULT_CONFIG))
+        with self.assertRaises(ConfigError):
+            check_discovery_config(dict(DEFAULT_CONFIG, discover_shortlist=0))
+
+
+class UpdateConfigKeysTests(NoNetworkTestCase):
+    def test_merges_and_keeps_every_other_key(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["a"], "briefs": 7, "my_note": "keep"})
+            merged = update_config_keys(project, {"discover_min_followers": 50000})
+            on_disk = read_json(contentos_dir(project) / "config.json")
+        expected = {"competitors": ["a"], "briefs": 7, "my_note": "keep", "discover_min_followers": 50000}
+        self.assertEqual(on_disk, expected)
+        self.assertEqual(merged, expected)
+
+    def test_refuses_a_bad_value_and_writes_nothing(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["a"]})
+            with self.assertRaises(ConfigError):
+                update_config_keys(project, {"discover_shortlist": 0})
+            self.assertEqual(read_json(contentos_dir(project) / "config.json"), {"competitors": ["a"]})
+
+    def test_needs_an_existing_config(self) -> None:
+        with temp_project() as project:
+            with self.assertRaises(ConfigError):
+                update_config_keys(project, {"discover_shortlist": 5})
 
 
 if __name__ == "__main__":
