@@ -35,13 +35,6 @@ def _main(argv: Sequence[str]) -> Tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
-def _discover_args(project: Path, *extra: str) -> List[str]:
-    return [
-        "discover", "--project", str(project), "--hashtags", "habits,#Productivity",
-        "--keywords", "habit coach", *extra,
-    ]
-
-
 def _reel(code: str, day: str, plays: int, paid: bool = False, caption: str = "",
           tags: Tuple[str, ...] = ()) -> Dict[str, Any]:
     return {"shortCode": code, "url": f"https://example.invalid/{code}", "ownerUsername": "x",
@@ -78,23 +71,6 @@ class InputBuilderTests(NoNetworkTestCase):
             },
         )
 
-    def test_profile_search_input(self) -> None:
-        self.assertEqual(
-            apify.build_profile_search_input("habit coach", 10),
-            {"search": "habit coach", "searchType": "profile", "searchLimit": 10,
-             "resultsType": "details"},
-        )
-
-    def test_discover_cost(self) -> None:
-        estimate = apify.estimate_discover_cost(
-            n_hashtags=2, reels_per_hashtag=30, n_keywords=1, search_limit=10,
-            n_candidates=25, n_web_handles=3,
-        )
-        self.assertEqual(estimate["hashtag_reels_usd"], 0.162)
-        self.assertEqual(estimate["profile_search_usd"], 0.027)
-        self.assertEqual(estimate["details_usd"], 0.1026)
-        self.assertEqual(estimate["total_usd"], 0.2916)
-
 
 class NormalizeTermsTests(NoNetworkTestCase):
     def test_hashtags_are_cleaned_and_deduped(self) -> None:
@@ -112,135 +88,200 @@ class NormalizeTermsTests(NoNetworkTestCase):
         self.assertIsNone(discover.hashtag_from_input_url(None))
 
 
-class AggregateAuthorsTests(NoNetworkTestCase):
-    def test_groups_reels_by_author_and_skips_paid_photos_and_errors(self) -> None:
-        authors = discover.aggregate_authors(_fixture("apify_hashtag_reels_sample.json"))
+WEB_FILE = FIXTURES_DIR / "discovery-web.sample.json"
 
-        self.assertEqual(
-            sorted(authors), ["focusfern", "goneghost", "planwithpia", "quietquill"]
-        )
-        fern = authors["focusfern"]
-        self.assertEqual(fern["reels_seen"], 2)
-        self.assertEqual(fern["hashtags_hit"], ["habits", "productivity"])
-        self.assertEqual(fern["best_plays"], 420000)
-        self.assertEqual(fern["median_plays"], 365000)
-        self.assertEqual(len(fern["sample_captions"]), 2)
-        # brandbox's only reel is a paid partnership.
-        self.assertNotIn("brandbox", authors)
+EXPECTED_DROPPED = {
+    "madeupmaya": "not_found",
+    "focusfern": "under 10,000 followers",
+    "photophoebe": "no reel in 30 days",
+    "tinyhabitshop": "under 10,000 followers",
+    "quietquill": "private",
+    "goneghost": "not_found",
+    "stalestella": "no reel in 30 days",
+    "webwillow": "1 in 4 reels under 5,000 views",
+    "slowsam": "posts less than every 2 weeks",
+}
+
+
+def _seed_project(project: Path, **config: Any) -> None:
+    config_dir = store.contentos_dir(project)
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "config.json").write_text(
+        json.dumps(dict({"competitors": ["habitlab"]}, **config)), encoding="utf-8"
+    )
+
+
+def _mock_args(project: Path, *extra: str) -> List[str]:
+    return [
+        "discover", "--project", str(project), "--keywords", "habit coach",
+        "--hashtags", "habits,#Productivity", "--handles-file", str(WEB_FILE), *extra,
+    ]
 
 
 class MockDiscoverTests(NoNetworkTestCase):
-    def test_mock_run_ranks_verified_candidates(self) -> None:
+    def test_mock_run_finds_the_successful_creators(self) -> None:
         with temp_project() as project:
-            code, out, _err = _main(
-                _discover_args(
-                    project, "--handles-file", str(FIXTURES_DIR / "discovery-web.sample.json"),
-                    "--mock", "--yes",
-                )
-            )
+            _seed_project(project)
+            code, out, _err = _main(_mock_args(project, "--mock", "--yes"))
             self.assertEqual(code, codes.EXIT_OK)
-            doc = store.read_json(store.contentos_dir(project) / "discovery.json")
+            doc = store.read_json(discover.discovery_path(project))
 
+        self.assertEqual((doc["version"], doc["mode"], doc["partial"]), (2, "mock", False))
+        self.assertEqual(doc["seeds"], ["habitlab"])
+        self.assertEqual(doc["niche"], {"keywords": ["habit coach"], "hashtags": ["habits", "productivity"]})
         self.assertEqual(
-            [row["handle"] for row in doc["candidates"]],
-            ["focusfern", "planwithpia", "webwillow", "habitharbor"],
+            [(row["handle"], row["tier"]) for row in doc["candidates"]],
+            [("planwithpia", "established"), ("coachcora", "rising"), ("habitharbor", "rising")],
         )
-        fern = doc["candidates"][0]
-        self.assertTrue(fern["small_account"])
-        self.assertEqual(fern["followers"], 9400)
+        pia = doc["candidates"][0]
         self.assertEqual(
-            fern["sources"],
-            ["hashtag:habits", "hashtag:productivity", "web:https://example.invalid/top-10"],
+            {key: pia[key] for key in ("reels_measured", "top_quarter_plays", "median_plays",
+                                       "paid_reels", "last_post_days", "posts_per_week", "category")},
+            {"reels_measured": 9, "top_quarter_plays": 150000, "median_plays": 52000,
+             "paid_reels": 1, "last_post_days": 1, "posts_per_week": 0.7, "category": "Digital creator"},
         )
-        self.assertEqual(doc["candidates"][3]["sources"], ["keyword:habit coach"])
-        self.assertEqual(doc["candidates"][2]["score"], 0)
-
-        dropped = {item["handle"]: item["reason"] for item in doc["dropped"]}
+        self.assertEqual(pia["sources"], ["hashtag:habits", "keyword:habit coach"])
+        self.assertEqual(doc["candidates"][2]["sources"], ["related:habitlab", "related:webwillow"])
+        self.assertEqual({item["handle"]: item["reason"] for item in doc["dropped"]}, EXPECTED_DROPPED)
         self.assertEqual(
-            dropped,
-            {
-                "quietquill": "private",
-                "goneghost": "not_found",
-                "madeupmaya": "not_found",
-                "tinyhabitshop": "under 10000 followers",
-            },
+            [(b["shortCode"], b["ratio"]) for b in doc["breakouts"]],
+            [("PP01", 2.88), ("HH01", 2.5), ("CC01", 2.46), ("PP05", 2.12)],
         )
         self.assertTrue(any("tiktok.com" in warning for warning in doc["warnings"]))
-        self.assertEqual(doc["hashtags"], ["habits", "productivity"])
-        self.assertEqual(doc["mode"], "mock")
 
-        result_line = [line for line in out.splitlines() if line.startswith("RESULT ")][-1]
-        result = json.loads(result_line[len("RESULT "):])
-        self.assertEqual(result["candidates"], 4)
-        self.assertIn("@focusfern", out)
-        self.assertNotIn("best reel 0 plays", out)
-        self.assertIn("@webwillow  52,000 followers  no reel seen under your hashtags", out)
+        self.assertIn(
+            "Held to: 10,000+ followers, a reel at least every 2 weeks, 1 in 4 reels at 5,000+ views.", out
+        )
+        self.assertIn("Established (50,000+ followers):", out)
+        self.assertIn("Rising (10,000 to 50,000 followers):", out)
+        self.assertIn(" 1. @planwithpia  610,000 followers  1 in 4 reels: 150,000 views", out)
         self.assertNotIn("—", out)
+        result = json.loads([line for line in out.splitlines() if line.startswith("RESULT ")][-1][7:])
+        self.assertEqual(
+            {key: result[key] for key in ("candidates", "established", "rising", "dropped", "breakouts", "partial")},
+            {"candidates": 3, "established": 1, "rising": 2, "dropped": 9, "breakouts": 4, "partial": False},
+        )
 
-    def test_works_before_setup_and_with_no_competitors_yet(self) -> None:
-        with temp_project() as project:
-            self.assertFalse((store.contentos_dir(project) / "config.json").exists())
-            code, _out, _err = _main(_discover_args(project, "--mock", "--yes"))
-            self.assertEqual(code, codes.EXIT_OK)
+    def test_seeds_are_checked_but_never_measured(self) -> None:
+        transport = discover._default_transport(True)
+        with temp_project() as project, mock.patch.object(discover, "_default_transport", return_value=transport):
+            _seed_project(project)
+            code, _out, _err = _main(_mock_args(project, "--mock", "--yes"))
+        self.assertEqual(code, codes.EXIT_OK)
+        posts = [call for call in transport.calls if call["method"] == "POST"]
+        self.assertEqual(posts[2]["json_body"]["directUrls"][0], "https://www.instagram.com/habitlab/")
+        self.assertEqual(posts[-1]["json_body"]["resultsType"], "reels")
+        self.assertEqual(
+            posts[-1]["json_body"]["directUrls"],
+            [f"https://www.instagram.com/{handle}/"
+             for handle in ("planwithpia", "coachcora", "webwillow", "habitharbor", "slowsam")],
+        )
 
-    def test_hashtag_authors_are_never_dropped_for_size(self) -> None:
+    def test_runs_are_phased_and_share_the_cap(self) -> None:
+        transport = discover._default_transport(True)
+        with temp_project() as project, mock.patch.object(discover, "_default_transport", return_value=transport):
+            _seed_project(project)
+            _main(_mock_args(project, "--mock", "--yes"))
+        kinds = [
+            "post" if call["method"] == "POST" else "poll"
+            for call in transport.calls
+            if call["method"] == "POST" or "/actor-runs/" in call["url"]
+        ]
+        self.assertEqual(kinds[:4], ["post", "post", "post", "poll"])
+        self.assertEqual(transport.calls[0]["url"], apify.API_BASE + apify.KEYWORD_ACTOR_RUNS_PATH)
+        caps = [call["params"]["maxTotalChargeUsd"] for call in transport.calls if call["method"] == "POST"]
+        self.assertEqual(caps, [3.0, 2.946, 2.784, 2.7678, 2.7489])
+
+    def test_a_small_shortlist_leaves_the_rest_out(self) -> None:
         with temp_project() as project:
-            config_dir = store.contentos_dir(project)
-            config_dir.mkdir(parents=True)
-            (config_dir / "config.json").write_text(
-                json.dumps({"discover_min_followers": 100000}), encoding="utf-8"
+            _seed_project(project, discover_shortlist=3)
+            _main(_mock_args(project, "--mock", "--yes"))
+            doc = store.read_json(discover.discovery_path(project))
+        self.assertEqual([row["handle"] for row in doc["candidates"]], ["planwithpia", "coachcora"])
+        dropped = {item["handle"]: item["reason"] for item in doc["dropped"]}
+        self.assertEqual((dropped["habitharbor"], dropped["slowsam"]), ("shortlist full", "shortlist full"))
+
+    def test_a_timed_out_reels_run_marks_creators_not_measured(self) -> None:
+        reels = [item for item in _fixture("apify_discover_reels_sample.json")
+                 if item["ownerUsername"] == "planwithpia"]
+
+        class TimedOutReels(apify.FixtureTransport):
+            def request_json(self, method, url, headers=None, json_body=None, params=None):  # type: ignore[override]
+                result = super().request_json(method, url, headers, json_body, params)
+                if method == "GET" and url.endswith("/actor-runs/mock-reels"):
+                    result["data"]["status"] = "TIMED-OUT"
+                return result
+
+        transport = TimedOutReels(
+            reels, _fixture("apify_discover_profiles_sample.json"),
+            hashtag_items=_fixture("apify_hashtag_reels_sample.json"),
+            keyword_items=_fixture("apify_discover_keyword_reels_sample.json"),
+        )
+        with temp_project() as project:
+            _seed_project(project)
+            doc = discover.run_discover(
+                project, store.load_discovery_config(project), None,
+                hashtags=["habits", "productivity"], keywords=["habit coach"], handles_file=WEB_FILE,
+                mock=True, yes=True, transport=transport, log=lambda _line: None,
             )
-            _main(_discover_args(project, "--mock", "--yes"))
-            doc = store.read_json(config_dir / "discovery.json")
-        self.assertEqual([row["handle"] for row in doc["candidates"]], ["focusfern", "planwithpia"])
+        self.assertTrue(doc["partial"])
+        self.assertEqual([row["handle"] for row in doc["candidates"]], ["planwithpia"])
+        dropped = {item["handle"]: item["reason"] for item in doc["dropped"]}
+        for handle in ("coachcora", "webwillow", "habitharbor", "slowsam"):
+            self.assertEqual(dropped[handle], "not measured in time")
+        self.assertTrue(any("did not finish in time" in warning for warning in doc["warnings"]))
+
+    def test_works_before_setup(self) -> None:
+        with temp_project() as project:
+            code, _out, _err = _main(
+                ["discover", "--project", str(project), "--keywords", "habit coach", "--mock", "--yes"]
+            )
+            self.assertEqual(code, codes.EXIT_OK)
+            self.assertEqual(store.read_json(discover.discovery_path(project))["seeds"], [])
 
 
 class DiscoverGateTests(NoNetworkTestCase):
+    @staticmethod
+    def _args(project: Path, *extra: str) -> List[str]:
+        return ["discover", "--project", str(project), "--keywords", "habit coach",
+                "--hashtags", "habits,#Productivity", *extra]
+
     def test_estimate_only_exits_3_with_the_estimate(self) -> None:
         with temp_project() as project:
-            code, out, _err = _main(_discover_args(project, "--mock", "--estimate-only"))
-            self.assertEqual(code, 3)
-            self.assertEqual(json.loads(out)["total_usd"], 0.2835)
-            self.assertFalse((store.contentos_dir(project) / "discovery.json").exists())
+            code, out, _err = _main(self._args(project, "--mock", "--estimate-only"))
+            self.assertEqual(code, codes.EXIT_CONFIRM)
+            estimate = json.loads(out)
+            self.assertEqual((estimate["keyword_reels_usd"], estimate["total_usd"]), (0.054, 1.134))
+            self.assertFalse(discover.discovery_path(project).exists())
 
     def test_missing_yes_exits_3(self) -> None:
         with temp_project() as project:
-            code, _out, _err = _main(_discover_args(project, "--mock"))
-            self.assertEqual(code, 3)
+            self.assertEqual(_main(self._args(project, "--mock"))[0], codes.EXIT_CONFIRM)
 
     def test_over_the_cap_exits_6(self) -> None:
         with temp_project() as project:
             config_dir = store.contentos_dir(project)
             config_dir.mkdir(parents=True)
-            (config_dir / "config.json").write_text(
-                json.dumps({"apify_max_charge_usd": 0.05}), encoding="utf-8"
-            )
-            code, _out, _err = _main(_discover_args(project, "--mock", "--yes"))
-            self.assertEqual(code, 6)
+            (config_dir / "config.json").write_text(json.dumps({"apify_max_charge_usd": 0.05}), encoding="utf-8")
+            self.assertEqual(_main(self._args(project, "--mock", "--yes"))[0], codes.EXIT_COST)
 
     def test_no_key_exits_4(self) -> None:
         no_keys = env.Keys(apify=None, source=None, warnings=[])
-        with temp_project() as project:
-            with mock.patch.object(env, "resolve_keys", return_value=no_keys):
-                code, _out, _err = _main(_discover_args(project, "--yes"))
-            self.assertEqual(code, 4)
+        with temp_project() as project, mock.patch.object(env, "resolve_keys", return_value=no_keys):
+            self.assertEqual(_main(self._args(project, "--yes"))[0], codes.EXIT_KEYS)
 
-    def test_no_usable_hashtag_exits_2(self) -> None:
+    def test_nothing_to_search_exits_2(self) -> None:
         with temp_project() as project:
-            code, _out, err = _main(
-                ["discover", "--project", str(project), "--hashtags", "///", "--mock", "--yes"]
-            )
-            self.assertEqual(code, codes.EXIT_USAGE)
-            self.assertIn("hashtag", err)
+            code, _out, err = _main(["discover", "--project", str(project), "--hashtags", "///", "--mock", "--yes"])
+        self.assertEqual(code, codes.EXIT_USAGE)
+        self.assertIn("needs something to search", err)
 
     def test_bad_handles_file_exits_2(self) -> None:
         with temp_project() as project:
             bad = Path(project) / "web.json"
             bad.write_text("{not json", encoding="utf-8")
-            code, _out, _err = _main(
-                _discover_args(project, "--handles-file", str(bad), "--mock", "--yes")
-            )
-            self.assertEqual(code, codes.EXIT_USAGE)
+            code, _out, _err = _main(self._args(project, "--handles-file", str(bad), "--mock", "--yes"))
+        self.assertEqual(code, codes.EXIT_USAGE)
 
 
 class KeywordInputUrlTests(NoNetworkTestCase):

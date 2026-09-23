@@ -95,46 +95,6 @@ def build_keyword_reels_input(keywords: List[str], results_limit: int) -> dict:
     }
 
 
-def build_profile_search_input(keyword: str, search_limit: int) -> dict:
-    """Build the actor input for one discovery profile search (one run per keyword).
-
-    Checked with a live probe on 2026-09-19: items have the "details"
-    profile shape plus `searchTerm`.
-    """
-    return {
-        "search": keyword,
-        "searchType": "profile",
-        "searchLimit": search_limit,
-        "resultsType": "details",
-    }
-
-
-def estimate_discover_cost(
-    n_hashtags: int,
-    reels_per_hashtag: int,
-    n_keywords: int,
-    search_limit: int,
-    n_candidates: int,
-    n_web_handles: int,
-    price: float = PRICE_PER_RESULT,
-) -> Dict[str, float]:
-    """Estimate one discovery pass (design spec, "0.5.0 changes").
-
-    One result per hashtag reel, one per profile-search hit, and one
-    per profile checked in the details run: at most `n_candidates`
-    hashtag authors, every search hit, and every web handle.
-    """
-    raw_reels = n_hashtags * reels_per_hashtag * price
-    raw_search = n_keywords * search_limit * price
-    raw_details = (n_candidates + n_keywords * search_limit + n_web_handles) * price
-    return {
-        "hashtag_reels_usd": round(raw_reels, 4),
-        "profile_search_usd": round(raw_search, 4),
-        "details_usd": round(raw_details, 4),
-        "total_usd": round(raw_reels + raw_search + raw_details, 4),
-    }
-
-
 def estimate_discovery(
     keyword_reels: int,
     hashtag_reels: int,
@@ -293,27 +253,24 @@ class FixtureTransport:
         reels_items: List[dict],
         details_items: List[dict],
         hashtag_items: Optional[List[dict]] = None,
-        search_items: Optional[List[dict]] = None,
         keyword_items: Optional[List[dict]] = None,
     ) -> None:
         self.reels_items = reels_items
         self.details_items = details_items
         self.calls: List[Dict[str, Any]] = []
-        # 0.5.0: `discover --mock` also starts a hashtag reels run and
-        # profile searches; both default to empty for the research stage.
-        # 0.6.0: keyword reels search defaults to empty too.
+        # 0.6.0 discovery starts keyword, hashtag, details, and reels
+        # runs; the research stage only ever starts reels and details
+        # runs, so the other two default to empty for it.
         self._datasets: Dict[str, List[dict]] = {
             "ds-reels": reels_items,
             "ds-details": details_items,
             "ds-hashtag": hashtag_items or [],
-            "ds-search": search_items or [],
             "ds-keyword": keyword_items or [],
         }
         self._dataset_of_run: Dict[str, str] = {
             "mock-reels": "ds-reels",
             "mock-details": "ds-details",
             "mock-hashtag": "ds-hashtag",
-            "mock-search": "ds-search",
             "mock-keyword": "ds-keyword",
         }
 
@@ -343,9 +300,7 @@ class FixtureTransport:
             body = json_body or {}
             results_type = body.get("resultsType")
             urls = body.get("directUrls") or []
-            if "search" in body:
-                run_id = "mock-search"
-            elif results_type == "reels" and any("/explore/tags/" in url for url in urls):
+            if results_type == "reels" and any("/explore/tags/" in url for url in urls):
                 run_id = "mock-hashtag"
             else:
                 run_id = "mock-reels" if results_type == "reels" else "mock-details"

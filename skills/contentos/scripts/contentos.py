@@ -222,22 +222,24 @@ def _accounts_handler(args: argparse.Namespace) -> int:
 
 
 def _discover_handler(args: argparse.Namespace) -> int:
-    """Find accounts for the creator from hashtags, keywords, and web handles (0.5.0).
+    """Find creators who are winning in the niche (design spec, "0.6.0 changes").
 
-    Works before `setup` has run. Exit codes are the research stage's:
-    the estimate goes to stdout as indented JSON whenever an error
-    carries one, and the message to stderr.
+    Works before `setup` has run. Exit codes are the research stage's: the
+    estimate goes to stdout as indented JSON whenever an error carries
+    one, and the message to stderr. On success it prints the table, then
+    the `RESULT {...}` line.
     """
     project_dir = args.project.resolve()
     try:
         cfg = store.load_discovery_config(project_dir)
         keys = env.resolve_keys(project_dir)
-        discover.run_discover(
+        doc = discover.run_discover(
             project_dir,
             cfg,
             keys,
             hashtags=_split_list(args.hashtags),
             keywords=_split_list(args.keywords),
+            seeds=_split_list(args.seeds),
             handles_file=args.handles_file,
             mock=args.mock,
             yes=args.yes,
@@ -254,6 +256,8 @@ def _discover_handler(args: argparse.Namespace) -> int:
     except store.ConfigError as exc:
         print(str(exc), file=sys.stderr)
         return codes.EXIT_USAGE
+    print(discover.render_table(doc))
+    print("RESULT " + json.dumps(discover.result_line(doc, project_dir)))
     return codes.EXIT_OK
 
 
@@ -659,8 +663,9 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--competitors", required=True)
             sub.add_argument("--format-accounts", default=None)
         if name == "discover":
-            sub.add_argument("--hashtags", required=True)
             sub.add_argument("--keywords", default=None)
+            sub.add_argument("--hashtags", default=None)
+            sub.add_argument("--seeds", default=None)
             sub.add_argument("--handles-file", type=Path, default=None)
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")

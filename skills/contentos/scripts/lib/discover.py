@@ -1,18 +1,19 @@
-"""Creator discovery: find accounts worth watching from hashtags, keywords, and web handles.
+"""Creator discovery: find creators who are already winning in a niche (0.6.0).
 
-Design spec, "0.5.0 changes". A creator with no marketing background
-cannot name 3 to 8 accounts in their niche, so this finds them. Three
-runs of the same scraper the research stage uses:
+Design spec, "0.6.0 changes". Sources are the orchestrator's web finds,
+seeds (the watch list plus handles the creator typed), Instagram keyword
+reel search, optional hashtag reels, and one hop of Instagram's similar
+accounts. Three Apify steps share one time budget and one charge cap: step
+A starts the keyword, hashtag, and details runs together; step B checks
+search authors and similar accounts; step C scrapes the shortlist's reels.
+Pass 1 (details) drops missing, private, small, and inactive accounts, and
+pass 2 (reels) holds the rest to the bar. Survivors are Established or
+Rising, and their breakout reels feed 0.7.0's trends.
 
-- Run A: recent reels under each hashtag, grouped by author.
-- Run B: one profile search per keyword.
-- Run C: a details run over every candidate, which is also what drops a
-  stale or invented handle the orchestrator's web search brought back.
-
-Python never searches the web. The orchestrator does, and hands the
-handles in through `--handles-file`. Nothing here needs `setup` to have
-run (`store.load_discovery_config`). The cost gates, their order, and
-their exit codes are the research stage's own (`research.check_gates`).
+Python never searches the web: the orchestrator does, and hands the
+handles in. Nothing here needs `setup` to have run
+(`store.load_discovery_config`). The cost gates, their order, and their
+exit codes are the research stage's own (`research.check_gates`).
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ import math
 import re
 import statistics
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -33,18 +35,12 @@ from lib.http import HTTPError
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = SCRIPTS_DIR.parent.parent.parent / "fixtures"
 HASHTAG_REELS_FIXTURE_NAME = "apify_hashtag_reels_sample.json"
-PROFILE_SEARCH_FIXTURE_NAME = "apify_profile_search_sample.json"
+KEYWORD_REELS_FIXTURE_NAME = "apify_discover_keyword_reels_sample.json"
 DISCOVER_PROFILES_FIXTURE_NAME = "apify_discover_profiles_sample.json"
+DISCOVER_REELS_FIXTURE_NAME = "apify_discover_reels_sample.json"
 
 DISCOVERY_FILE_NAME = "discovery.json"
-DISCOVERY_VERSION = 1
-
-# Hits asked of each profile search (design spec: `searchLimit` 10).
-SEARCH_LIMIT = 10
-# A small account with a big reel is the best outlier source.
-SMALL_ACCOUNT_BONUS = 1.25
-SAMPLE_CAPTIONS = 2
-_CAPTION_CHARS = 140
+DISCOVERY_VERSION = 2
 
 _HASHTAG_RE = re.compile(r"^\w+$")
 
@@ -66,6 +62,9 @@ TIER_RISING = "rising"
 REASON_SHORTLIST_FULL = "shortlist full"
 REASON_NOT_MEASURED = "not measured in time"
 _REASON_LABELS = {"not_found": "not found", "error": "could not be checked", "private": "private"}
+# Every wait and every run's own timeout share this budget, so all of
+# discover's Apify runs fit inside one 10-minute Bash call.
+BUDGET_S = 540.0
 
 
 class DiscoverError(Exception):
@@ -599,149 +598,14 @@ def result_line(doc: Dict[str, Any], project: Path) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Aggregation and ranking (pure)
+# run_discover
 # ---------------------------------------------------------------------------
-
-
-def aggregate_authors(reel_items: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """Group Run A's reels by lowercase author.
-
-    Uses `instagram.normalize_reel`, so photos, pinned posts, and error
-    items fall away exactly as they do in research. A reel flagged as a
-    paid partnership does not count: an account found only through
-    sponsored reels is a brand channel, not a creator to learn from.
-    """
-    reels = instagram.dedupe_by_shortcode(
-        [
-            dict(reel, _hashtag=hashtag_from_input_url(item.get("inputUrl")))
-            for item in reel_items
-            if isinstance(item, dict)
-            for reel in [instagram.normalize_reel(item)]
-            if reel is not None
-        ]
-    )
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
-    for reel in reels:
-        owner = str(reel.get("ownerUsername") or "").lower()
-        if owner and not reel["paid_partnership"]:
-            grouped.setdefault(owner, []).append(reel)
-
-    authors: Dict[str, Dict[str, Any]] = {}
-    for owner, owned in grouped.items():
-        plays = [reel["plays"] for reel in owned if reel.get("plays") is not None]
-        by_plays = sorted(owned, key=lambda reel: (-(reel.get("plays") or 0), reel["shortCode"]))
-        authors[owner] = {
-            "reels_seen": len(owned),
-            "hashtags_hit": sorted({reel["_hashtag"] for reel in owned if reel["_hashtag"]}),
-            "best_plays": max(plays) if plays else 0,
-            "median_plays": statistics.median(plays) if plays else 0,
-            "sample_captions": [
-                reel["caption"][:_CAPTION_CHARS] for reel in by_plays[:SAMPLE_CAPTIONS]
-            ],
-        }
-    return authors
-
-
-def author_score(author: Dict[str, Any]) -> float:
-    """`log2(max(best_plays, 1)) * max(distinct hashtags hit, 1)`, before the size bonus."""
-    return math.log2(max(author["best_plays"], 1)) * max(len(author["hashtags_hit"]), 1)
-
-
-def _top_authors(authors: Dict[str, Dict[str, Any]], limit: int) -> List[str]:
-    return sorted(authors, key=lambda handle: (-author_score(authors[handle]), handle))[:limit]
 
 
 def _add_source(sources: Dict[str, List[str]], handle: str, source: str) -> None:
     listed = sources.setdefault(handle, [])
     if source not in listed:
         listed.append(source)
-
-
-def _profile_status(
-    handle: str, profiles: Dict[str, Dict[str, Any]], error_items: List[Dict[str, Any]]
-) -> str:
-    profile = profiles.get(handle)
-    if profile is None:
-        for item in error_items:
-            if instagram._handle_from_input_url(str(item.get("inputUrl") or "")).lower() == handle:
-                not_found = instagram._is_not_found_error(item.get("error"))
-                return instagram.STATUS_NOT_FOUND if not_found else instagram.STATUS_ERROR
-        # No profile and no error item: the scrape returned nothing for it.
-        return instagram.STATUS_NOT_FOUND
-    return instagram.STATUS_PRIVATE if profile["private"] else instagram.STATUS_OK
-
-
-def rank_candidates(
-    handles: List[str],
-    authors: Dict[str, Dict[str, Any]],
-    sources: Dict[str, List[str]],
-    profile_items: List[Dict[str, Any]],
-    cfg: Dict[str, Any],
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
-    """Turn Run C's profiles into `(candidates, dropped)`.
-
-    Dropped: `not_found`, `error`, `private`, and a keyword or web
-    candidate under `discover_min_followers` (profile search returns
-    many tiny and business accounts). An author found through a hashtag
-    is never dropped for size. Scored candidates come first by score,
-    then unscored ones by followers; ties break on handle.
-    """
-    profiles: Dict[str, Dict[str, Any]] = {}
-    bios: Dict[str, str] = {}
-    for item in profile_items:
-        profile = instagram.normalize_profile(item) if isinstance(item, dict) else None
-        if profile is not None:
-            key = profile["username"].lower()
-            profiles[key] = profile
-            bios[key] = item.get("biography") if isinstance(item.get("biography"), str) else ""
-    error_items = [item for item in profile_items if isinstance(item, dict) and "error" in item]
-
-    min_followers = cfg["discover_min_followers"]
-    small_under = cfg["small_account_followers"]
-    candidates: List[Dict[str, Any]] = []
-    dropped: List[Dict[str, str]] = []
-    for handle in handles:
-        status = _profile_status(handle, profiles, error_items)
-        if status != instagram.STATUS_OK:
-            dropped.append({"handle": handle, "reason": status})
-            continue
-        profile = profiles[handle]
-        followers = profile["followers"]
-        author = authors.get(handle)
-        if author is None and (followers or 0) < min_followers:
-            dropped.append({"handle": handle, "reason": f"under {min_followers} followers"})
-            continue
-
-        small = followers is not None and followers < small_under
-        score = 0.0
-        if author is not None:
-            score = author_score(author) * (SMALL_ACCOUNT_BONUS if small else 1.0)
-        candidates.append(
-            {
-                "handle": handle,
-                "url": profile["url"],
-                "followers": followers,
-                "verified": profile["verified"],
-                "posts": profile["posts"],
-                "bio": bios.get(handle, ""),
-                "small_account": small,
-                "reels_seen": author["reels_seen"] if author else 0,
-                "hashtags_hit": author["hashtags_hit"] if author else [],
-                "best_plays": author["best_plays"] if author else 0,
-                "median_plays": author["median_plays"] if author else 0,
-                "sample_captions": author["sample_captions"] if author else [],
-                "sources": sources.get(handle, []),
-                "score": round(score, 2) if author else 0,
-            }
-        )
-
-    candidates.sort(key=lambda row: (-row["score"], -(row["followers"] or 0), row["handle"]))
-    return candidates, dropped
-
-
-# ---------------------------------------------------------------------------
-# run_discover
-# ---------------------------------------------------------------------------
 
 
 def _default_transport(mock: bool) -> apify.Transport:
@@ -752,50 +616,85 @@ def _default_transport(mock: bool) -> apify.Transport:
         return json.loads((FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
     return apify.FixtureTransport(
-        [],
+        load(DISCOVER_REELS_FIXTURE_NAME),
         load(DISCOVER_PROFILES_FIXTURE_NAME),
         hashtag_items=load(HASHTAG_REELS_FIXTURE_NAME),
-        search_items=load(PROFILE_SEARCH_FIXTURE_NAME),
+        keyword_items=load(KEYWORD_REELS_FIXTURE_NAME),
     )
 
 
-def _scrape(
-    token: str,
-    actor_input: dict,
-    max_items: int,
-    cfg: Dict[str, Any],
-    transport: apify.Transport,
-    log: Callable[[str], None],
-    warnings: List[str],
-    label: str,
-) -> List[dict]:
-    """Start one run, wait for it, and return its items."""
-    run = apify.start_run(
-        token, actor_input, cfg["apify_max_charge_usd"], max_items, cfg["apify_timeout_s"], transport
-    )
-    run = apify.wait_for_run(
-        token, run, cfg["poll_interval_s"], cfg["apify_timeout_s"], transport, log=log
-    )
-    if run.partial:
-        warnings.append(f"{label} run {run.id} did not finish before timeout; results may be partial")
-    return list(apify.iter_dataset_items(token, run.dataset_id, transport))
+class _Apify:
+    """Starts discover's Apify runs inside one time budget and one charge cap.
 
+    Design spec, "0.6.0 changes": each run's `maxTotalChargeUsd` is the cap
+    minus what earlier runs reserved (their `maxItems` times the price), and
+    every wait and every run's own `timeout` get what is left of
+    `BUDGET_S`, so all the runs fit one 10-minute Bash call.
+    """
 
-def _print_table(candidates: List[Dict[str, Any]], dropped: List[Dict[str, str]]) -> None:
-    print("Accounts found, best first:")
-    for index, row in enumerate(candidates, start=1):
-        followers = "?" if row["followers"] is None else f"{row['followers']:,}"
-        found = ", ".join(row["sources"]) or "-"
-        reel = (
-            f"best reel {row['best_plays']:,} plays"
-            if row["reels_seen"]
-            else "no reel seen under your hashtags"
+    def __init__(
+        self,
+        token: str,
+        cfg: Dict[str, Any],
+        transport: apify.Transport,
+        log: Callable[[str], None],
+        warnings: List[str],
+        clock: Callable[[], float],
+    ) -> None:
+        self.token = token
+        self.cfg = cfg
+        self.transport = transport
+        self.log = log
+        self.warnings = warnings
+        self.clock = clock
+        self.deadline = clock() + BUDGET_S
+        self.reserved = 0.0
+
+    def _left(self) -> float:
+        return max(min(self.deadline - self.clock(), self.cfg["apify_timeout_s"]), 1.0)
+
+    def start(
+        self, actor_input: dict, max_items: int, label: str, runs_path: str = apify.ACTOR_RUNS_PATH
+    ) -> Tuple[apify.RunRef, str]:
+        cap = round(max(self.cfg["apify_max_charge_usd"] - self.reserved, apify.PRICE_PER_RESULT), 4)
+        self.reserved += max_items * apify.PRICE_PER_RESULT
+        run = apify.start_run(
+            self.token, actor_input, cap, max_items, self._left(), self.transport, runs_path=runs_path
         )
-        print(f"{index:>2}. @{row['handle']}  {followers} followers  {reel}  found via {found}")
-    if not candidates:
-        print("None. Try broader hashtags.")
-    if dropped:
-        print(f"Left out: {len(dropped)} (private, not found, or too small).")
+        return run, label
+
+    def finish(self, started: Tuple[apify.RunRef, str]) -> Tuple[List[dict], bool]:
+        run, label = started
+        run = apify.wait_for_run(
+            self.token, run, self.cfg["poll_interval_s"], self._left(), self.transport,
+            log=self.log, clock=self.clock,
+        )
+        if run.partial:
+            self.warnings.append(f"{label} run {run.id} did not finish in time; results may be partial")
+        return list(apify.iter_dataset_items(self.token, run.dataset_id, self.transport)), run.partial
+
+
+def _dropped(handle: str, reason: str, row: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    item: Dict[str, Any] = {"handle": handle, "reason": reason}
+    if row is not None and row.get("followers") is not None:
+        item["followers"] = row["followers"]
+    return item
+
+
+def _candidate(
+    handle: str,
+    row: Dict[str, Any],
+    metrics: Dict[str, Any],
+    sources: Dict[str, List[str]],
+    cfg: Dict[str, Any],
+) -> Dict[str, Any]:
+    candidate = {
+        "handle": handle, "url": row["url"], "full_name": row["full_name"],
+        "followers": row["followers"], "verified": row["verified"], "category": row["category"],
+        "bio": row["bio"], "tier": tier_of(row["followers"], cfg), "sources": list(sources.get(handle, [])),
+    }
+    candidate.update(metrics)
+    return candidate
 
 
 def run_discover(
@@ -804,115 +703,180 @@ def run_discover(
     keys: Optional[Keys],
     hashtags: List[str],
     keywords: List[str],
+    seeds: Optional[List[str]] = None,
     handles_file: Optional[Path] = None,
+    web_entries: Optional[List[Any]] = None,
     mock: bool = False,
     yes: bool = False,
     estimate_only: bool = False,
     transport: Optional[apify.Transport] = None,
     log: Optional[Callable[[str], None]] = None,
+    now: Optional[datetime] = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> Dict[str, Any]:
-    """Run `contentos.py discover` and write `.contentos/discovery.json`.
+    """Run one discovery and write `.contentos/discovery.json` (version 2).
 
-    Raises `DiscoverError` (exit 2) for no usable hashtag or a bad
-    `--handles-file`, and the research stage's own errors for the cost
-    cap (6), missing confirmation (3), missing key (4), and an upstream
-    failure (5). Nothing is written before the gates pass.
+    `seeds` are handles the creator typed; the project's `competitors` are
+    always added. The web finds come from `web_entries` (the panel) or
+    `handles_file` (the CLI). Raises DiscoverError (exit 2) when there is
+    nothing to search or the web file is bad, and the research stage's
+    errors for the cost cap (6), a missing confirmation (3), a missing key
+    (4), and an upstream failure (5). Nothing is written before the gates
+    pass. Returns the document it wrote.
     """
     if log is None:
         log = _default_log
     tags = normalize_hashtags(hashtags)
-    if not tags:
-        raise DiscoverError("discover needs at least one hashtag, like --hashtags habits,productivity")
     terms = normalize_keywords(keywords)
-    web_entries, warnings = load_web_handles(handles_file)
-    web_handles = sorted({entry["handle"] for entry in web_entries})
+    if web_entries is None:
+        entries, warnings = load_web_handles(handles_file)
+    else:
+        entries, warnings = normalize_web_entries(web_entries)
+    seed_handles, seed_warnings = normalize_seeds(list(cfg.get("competitors") or []) + list(seeds or []))
+    warnings.extend(seed_warnings)
+    web = web_handles(entries, seed_handles)
+    if len({entry["handle"] for entry in entries} - set(seed_handles)) > MAX_WEB_HANDLES:
+        warnings.append(f"only the first {MAX_WEB_HANDLES} web handles were checked")
+    if not (terms or tags or web or seed_handles):
+        raise DiscoverError(
+            "discover needs something to search: --keywords, --hashtags, a --handles-file, or a watch list"
+        )
 
-    estimate = apify.estimate_discover_cost(
-        n_hashtags=len(tags),
-        reels_per_hashtag=cfg["discover_reels_per_hashtag"],
-        n_keywords=len(terms),
-        search_limit=SEARCH_LIMIT,
-        n_candidates=cfg["discover_candidates"],
-        n_web_handles=len(web_handles),
-    )
+    cost = estimate(cfg, len(terms), len(tags), len(seed_handles), len(web))
     cap = cfg["apify_max_charge_usd"]
     payload = dict(
-        estimate, hashtags=tags, keywords=terms, web_handles=len(web_handles),
-        cap_usd=cap, within_cap=estimate["total_usd"] <= cap,
+        cost, keywords=terms, hashtags=tags, seeds=len(seed_handles), web_handles=len(web),
+        cap_usd=cap, within_cap=cost["total_usd"] <= cap,
     )
     research.check_gates(payload, mock, yes, estimate_only, keys)
 
     if transport is None:
         transport = _default_transport(mock)
     token = (keys.apify if keys else None) or "mock-token"
-
-    try:
-        reel_items = _scrape(
-            token,
-            apify.build_hashtag_reels_input(tags, cfg["discover_reels_per_hashtag"], cfg["lookback_days"]),
-            len(tags) * cfg["discover_reels_per_hashtag"], cfg, transport, log, warnings, "hashtag reels",
-        )
-        authors = aggregate_authors(reel_items)
-        sources: Dict[str, List[str]] = {}
-        handles = _top_authors(authors, cfg["discover_candidates"])
-        for handle in handles:
-            for tag in authors[handle]["hashtags_hit"]:
-                _add_source(sources, handle, f"hashtag:{tag}")
-
-        for term in terms:
-            items = _scrape(
-                token, apify.build_profile_search_input(term, SEARCH_LIMIT),
-                SEARCH_LIMIT, cfg, transport, log, warnings, f"profile search '{term}'",
-            )
-            for item in items:
-                username = item.get("username") if isinstance(item, dict) else None
-                if isinstance(username, str) and username:
-                    handle = username.lower()
-                    if handle not in handles:
-                        handles.append(handle)
-                    _add_source(sources, handle, f"keyword:{term}")
-
-        for entry in web_entries:
-            if entry["handle"] not in handles:
-                handles.append(entry["handle"])
+    if now is None:
+        now = research.MOCK_NOW if mock else datetime.now(timezone.utc)
+    is_niche = niche_matcher(terms, tags)
+    runs = _Apify(token, cfg, transport, log, warnings, clock)
+    sources: Dict[str, List[str]] = {}
+    for entry in entries:
+        if entry["handle"] in web:
             _add_source(sources, entry["handle"], f"web:{entry['source_url']}")
+    dropped: List[Dict[str, Any]] = []
+    survivors: Dict[str, Dict[str, Any]] = {}
 
-        profile_items: List[dict] = []
-        if handles:
-            profile_items = _scrape(
-                token, apify.build_details_input(handles), len(handles),
-                cfg, transport, log, warnings, "details",
-            )
+    def pass_one(handles: List[str], items: List[Any], pointers: List[Dict[str, Any]]) -> None:
+        rows, error_items = index_profiles(items)
+        for handle in handles:
+            status = profile_status(handle, rows, error_items)
+            if handle in seed_handles:
+                if status == instagram.STATUS_OK:
+                    pointers.append(rows[handle])
+                else:
+                    warnings.append(f"watch list account @{handle} could not be checked ({status})")
+                continue
+            if status != instagram.STATUS_OK:
+                dropped.append(_dropped(handle, status, rows.get(handle)))
+                continue
+            reason = pass1_reason(rows[handle], cfg, now)
+            if reason is not None:
+                dropped.append(_dropped(handle, reason, rows[handle]))
+                continue
+            survivors[handle] = rows[handle]
+            pointers.append(rows[handle])
+
+    step_a = seed_handles + web
+    chosen: List[str] = []
+    partial = False
+    reels_by_owner: Dict[str, List[Dict[str, Any]]] = {}
+    try:
+        started = []
+        if terms:
+            started.append(("keyword", runs.start(
+                apify.build_keyword_reels_input(terms, KEYWORD_REELS_PER_TERM),
+                len(terms) * KEYWORD_REELS_PER_TERM, "keyword reels",
+                runs_path=apify.KEYWORD_ACTOR_RUNS_PATH,
+            )))
+        if tags:
+            started.append(("hashtag", runs.start(
+                apify.build_hashtag_reels_input(tags, cfg["discover_reels_per_hashtag"], cfg["lookback_days"]),
+                len(tags) * cfg["discover_reels_per_hashtag"], "hashtag reels",
+            )))
+        if step_a:
+            started.append(("details", runs.start(apify.build_details_input(step_a), len(step_a), "details")))
+        fetched = {kind: runs.finish(ref)[0] for kind, ref in started}
+
+        pointers: List[Dict[str, Any]] = []
+        pass_one(step_a, fetched.get("details", []), pointers)
+
+        authors = search_authors(fetched.get("keyword", []) + fetched.get("hashtag", []))
+        found = top_authors(authors, cfg["discover_candidates"], set(step_a))
+        for handle in step_a + found:
+            for source in authors.get(handle, {}).get("sources", []):
+                _add_source(sources, handle, source)
+        pointed = expansion_pointers(pointers, set(step_a) | set(found))
+        expanded = rank_expansion(pointed, EXPAND_LIMIT)
+        for handle in expanded:
+            for pointer in sorted(pointed[handle]):
+                _add_source(sources, handle, f"related:{pointer}")
+
+        step_b = found + expanded
+        if step_b:
+            items_b = runs.finish(runs.start(apify.build_details_input(step_b), len(step_b), "details"))[0]
+            pass_one(step_b, items_b, [])
+
+        pool = [
+            {"handle": handle, "followers": row["followers"], "niche_hit": latest_niche_hit(row, is_niche)}
+            for handle, row in survivors.items()
+        ]
+        chosen = shortlist(pool, cfg["discover_shortlist"], cfg["small_account_followers"])
+        for item in pool:
+            if item["handle"] not in chosen:
+                dropped.append(_dropped(item["handle"], REASON_SHORTLIST_FULL, survivors[item["handle"]]))
+
+        if chosen:
+            reel_items, partial = runs.finish(runs.start(
+                apify.build_reels_input(chosen, REELS_PER_ACCOUNT, WINDOW_DAYS),
+                len(chosen) * REELS_PER_ACCOUNT, "reels",
+            ))
+            reels_by_owner = group_reels(reel_items, chosen)
     except (apify.ApifyRunFailed, HTTPError, OSError) as exc:
         raise research.UpstreamFailure(str(exc)) from exc
 
-    candidates, dropped = rank_candidates(handles, authors, sources, profile_items, cfg)
+    candidates: List[Dict[str, Any]] = []
+    for handle in chosen:
+        row = survivors[handle]
+        owned = reels_by_owner.get(handle, [])
+        if partial and not owned:
+            dropped.append(_dropped(handle, REASON_NOT_MEASURED, row))
+            continue
+        metrics = measure(owned, now, is_niche)
+        reason = pass2_reason(metrics, cfg)
+        if reason is not None:
+            dropped.append(_dropped(handle, reason, row))
+            continue
+        candidates.append(_candidate(handle, row, metrics, sources, cfg))
+    candidates = order_candidates(candidates)
 
-    now = research.MOCK_NOW if mock else datetime.now(timezone.utc)
-    out_path = store.contentos_dir(project) / DISCOVERY_FILE_NAME
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    store.write_json_atomic(
-        out_path,
-        {
-            "version": DISCOVERY_VERSION,
-            "created_at": now.isoformat(),
-            "mode": "mock" if mock else "live",
-            "hashtags": tags,
-            "keywords": terms,
-            "cost_estimate_usd": estimate["total_usd"],
-            "candidates": candidates,
-            "dropped": dropped,
-            "warnings": warnings,
+    doc = {
+        "version": DISCOVERY_VERSION,
+        "created_at": now.isoformat(),
+        "mode": "mock" if mock else "live",
+        "niche": {"keywords": terms, "hashtags": tags},
+        "seeds": seed_handles,
+        "settings": {
+            "min_followers": cfg["discover_min_followers"],
+            "min_views": cfg["discover_min_views"],
+            "post_every_days": cfg["discover_post_every_days"],
+            "shortlist": cfg["discover_shortlist"],
+            "candidates": cfg["discover_candidates"],
+            "established_at": cfg["small_account_followers"],
         },
-    )
-
-    _print_table(candidates, dropped)
-    result = {
-        "discovery_path": str(out_path),
-        "candidates": len(candidates),
-        "dropped": len(dropped),
-        "cost_estimate_usd": estimate["total_usd"],
+        "cost_estimate_usd": cost["total_usd"],
+        "partial": partial,
+        "candidates": candidates,
+        "breakouts": find_breakouts(candidates, reels_by_owner, cfg, now),
+        "dropped": dropped,
         "warnings": warnings,
     }
-    print("RESULT " + json.dumps(result))
-    return result
+    store.write_json_atomic(discovery_path(project), doc)
+    return doc
