@@ -45,7 +45,7 @@ LIB_MODULES = [
     "__init__.py", "codes.py", "env.py", "store.py", "http.py",
     "apify.py", "instagram.py", "outliers.py", "research.py",
     "video.py", "frames.py", "director.py", "direct.py",
-    "agents.py", "report.py", "setup.py",
+    "agents.py", "report.py", "setup.py", "ui.py",
 ]
 
 SCHEMA_FILES = ["analysis.schema.json", "qa.schema.json"]
@@ -88,6 +88,7 @@ def _required_paths() -> List[Path]:
         FIXTURES_DIR / "qa.sample.json",
         FIXTURES_DIR / "setup-answers.sample.json",
     ]
+    paths += [SCRIPTS_DIR / "ui" / "discover.html"]
     return paths
 
 

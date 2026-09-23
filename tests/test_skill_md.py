@@ -761,5 +761,30 @@ class ControlPanelSkillTests(NoNetworkTestCase):
                 self.assertIn(phrase, body)
 
 
+class DiscoveryReleaseNoteTests(NoNetworkTestCase):
+    @staticmethod
+    def _changelog_060() -> str:
+        text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        return _collapse(text.split("## [0.6.0]", 1)[1].split("\n## [", 1)[0])
+
+    def test_readme_and_changelog_state_the_bar_the_settings_and_the_panel(self) -> None:
+        readme = _collapse(README.read_text(encoding="utf-8"))
+        for name, prose in (("README", readme), ("CHANGELOG", self._changelog_060())):
+            for phrase in (
+                "10,000", "Established", "Rising", "1 in 4", "control panel",
+                "`discover_min_followers`", "`discover_min_views`",
+                "`discover_post_every_days`", "`discover_shortlist`",
+            ):
+                with self.subTest(doc=name, phrase=phrase):
+                    self.assertIn(phrase, prose)
+            with self.subTest(doc=name):
+                self.assertNotIn("—", prose)
+        changelog = self._changelog_060()
+        for phrase in ("#higgsfieldpartner", "keyword search", "discover_min_followers: 1000"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, changelog)
+        self.assertIn("discover_min_followers: 1000", readme)
+
+
 if __name__ == "__main__":
     unittest.main()

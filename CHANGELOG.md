@@ -5,6 +5,47 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-23
+
+### Changed
+
+- Discovery now looks for creators who are actually successful in your
+  niche. A creator passes when they have 10,000 or more followers
+  (`discover_min_followers`, was 1000), post a reel at least every 2 weeks
+  (`discover_post_every_days`, default 14), and at least 1 in 4 of their
+  recent reels reach 5,000 views (`discover_min_views`). Passing creators
+  come in two tiers, Established (50,000 or more followers) and Rising
+  (10,000 to 50,000), ranked by the views 1 in 4 of their reels reach. The
+  small-account bonus and the one-reel ranking are gone.
+- Where creators come from: Claude's web search is required when it has
+  one, Instagram keyword search finds the top reels for your phrases, your
+  current watch list leads to Instagram's similar accounts, and hashtags are
+  a fallback. The profile search that returned tiny business accounts is
+  gone.
+- Every account gets a quick profile check, then the best 20
+  (`discover_shortlist`) get a full check of their last 15 reels.
+  `.contentos/discovery.json` is now version 2, with tiers, the numbers
+  behind each creator, what was left out and why, and the reels beating
+  their creators' own average this month.
+- The paid partnership filter also catches a brand's own partner tag, such
+  as #higgsfieldpartner, #lovablepartner, or #replitpartners. Generic tags
+  like #gympartner still pass.
+- Discovery costs about $1 to $1.30 once at the defaults.
+
+### Added
+
+- A control panel. `/contentos discover` opens a small page in your browser,
+  served from your own computer, where you set the bar, watch the cost
+  change, run discovery, read the evidence for each creator, and tick the
+  ones to keep. Saving adds them to your watch list. Chat still works when
+  you prefer it.
+- `contentos.py ui` serves the panel, and `discover` gains `--seeds`.
+
+### Upgrading
+
+- Projects set up before 0.6.0 keep `discover_min_followers: 1000` in
+  `.contentos/config.json`. Change it to 10000, or delete the line.
+
 ## [0.5.0] - 2026-09-19
 
 ### Added
