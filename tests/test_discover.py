@@ -14,7 +14,7 @@ from tests.helpers import REPO_ROOT, NoNetworkTestCase, temp_project
 # tests.helpers inserts SCRIPTS_DIR onto sys.path as an import side effect,
 # so these imports must come after it.
 import contentos  # noqa: E402
-from lib import apify, codes, discover, env, store  # noqa: E402
+from lib import apify, codes, discover, env, instagram, research, store  # noqa: E402
 
 FIXTURES_DIR = REPO_ROOT / "fixtures"
 
@@ -215,6 +215,45 @@ class DiscoverGateTests(NoNetworkTestCase):
                 _discover_args(project, "--handles-file", str(bad), "--mock", "--yes")
             )
             self.assertEqual(code, codes.EXIT_USAGE)
+
+
+class FixtureShapeTests(NoNetworkTestCase):
+    def test_profiles_look_like_a_real_details_run(self) -> None:
+        items = _fixture("apify_discover_profiles_sample.json")
+        profiles = {item["username"]: item for item in items if "error" not in item}
+        for username, item in profiles.items():
+            with self.subTest(username=username):
+                self.assertLessEqual(
+                    {"username", "followersCount", "biography", "latestPosts",
+                     "businessCategoryName", "isBusinessAccount"},
+                    set(item),
+                )
+                for post in item["latestPosts"]:
+                    self.assertNotIn("videoPlayCount", post)
+        self.assertEqual(profiles["webwillow"]["relatedProfiles"][0]["username"], "habitharbor")
+        self.assertNotIn("relatedProfiles", profiles["coachcora"])
+        missing = sorted(item["inputUrl"].rstrip("/").rsplit("/", 1)[-1] for item in items if "error" in item)
+        self.assertEqual(missing, ["goneghost", "madeupmaya"])
+
+    def test_the_0_5_accounts_keep_their_numbers(self) -> None:
+        followers = {
+            item["username"]: item["followersCount"]
+            for item in _fixture("apify_discover_profiles_sample.json") if "error" not in item
+        }
+        self.assertEqual(
+            {name: followers[name] for name in
+             ("focusfern", "planwithpia", "quietquill", "habitharbor", "tinyhabitshop", "webwillow")},
+            {"focusfern": 9400, "planwithpia": 610000, "quietquill": 22000,
+             "habitharbor": 18000, "tinyhabitshop": 140, "webwillow": 52000},
+        )
+
+    def test_reel_fixtures_have_plays_and_are_dated_before_mock_now(self) -> None:
+        for name in ("apify_discover_keyword_reels_sample.json", "apify_discover_reels_sample.json"):
+            for item in _fixture(name):
+                with self.subTest(fixture=name, code=item["shortCode"]):
+                    self.assertEqual(item["productType"], "clips")
+                    self.assertGreater(item["videoPlayCount"], 0)
+                    self.assertLessEqual(instagram.parse_ts(item["timestamp"]), research.MOCK_NOW)
 
 
 if __name__ == "__main__":
