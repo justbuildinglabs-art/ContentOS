@@ -1,7 +1,9 @@
 """Tests for `lib/discover.py` and `contentos.py discover`: finding accounts for a creator."""
 from __future__ import annotations
 
+import collections
 import json
+import statistics
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
@@ -38,6 +40,27 @@ def _discover_args(project: Path, *extra: str) -> List[str]:
         "discover", "--project", str(project), "--hashtags", "habits,#Productivity",
         "--keywords", "habit coach", *extra,
     ]
+
+
+def _reel(code: str, day: str, plays: int, paid: bool = False, caption: str = "",
+          tags: Tuple[str, ...] = ()) -> Dict[str, Any]:
+    return {"shortCode": code, "url": f"https://example.invalid/{code}", "ownerUsername": "x",
+            "timestamp": f"{day}T12:00:00+00:00", "caption": caption, "hashtags": list(tags),
+            "plays": plays, "likes": 100, "comments": 10, "paid_partnership": paid,
+            "videoUrl": f"v/{code}", "displayUrl": f"c/{code}", "duration_s": 20.0}
+
+
+PIA = [
+    _reel("A", "2026-09-14", 150000, caption="#habits", tags=("habits",)),
+    _reel("B", "2026-09-10", 40000),
+    _reel("C", "2026-09-05", 300000, paid=True),
+    _reel("D", "2026-08-30", 45000),
+    _reel("E", "2026-08-25", 110000),
+    _reel("F", "2026-08-10", 50000),
+    _reel("G", "2026-07-20", 48000),
+    _reel("H", "2026-07-15", 250000),
+    _reel("I", "2026-07-01", 52000),
+]
 
 
 class InputBuilderTests(NoNetworkTestCase):
@@ -402,6 +425,160 @@ class FixtureShapeTests(NoNetworkTestCase):
                     self.assertEqual(item["productType"], "clips")
                     self.assertGreater(item["videoPlayCount"], 0)
                     self.assertLessEqual(instagram.parse_ts(item["timestamp"]), research.MOCK_NOW)
+
+
+class TopQuarterTests(NoNetworkTestCase):
+    def test_nearest_rank(self) -> None:
+        self.assertEqual(discover.top_quarter([]), 0)
+        self.assertEqual(discover.top_quarter([7]), 7)
+        self.assertEqual(discover.top_quarter([1, 2, 3, 4]), 3)
+        self.assertEqual(discover.top_quarter(list(range(1, 16))), 12)
+        self.assertEqual(discover.top_quarter([9, 1, 5, 3, 7, 2, 8, 4, 6]), 7)
+
+
+class MeasureTests(NoNetworkTestCase):
+    def test_metrics_from_known_reels(self) -> None:
+        metrics = discover.measure(PIA, NOW, discover.niche_matcher([], ["habits"]))
+        self.assertEqual(metrics["reels_measured"], 9)
+        self.assertEqual(metrics["top_quarter_plays"], 150000)
+        self.assertEqual(metrics["median_plays"], 52000)
+        self.assertEqual(metrics["posts_per_week"], 0.7)
+        self.assertEqual(metrics["last_post_days"], 1)
+        self.assertEqual(metrics["paid_reels"], 1)
+        self.assertEqual(metrics["niche_hits"], 1)
+        self.assertEqual(metrics["engagement"], round(statistics.median(110 / r["plays"] for r in PIA), 4))
+        self.assertEqual([r["url"] for r in metrics["top_reels"]],
+                         ["https://example.invalid/H", "https://example.invalid/A"])
+
+    def test_a_full_scrape_measures_cadence_over_its_own_span(self) -> None:
+        reels = [_reel(f"R{i}", f"2026-09-{15 - i:02d}", 1000) for i in range(15)]
+        self.assertEqual(discover.measure(reels, NOW, lambda *_: False)["posts_per_week"], 7.2)
+
+    def test_no_reels(self) -> None:
+        metrics = discover.measure([], NOW, lambda *_: False)
+        self.assertEqual(
+            (metrics["reels_measured"], metrics["top_quarter_plays"], metrics["median_plays"],
+             metrics["last_post_days"], metrics["engagement"], metrics["top_reels"]),
+            (0, 0, 0, None, None, []),
+        )
+
+
+class Pass2Tests(NoNetworkTestCase):
+    @staticmethod
+    def _m(**overrides: Any) -> Dict[str, Any]:
+        return dict({"reels_measured": 9, "last_post_days": 1, "top_quarter_plays": 150000}, **overrides)
+
+    def test_reasons_in_order(self) -> None:
+        self.assertIsNone(discover.pass2_reason(self._m(), CFG))
+        self.assertEqual(
+            discover.pass2_reason(self._m(reels_measured=5, last_post_days=40, top_quarter_plays=10), CFG),
+            "posts less than every 2 weeks",
+        )
+        self.assertEqual(discover.pass2_reason(self._m(last_post_days=31, top_quarter_plays=10), CFG),
+                         "no reel in 30 days")
+        self.assertEqual(discover.pass2_reason(self._m(last_post_days=None), CFG), "no reel in 30 days")
+        self.assertEqual(discover.pass2_reason(self._m(top_quarter_plays=4999), CFG),
+                         "1 in 4 reels under 5,000 views")
+        self.assertIsNone(discover.pass2_reason(self._m(top_quarter_plays=5000, last_post_days=30), CFG))
+
+    def test_the_cadence_dial_sets_the_floor_and_the_words(self) -> None:
+        weekly = dict(CFG, discover_post_every_days=7)
+        self.assertEqual(discover.pass2_reason(self._m(reels_measured=11), weekly), "posts less than every week")
+        self.assertIsNone(discover.pass2_reason(self._m(reels_measured=12), weekly))
+        self.assertEqual(
+            [discover.cadence_words(days) for days in (1, 7, 10, 14, 28)],
+            ["every day", "every week", "every 10 days", "every 2 weeks", "every 4 weeks"],
+        )
+
+
+class TierTests(NoNetworkTestCase):
+    def test_boundary_and_order(self) -> None:
+        self.assertEqual(discover.tier_of(49999, CFG), "rising")
+        self.assertEqual(discover.tier_of(50000, CFG), "established")
+        self.assertEqual(discover.tier_of(None, CFG), "rising")
+        rows = [{"handle": "b", "tier": "rising", "top_quarter_plays": 9},
+                {"handle": "a", "tier": "established", "top_quarter_plays": 1},
+                {"handle": "c", "tier": "rising", "top_quarter_plays": 9}]
+        self.assertEqual([row["handle"] for row in discover.order_candidates(rows)], ["a", "b", "c"])
+
+
+class BreakoutTests(NoNetworkTestCase):
+    def test_window_ratio_paid_and_fields(self) -> None:
+        rows = [{"handle": "x", "tier": "established", "followers": 610000,
+                 "median_plays": 52000, "reels_measured": 9}]
+        found = discover.find_breakouts(rows, {"x": PIA}, CFG, NOW)
+        self.assertEqual([(b["shortCode"], b["ratio"]) for b in found], [("A", 2.88), ("E", 2.12)])
+        self.assertEqual(set(found[0]), {"shortCode", "url", "owner", "tier", "timestamp", "plays", "ratio",
+                                         "caption", "hashtags", "videoUrl", "displayUrl", "duration_s"})
+        self.assertEqual((found[0]["owner"], found[0]["tier"]), ("x", "established"))
+
+    def test_three_per_creator_twenty_overall(self) -> None:
+        rows = [{"handle": f"c{n}", "tier": "rising", "followers": 20000, "median_plays": 1000,
+                 "reels_measured": 9} for n in range(8)]
+        reels = {f"c{n}": [_reel(f"c{n}r{i}", "2026-09-10", 3000 + i) for i in range(5)] for n in range(8)}
+        found = discover.find_breakouts(rows, reels, CFG, NOW)
+        self.assertEqual(len(found), 20)
+        self.assertTrue(all(count <= 3 for count in collections.Counter(b["owner"] for b in found).values()))
+
+
+class GroupReelsTests(NoNetworkTestCase):
+    def test_only_asked_handles_and_no_pinned(self) -> None:
+        grouped = discover.group_reels(_fixture("apify_discover_reels_sample.json"), ["planwithpia", "slowsam"])
+        self.assertEqual(sorted(grouped), ["planwithpia", "slowsam"])
+        self.assertEqual(len(grouped["planwithpia"]), 9)
+        self.assertEqual(len(grouped["slowsam"]), 4)
+
+
+class EstimateAndTableTests(NoNetworkTestCase):
+    def test_estimate_counts_every_run(self) -> None:
+        cost = discover.estimate(dict(CFG), n_keywords=3, n_hashtags=0, n_seeds=5, n_web=30)
+        self.assertEqual((cost["details_usd"], cost["total_usd"]), (0.2025, 1.1745))
+
+    def _doc(self) -> Dict[str, Any]:
+        return {
+            "settings": {"min_followers": 10000, "min_views": 5000, "post_every_days": 14,
+                         "shortlist": 20, "candidates": 25, "established_at": 50000},
+            "candidates": [
+                {"handle": "planwithpia", "tier": "established", "followers": 610000,
+                 "top_quarter_plays": 150000, "posts_per_week": 0.7,
+                 "sources": ["hashtag:habits", "keyword:habit coach"]},
+                {"handle": "coachcora", "tier": "rising", "followers": 40000,
+                 "top_quarter_plays": 41000, "posts_per_week": 0.5, "sources": ["keyword:habit coach"]},
+            ],
+            "dropped": [{"handle": "a", "reason": "not_found"}, {"handle": "b", "reason": "not_found"},
+                        {"handle": "c", "reason": "under 10,000 followers"}],
+            "breakouts": [{}, {}, {}],
+            "partial": False,
+            "cost_estimate_usd": 1.15,
+            "warnings": [],
+        }
+
+    def test_render_table(self) -> None:
+        self.assertEqual(discover.render_table(self._doc()), "\n".join([
+            "Held to: 10,000+ followers, a reel at least every 2 weeks, 1 in 4 reels at 5,000+ views.",
+            "Established (50,000+ followers):",
+            " 1. @planwithpia  610,000 followers  1 in 4 reels: 150,000 views  0.7 reels a week"
+            "  found via hashtag:habits, keyword:habit coach",
+            "Rising (10,000 to 50,000 followers):",
+            " 2. @coachcora  40,000 followers  1 in 4 reels: 41,000 views  0.5 reels a week"
+            "  found via keyword:habit coach",
+            "Left out 3: not found (2), under 10,000 followers (1).",
+            "Beating their own average in the last 30 days: 3 reels.",
+        ]))
+
+    def test_render_table_when_nobody_passes_and_the_run_was_partial(self) -> None:
+        doc = dict(self._doc(), candidates=[], dropped=[], breakouts=[], partial=True)
+        text = discover.render_table(doc)
+        self.assertIn("Nobody cleared the bar.", text)
+        self.assertIn("Some accounts were not measured in time.", text)
+        self.assertNotIn("—", text)
+
+    def test_result_line(self) -> None:
+        self.assertEqual(discover.result_line(self._doc(), Path("/p")), {
+            "discovery_path": str(Path("/p") / ".contentos" / "discovery.json"),
+            "candidates": 2, "established": 1, "rising": 1, "dropped": 3, "breakouts": 3,
+            "cost_estimate_usd": 1.15, "partial": False, "warnings": [],
+        })
 
 
 if __name__ == "__main__":

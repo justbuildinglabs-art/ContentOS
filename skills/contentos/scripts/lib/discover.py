@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qs, urlsplit
 
-from lib import apify, codes, instagram, research, setup, store
+from lib import apify, codes, instagram, outliers, research, setup, store
 from lib.env import Keys
 from lib.http import HTTPError
 
@@ -53,6 +53,19 @@ MAX_WEB_HANDLES = 40
 ACTIVE_DAYS = 30
 REASON_NO_RECENT_REEL = "no reel in 30 days"
 _CAPTION_TAG_RE = re.compile(r"#(\w+)")
+KEYWORD_REELS_PER_TERM = 20
+EXPAND_LIMIT = 15
+REELS_PER_ACCOUNT = 15
+WINDOW_DAYS = 90
+TREND_DAYS = 30
+MAX_BREAKOUTS = 20
+BREAKOUTS_PER_CREATOR = 3
+TOP_REEL_CHARS = 140
+TIER_ESTABLISHED = "established"
+TIER_RISING = "rising"
+REASON_SHORTLIST_FULL = "shortlist full"
+REASON_NOT_MEASURED = "not measured in time"
+_REASON_LABELS = {"not_found": "not found", "error": "could not be checked", "private": "private"}
 
 
 class DiscoverError(Exception):
@@ -372,6 +385,217 @@ def shortlist(rows: List[Dict[str, Any]], size: int, small_under: float) -> List
                 if index < len(side):
                     ordered.append(side[index]["handle"])
     return ordered[:size]
+
+
+# ---------------------------------------------------------------------------
+# Pass 2: measuring and tier assignment (pure)
+# ---------------------------------------------------------------------------
+
+
+def group_reels(items: List[Any], handles: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """The reels run's reels per asked handle (pinned, photos, and repeats dropped)."""
+    wanted = [handle.lower() for handle in handles]
+    reels = instagram.dedupe_by_shortcode(
+        [reel for reel in (instagram.normalize_reel(item) for item in items if isinstance(item, dict))
+         if reel is not None]
+    )
+    grouped: Dict[str, List[Dict[str, Any]]] = {handle: [] for handle in wanted}
+    for reel in reels:
+        owner = str(reel.get("ownerUsername") or "").lower()
+        if owner in grouped:
+            grouped[owner].append(reel)
+    return grouped
+
+
+def top_quarter(values: List[float]) -> float:
+    """The nearest-rank 75th percentile: at least 1 in 4 values reach it (0 for none)."""
+    if not values:
+        return 0
+    ordered = sorted(values)
+    return ordered[math.ceil(0.75 * len(ordered)) - 1]
+
+
+def measure(reels: List[Dict[str, Any]], now: datetime, is_niche: Callable[..., bool]) -> Dict[str, Any]:
+    """Pass 2's numbers for one creator (design spec, "0.6.0 changes").
+
+    Paid reels count toward the numbers, as in research's baselines, but
+    never toward `top_reels`. `posts_per_week` spreads the reels over the
+    oldest one's age when all 15 came back, else over the 90-day window.
+    """
+    plays = [reel["plays"] for reel in reels if reel.get("plays") is not None]
+    times = sorted(instagram.parse_ts(reel["timestamp"]) for reel in reels)
+    count = len(reels)
+    if count >= REELS_PER_ACCOUNT and times:
+        span_days = max((now - times[0]).total_seconds() / 86400, 1.0)
+    else:
+        span_days = float(WINDOW_DAYS)
+    rates = [
+        ((reel.get("likes") or 0) + (reel.get("comments") or 0)) / reel["plays"]
+        for reel in reels if (reel.get("plays") or 0) > 0
+    ]
+    unpaid = sorted(
+        (reel for reel in reels if not reel["paid_partnership"] and reel.get("plays") is not None),
+        key=lambda reel: (-reel["plays"], reel["shortCode"]),
+    )
+    return {
+        "reels_measured": count,
+        "top_quarter_plays": top_quarter(plays),
+        "median_plays": statistics.median(plays) if plays else 0,
+        "posts_per_week": round(count / (span_days / 7), 1),
+        "last_post_days": _days_ago(times[-1].isoformat(), now) if times else None,
+        "paid_reels": sum(1 for reel in reels if reel["paid_partnership"]),
+        "niche_hits": sum(1 for reel in reels if is_niche(reel.get("caption"), reel.get("hashtags"))),
+        "engagement": round(statistics.median(rates), 4) if rates else None,
+        "top_reels": [
+            {"url": reel["url"], "plays": reel["plays"], "timestamp": reel["timestamp"],
+             "caption": (reel.get("caption") or "")[:TOP_REEL_CHARS]}
+            for reel in unpaid[:2]
+        ],
+    }
+
+
+def cadence_words(days: int) -> str:
+    """`14` -> `every 2 weeks`, `7` -> `every week`, `10` -> `every 10 days`."""
+    if days % 7 == 0:
+        weeks = days // 7
+        return "every week" if weeks == 1 else f"every {weeks} weeks"
+    return "every day" if days == 1 else f"every {days} days"
+
+
+def pass2_reason(metrics: Dict[str, Any], cfg: Dict[str, Any]) -> Optional[str]:
+    """Why a measured creator misses the bar, checked in the spec's order, or None."""
+    every = cfg["discover_post_every_days"]
+    if metrics["reels_measured"] < WINDOW_DAYS // every:
+        return f"posts less than {cadence_words(every)}"
+    if metrics["last_post_days"] is None or metrics["last_post_days"] > ACTIVE_DAYS:
+        return REASON_NO_RECENT_REEL
+    floor = cfg["discover_min_views"]
+    if metrics["top_quarter_plays"] < floor:
+        return f"1 in 4 reels under {_count(floor)} views"
+    return None
+
+
+def tier_of(followers: Any, cfg: Dict[str, Any]) -> str:
+    """Established at `small_account_followers` or more, else Rising."""
+    return TIER_ESTABLISHED if (followers or 0) >= cfg["small_account_followers"] else TIER_RISING
+
+
+def order_candidates(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Established first, then by top-quarter views (most first), then handle."""
+    return sorted(
+        rows, key=lambda row: (row["tier"] != TIER_ESTABLISHED, -row["top_quarter_plays"], row["handle"])
+    )
+
+
+def find_breakouts(
+    rows: List[Dict[str, Any]],
+    reels_by_owner: Dict[str, List[Dict[str, Any]]],
+    cfg: Dict[str, Any],
+    now: datetime,
+) -> List[Dict[str, Any]]:
+    """Unpaid reels from the last 30 days at `min_outlier_ratio` x or more their creator's median.
+
+    At most 3 per creator and 20 overall, highest ratio first. Each keeps
+    what 0.7.0's trends step needs to fetch and read the reel.
+    """
+    found: List[Tuple[float, Dict[str, Any]]] = []
+    for row in rows:
+        baseline = outliers.Baseline(
+            median=float(row["median_plays"]), n=row["reels_measured"],
+            confidence=outliers.CONFIDENCE_OK, metric=outliers.METRIC_PLAYS,
+        )
+        mine: List[Tuple[float, Dict[str, Any]]] = []
+        for reel in reels_by_owner.get(row["handle"], []):
+            if reel["paid_partnership"] or reel.get("plays") is None:
+                continue
+            if _days_ago(reel["timestamp"], now) > TREND_DAYS:
+                continue
+            ratio = outliers.score_reel(reel, baseline, {"followers": row["followers"]}, cfg)["outlier_ratio"]
+            if ratio is None or ratio < cfg["min_outlier_ratio"]:
+                continue
+            mine.append((ratio, {
+                "shortCode": reel["shortCode"], "url": reel["url"], "owner": row["handle"],
+                "tier": row["tier"], "timestamp": reel["timestamp"], "plays": reel["plays"],
+                "ratio": round(ratio, 2), "caption": reel.get("caption") or "",
+                "hashtags": reel.get("hashtags") or [], "videoUrl": reel.get("videoUrl"),
+                "displayUrl": reel.get("displayUrl"), "duration_s": reel.get("duration_s"),
+            }))
+        mine.sort(key=lambda pair: (-pair[0], pair[1]["shortCode"]))
+        found.extend(mine[:BREAKOUTS_PER_CREATOR])
+    found.sort(key=lambda pair: (-pair[0], pair[1]["shortCode"]))
+    return [entry for _ratio, entry in found[:MAX_BREAKOUTS]]
+
+
+def estimate(cfg: Dict[str, Any], n_keywords: int, n_hashtags: int, n_seeds: int, n_web: int) -> Dict[str, float]:
+    """The cost of one discovery at these settings; the CLI and the panel both use it."""
+    return apify.estimate_discovery(
+        keyword_reels=n_keywords * KEYWORD_REELS_PER_TERM,
+        hashtag_reels=n_hashtags * cfg["discover_reels_per_hashtag"],
+        details=n_seeds + n_web + cfg["discover_candidates"] + EXPAND_LIMIT,
+        profile_reels=cfg["discover_shortlist"] * REELS_PER_ACCOUNT,
+    )
+
+
+def discovery_path(project: Path) -> Path:
+    """`<project>/.contentos/discovery.json`."""
+    return store.contentos_dir(project) / DISCOVERY_FILE_NAME
+
+
+def render_table(doc: Dict[str, Any]) -> str:
+    """The plain-text summary `discover` prints; every number comes from `doc`."""
+    settings = doc["settings"]
+    lines = [
+        f"Held to: {_count(settings['min_followers'])}+ followers, a reel at least "
+        f"{cadence_words(settings['post_every_days'])}, 1 in 4 reels at "
+        f"{_count(settings['min_views'])}+ views."
+    ]
+    tiers = (
+        (TIER_ESTABLISHED, f"Established ({_count(settings['established_at'])}+ followers):"),
+        (TIER_RISING, f"Rising ({_count(settings['min_followers'])} to "
+                      f"{_count(settings['established_at'])} followers):"),
+    )
+    number = 0
+    for tier, heading in tiers:
+        group = [row for row in doc["candidates"] if row["tier"] == tier]
+        if not group:
+            continue
+        lines.append(heading)
+        for row in group:
+            number += 1
+            found = ", ".join(row["sources"]) or "-"
+            lines.append(
+                f"{number:>2}. @{row['handle']}  {_count(row['followers'])} followers  "
+                f"1 in 4 reels: {_count(row['top_quarter_plays'])} views  "
+                f"{row['posts_per_week']} reels a week  found via {found}"
+            )
+    if not doc["candidates"]:
+        lines.append("Nobody cleared the bar. Try other keyword phrases, more web finds, or lower settings.")
+    if doc["dropped"]:
+        counts: Dict[str, int] = {}
+        for item in doc["dropped"]:
+            counts[item["reason"]] = counts.get(item["reason"], 0) + 1
+        parts = [f"{_REASON_LABELS.get(reason, reason)} ({count})" for reason, count in counts.items()]
+        lines.append(f"Left out {len(doc['dropped'])}: {', '.join(parts)}.")
+    lines.append(f"Beating their own average in the last 30 days: {len(doc['breakouts'])} reels.")
+    if doc["partial"]:
+        lines.append("Some accounts were not measured in time. Run it again to finish them.")
+    return "\n".join(lines)
+
+
+def result_line(doc: Dict[str, Any], project: Path) -> Dict[str, Any]:
+    """The `RESULT {...}` payload for the CLI and the panel's status."""
+    tiers = [row["tier"] for row in doc["candidates"]]
+    return {
+        "discovery_path": str(discovery_path(project)),
+        "candidates": len(tiers),
+        "established": tiers.count(TIER_ESTABLISHED),
+        "rising": tiers.count(TIER_RISING),
+        "dropped": len(doc["dropped"]),
+        "breakouts": len(doc["breakouts"]),
+        "cost_estimate_usd": doc["cost_estimate_usd"],
+        "partial": doc["partial"],
+        "warnings": doc["warnings"],
+    }
 
 
 # ---------------------------------------------------------------------------
