@@ -403,5 +403,47 @@ class DiagnoseLiveTests(NoNetworkTestCase):
         self.assertIs(payload["apify_live"], False)
 
 
+class DiscoveryApifyTests(NoNetworkTestCase):
+    def test_keyword_reels_input(self) -> None:
+        self.assertEqual(
+            apify.build_keyword_reels_input(["habit coach", "morning routine"], 20),
+            {"hashtags": ["habit coach", "morning routine"], "keywordSearch": True,
+             "resultsType": "reels", "resultsLimit": 20},
+        )
+        self.assertEqual(apify.KEYWORD_ACTOR_RUNS_PATH, "/acts/apify~instagram-hashtag-scraper/runs")
+
+    def test_estimate_discovery(self) -> None:
+        self.assertEqual(
+            apify.estimate_discovery(keyword_reels=60, hashtag_reels=0, details=75, profile_reels=300),
+            {"keyword_reels_usd": 0.162, "hashtag_reels_usd": 0.0, "details_usd": 0.2025,
+             "reels_usd": 0.81, "total_usd": 1.1745},
+        )
+
+    def test_fixture_transport_gives_each_discovery_run_its_dataset(self) -> None:
+        transport = apify.FixtureTransport(
+            [{"shortCode": "R"}], [{"username": "d"}],
+            hashtag_items=[{"shortCode": "H"}], keyword_items=[{"shortCode": "K"}],
+        )
+        runs = {
+            "keyword": apify.start_run(
+                "tok", apify.build_keyword_reels_input(["x"], 5), 1.0, 5, 60, transport,
+                runs_path=apify.KEYWORD_ACTOR_RUNS_PATH,
+            ),
+            "hashtag": apify.start_run(
+                "tok", apify.build_hashtag_reels_input(["x"], 5, 14), 1.0, 5, 60, transport
+            ),
+            "reels": apify.start_run("tok", apify.build_reels_input(["d"], 15, 90), 1.0, 15, 60, transport),
+            "details": apify.start_run("tok", apify.build_details_input(["d"]), 1.0, 1, 60, transport),
+        }
+        items = {
+            name: list(apify.iter_dataset_items("tok", run.dataset_id, transport))
+            for name, run in runs.items()
+        }
+        self.assertEqual(items, {
+            "keyword": [{"shortCode": "K"}], "hashtag": [{"shortCode": "H"}],
+            "reels": [{"shortCode": "R"}], "details": [{"username": "d"}],
+        })
+
+
 if __name__ == "__main__":
     unittest.main()
