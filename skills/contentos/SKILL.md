@@ -301,7 +301,7 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" discover --project "$PWD" \
    reel. Every number comes from `discovery.json`. Ask them to pick 3 to 8,
    and say they can add any account they already know.
 4. **Save the picks.** During setup, put them in `competitors` in the answers
-   file. For a project that is already set up, `accounts` replaces the whole
+   file, after the handles the creator typed. For a project that is already set up, `accounts` replaces the whole
    list, so pass the current `competitors` first, then the picks:
 
 ```bash

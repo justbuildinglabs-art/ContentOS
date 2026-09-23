@@ -728,8 +728,12 @@ class DiscoveryFlowTests(NoNetworkTestCase):
                 parser.parse_args(argv[argv.index("discover"):])
 
     def test_the_save_step_keeps_the_current_watch_list(self) -> None:
+        flow = _collapse(self._flow())
         self.assertIn(
-            "pass the current `competitors` first, then the picks", _collapse(self._flow())
+            "pass the current `competitors` first, then the picks", flow
+        )
+        self.assertIn(
+            "in the answers file, after the handles the creator typed", flow
         )
 
 
