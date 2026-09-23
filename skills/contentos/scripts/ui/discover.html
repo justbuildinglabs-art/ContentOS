@@ -1,5 +1,430 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>ContentOS · Find creators</title></head>
-<body><p>Loading the panel.</p></body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ContentOS · Find creators</title>
+<style>
+:root {
+  --bg: #f6f5f2; --card: #ffffff; --text: #1d1c1a; --muted: #6a6862; --line: #e2e0da;
+  --accent: #2e5bd6; --on-accent: #ffffff; --warn-bg: #fbf1d9; --warn-text: #6f4d00; --bad: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151514; --card: #1e1e1c; --text: #ecebe6; --muted: #a4a29b; --line: #35342f;
+    --accent: #86a8ff; --on-accent: #0c1633; --warn-bg: #3a2f14; --warn-text: #f3d27d; --bad: #ff8b82;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+main { max-width: 820px; margin: 0 auto; padding: 24px 16px 48px; }
+header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.pill { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 16px; }
+.muted { color: var(--muted); font-size: 13px; }
+.row { display: flex; align-items: center; gap: 12px; margin: 8px 0; flex-wrap: wrap; }
+.row > label { min-width: 170px; color: var(--muted); font-size: 14px; }
+.row input[type=range] { flex: 1; min-width: 160px; }
+.row output { min-width: 130px; text-align: right; font-weight: 600; }
+input[type=text] { flex: 1; min-width: 200px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); color: var(--text); font: inherit; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 8px;
+  padding: 2px 8px; font-size: 13px; }
+button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+  border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+.costbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cost { font-size: 22px; font-weight: 600; }
+.error { color: var(--bad); font-size: 14px; min-height: 1em; }
+.log { font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); white-space: pre-wrap;
+  max-height: 140px; overflow: auto; }
+.creator { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; padding: 10px 0;
+  border-top: 1px solid var(--line); }
+.creator.warn { background: var(--warn-bg); border-radius: 8px; padding: 10px 8px; }
+.name { font-weight: 600; }
+.facts { font-size: 13px; color: var(--muted); }
+.warnline { font-size: 13px; color: var(--warn-text); }
+a { color: var(--accent); }
+footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ContentOS · Find creators</h1>
+    <span class="pill">Runs on this computer only</span>
+  </header>
+  <p id="banner" class="muted"></p>
+
+  <section class="card">
+    <h2>What to search</h2>
+    <div class="row"><label for="keywords">Keyword phrases</label>
+      <input type="text" id="keywords" placeholder="ai automation, n8n workflows"></div>
+    <div class="row"><label for="hashtags">Hashtags, optional</label>
+      <input type="text" id="hashtags" placeholder="#n8n #aiautomation"></div>
+    <p class="muted">Found by Claude's web search. Untick any you don't want checked.</p>
+    <div id="web-list" class="chips"></div>
+    <div class="row"><label for="web-add">Add a handle</label>
+      <input type="text" id="web-add" placeholder="@handle"><button id="web-add-btn" type="button">Add</button></div>
+    <p id="watch-list" class="muted"></p>
+  </section>
+
+  <section class="card">
+    <h2>Who counts as successful</h2>
+    <div class="row"><label for="dial-followers">Min followers</label>
+      <input type="range" id="dial-followers" step="1"><output id="dial-followers-out"></output></div>
+    <div class="row"><label for="dial-views">1 in 4 reels reach</label>
+      <input type="range" id="dial-views" step="1"><output id="dial-views-out"></output></div>
+    <div class="row"><label for="dial-every">Posts a reel at least</label>
+      <input type="range" id="dial-every" step="1"><output id="dial-every-out"></output></div>
+    <div class="row"><label for="dial-shortlist">Creators to check</label>
+      <input type="range" id="dial-shortlist" min="5" max="40" step="1"><output id="dial-shortlist-out"></output></div>
+    <label class="muted"><input type="checkbox" id="remember"> Remember these settings for next time</label>
+  </section>
+
+  <section class="card costbar">
+    <div>
+      <div class="muted">Estimated cost</div>
+      <div><span id="cost" class="cost">Checking</span> <span id="cost-note" class="muted"></span></div>
+    </div>
+    <button id="run-btn" class="primary" type="button">Run discovery</button>
+  </section>
+  <p id="run-error" class="error"></p>
+  <div id="log" class="log"></div>
+
+  <section id="results" class="card" hidden>
+    <p id="summary"></p>
+    <div id="established"></div>
+    <div id="rising"></div>
+    <details><summary id="left-out-summary"></summary><div id="left-out"></div></details>
+    <details><summary id="breakouts-summary"></summary><div id="breakouts"></div></details>
+  </section>
+
+  <footer>
+    <span id="picked" class="muted">Tick 3 to 8 creators, then Save.</span>
+    <span><button id="close-btn" type="button">Close</button>
+      <button id="save-btn" class="primary" type="button">Save to watch list</button></span>
+  </footer>
+  <p id="save-error" class="error"></p>
+  <p id="done-note"></p>
+</main>
+<script>
+(function () {
+  "use strict";
+  var token = (window.location.hash.match(/t=([^&]+)/) || [])[1] || "";
+  var presets = {
+    followers: [1000, 5000, 10000, 25000, 50000, 100000],
+    views: [1000, 2500, 5000, 10000, 25000, 50000],
+    every: [7, 14, 21, 28]
+  };
+  var dials = {};
+  var web = [];
+  var timer = null;
+  var REASONS = { "not_found": "not found", "error": "could not be checked", "private": "private" };
+
+  function $(id) { return document.getElementById(id); }
+
+  function api(method, path, body) {
+    var options = { method: method, headers: { "X-ContentOS-Token": token } };
+    if (body !== undefined) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+    return fetch(path, options).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) { throw new Error(data.error || "Something went wrong."); }
+        return data;
+      });
+    });
+  }
+
+  function el(tag, text, className) {
+    var node = document.createElement(tag);
+    if (text !== undefined && text !== null) { node.textContent = String(text); }
+    if (className) { node.className = className; }
+    return node;
+  }
+
+  function link(text, url) {
+    var node = el("a", text);
+    node.href = /^https:\/\/(www\.)?instagram\.com\//.test(String(url)) ? url : "#";
+    node.target = "_blank";
+    node.rel = "noopener noreferrer";
+    return node;
+  }
+
+  function count(value) { return Number(value).toLocaleString("en-US"); }
+
+  function short(value) {
+    var n = Number(value);
+    if (n >= 1000000) { return (Math.round(n / 100000) / 10) + "M"; }
+    if (n >= 1000) { return (Math.round(n / 100) / 10) + "K"; }
+    return String(n);
+  }
+
+  function everyWords(days) {
+    if (days % 7 === 0) { return days === 7 ? "every week" : "every " + (days / 7) + " weeks"; }
+    return days === 1 ? "every day" : "every " + days + " days";
+  }
+
+  var dialWords = {
+    followers: function (value) { return count(value); },
+    views: function (value) { return count(value) + " views"; },
+    every: everyWords
+  };
+
+  function setDial(name, value) {
+    var list = presets[name].slice();
+    if (list.indexOf(value) === -1) { list.push(value); list.sort(function (a, b) { return a - b; }); }
+    dials[name] = list;
+    var input = $("dial-" + name);
+    input.min = 0;
+    input.max = list.length - 1;
+    input.value = list.indexOf(value);
+    showDial(name);
+  }
+
+  function dialValue(name) { return dials[name][Number($("dial-" + name).value)]; }
+
+  function showDial(name) { $("dial-" + name + "-out").textContent = dialWords[name](dialValue(name)); }
+
+  function splitComma(text) {
+    return text.split(",").map(function (part) { return part.trim(); }).filter(Boolean);
+  }
+
+  function splitTags(text) {
+    return text.split(/[\s,]+/).map(function (part) { return part.replace(/^#/, "").trim(); }).filter(Boolean);
+  }
+
+  function inputs() {
+    return {
+      settings: {
+        discover_min_followers: dialValue("followers"),
+        discover_min_views: dialValue("views"),
+        discover_post_every_days: dialValue("every"),
+        discover_shortlist: Number($("dial-shortlist").value)
+      },
+      keywords: splitComma($("keywords").value),
+      hashtags: splitTags($("hashtags").value),
+      web: web.filter(function (entry) { return entry.kept; }).map(function (entry) {
+        return { handle: entry.handle, source_url: entry.source_url };
+      })
+    };
+  }
+
+  function renderWeb() {
+    var list = $("web-list");
+    list.textContent = "";
+    web.forEach(function (entry) {
+      var chip = el("label", null, "chip");
+      var box = el("input");
+      box.type = "checkbox";
+      box.checked = entry.kept;
+      box.addEventListener("change", function () { entry.kept = box.checked; scheduleEstimate(); });
+      chip.appendChild(box);
+      chip.appendChild(el("span", "@" + entry.handle));
+      list.appendChild(chip);
+    });
+    if (!web.length) { list.appendChild(el("span", "No web finds yet. Add handles you know below.", "muted")); }
+  }
+
+  function scheduleEstimate() {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(estimate, 250);
+  }
+
+  function estimate() {
+    api("POST", "/api/estimate", inputs()).then(function (data) {
+      $("cost").textContent = "$" + data.total_usd.toFixed(2);
+      $("cost-note").textContent = data.within_cap
+        ? "of your $" + data.cap_usd.toFixed(2) + " cap"
+        : "Over your $" + data.cap_usd.toFixed(2) + " cap. Check fewer creators or drop the hashtags.";
+      $("run-error").textContent = "";
+    }).catch(function (error) { $("run-error").textContent = error.message; });
+  }
+
+  function run() {
+    var body = inputs();
+    body.remember = $("remember").checked;
+    $("run-error").textContent = "";
+    $("run-btn").disabled = true;
+    api("POST", "/api/run", body).then(function () {
+      $("log").textContent = "Starting.";
+      poll();
+    }).catch(function (error) {
+      $("run-btn").disabled = false;
+      $("run-error").textContent = error.message;
+    });
+  }
+
+  function poll() {
+    api("GET", "/api/status").then(function (data) {
+      $("log").textContent = data.log.join("\n");
+      if (data.state === "running") { window.setTimeout(poll, 1500); return null; }
+      $("run-btn").disabled = false;
+      if (data.state === "error") { $("run-error").textContent = data.error; return null; }
+      return api("GET", "/api/discovery").then(renderResults);
+    }).catch(function (error) {
+      $("run-btn").disabled = false;
+      $("run-error").textContent = error.message;
+    });
+  }
+
+  function renderCreator(row, nicheTerms) {
+    var offNiche = nicheTerms > 0 && row.niche_hits === 0;
+    var item = el("div", null, offNiche ? "creator warn" : "creator");
+    var box = el("input");
+    box.type = "checkbox";
+    box.className = "pick";
+    box.value = row.handle;
+    box.addEventListener("change", updatePicked);
+    item.appendChild(box);
+    var body = el("div");
+    var name = link("@" + row.handle, row.url);
+    name.className = "name";
+    body.appendChild(name);
+    body.appendChild(el("div", short(row.followers) + " followers · 1 in 4 reels reach " +
+      short(row.top_quarter_plays) + " views, typical " + short(row.median_plays) + " · " +
+      row.posts_per_week + " reels a week · last reel " + row.last_post_days + " days ago", "facts"));
+    body.appendChild(el("div", offNiche
+      ? "None of " + row.reels_measured + " recent reels match your search terms"
+      : row.niche_hits + " of " + row.reels_measured + " recent reels match your search terms",
+      offNiche ? "warnline" : "facts"));
+    var about = [row.category, (row.bio || "").slice(0, 140)].filter(Boolean).join(" · ");
+    if (about) { body.appendChild(el("div", about, "facts")); }
+    if (row.top_reels.length) {
+      var top = row.top_reels[0];
+      var line = el("div", null, "facts");
+      line.appendChild(link("Top reel: " + count(top.plays) + " views. " + top.caption.slice(0, 90), top.url));
+      body.appendChild(line);
+    }
+    item.appendChild(body);
+    return item;
+  }
+
+  function renderTier(tier, title, doc) {
+    var box = $(tier);
+    box.textContent = "";
+    var rows = doc.candidates.filter(function (row) { return row.tier === tier; });
+    if (!rows.length) { return; }
+    box.appendChild(el("h2", title));
+    var nicheTerms = doc.niche.keywords.length + doc.niche.hashtags.length;
+    rows.forEach(function (row) { box.appendChild(renderCreator(row, nicheTerms)); });
+  }
+
+  function renderResults(doc) {
+    var s = doc.settings;
+    $("results").hidden = false;
+    $("summary").textContent = doc.candidates.length + " cleared the bar and " + doc.dropped.length +
+      " were left out. Held to " + count(s.min_followers) + "+ followers, a reel at least " +
+      everyWords(s.post_every_days) + ", and 1 in 4 reels at " + count(s.min_views) + "+ views.";
+    renderTier("established", "Established, " + count(s.established_at) + "+ followers", doc);
+    renderTier("rising", "Rising, " + count(s.min_followers) + " to " + count(s.established_at) + " followers", doc);
+    var counts = {};
+    doc.dropped.forEach(function (item) { counts[item.reason] = (counts[item.reason] || 0) + 1; });
+    $("left-out-summary").textContent = "Left out " + doc.dropped.length + ": " +
+      Object.keys(counts).map(function (reason) {
+        return (REASONS[reason] || reason) + " (" + counts[reason] + ")";
+      }).join(", ");
+    var left = $("left-out");
+    left.textContent = "";
+    doc.dropped.forEach(function (item) {
+      left.appendChild(el("div", "@" + item.handle + ": " + (REASONS[item.reason] || item.reason), "muted"));
+    });
+    $("breakouts-summary").textContent = "Beating their own average this month: " + doc.breakouts.length +
+      " reels. Claude reads these for trends after you save.";
+    var list = $("breakouts");
+    list.textContent = "";
+    doc.breakouts.forEach(function (reel) {
+      var line = el("div", null, "muted");
+      line.appendChild(link("@" + reel.owner + ", " + reel.ratio + "x their usual, " + count(reel.plays) + " views", reel.url));
+      list.appendChild(line);
+    });
+    updatePicked();
+  }
+
+  function picks() {
+    return Array.prototype.map.call(document.querySelectorAll("input.pick:checked"), function (box) { return box.value; });
+  }
+
+  function updatePicked() {
+    $("picked").textContent = picks().length + " picked. 3 to 8 makes a good watch list.";
+  }
+
+  function finish(message) {
+    Array.prototype.forEach.call(document.querySelectorAll("input, button"), function (node) { node.disabled = true; });
+    $("done-note").textContent = message;
+  }
+
+  function save() {
+    $("save-error").textContent = "";
+    api("POST", "/api/save", { picks: picks() }).then(function (data) {
+      finish("Saved " + data.picks.length + " to your watch list. You can close this tab and go back to Claude.");
+    }).catch(function (error) { $("save-error").textContent = error.message; });
+  }
+
+  function closePanel() {
+    api("POST", "/api/close", {}).then(function () {
+      finish("Closed. Nothing was saved. You can close this tab and go back to Claude.");
+    }).catch(function (error) { $("save-error").textContent = error.message; });
+  }
+
+  function addHandle() {
+    var value = $("web-add").value.trim().replace(/^@/, "").toLowerCase();
+    if (!value) { return; }
+    if (!web.some(function (entry) { return entry.handle === value; })) {
+      web.push({ handle: value, source_url: "added by you", kept: true });
+    }
+    $("web-add").value = "";
+    renderWeb();
+    scheduleEstimate();
+  }
+
+  function start(state) {
+    var notes = [];
+    if (state.mock) { notes.push("Sample data: nothing is spent and no key is needed."); }
+    if (!state.has_key) { notes.push("No Apify key found yet. Ask Claude to walk you through adding it."); }
+    if (!state.set_up) { notes.push("Your project is not set up yet, so your picks go into setup."); }
+    $("banner").textContent = notes.join(" ");
+    $("keywords").value = state.keywords.join(", ");
+    $("hashtags").value = state.hashtags.map(function (tag) { return "#" + tag; }).join(" ");
+    web = state.web.map(function (entry) { return { handle: entry.handle, source_url: entry.source_url, kept: true }; });
+    renderWeb();
+    $("watch-list").textContent = state.watch_list.length
+      ? "Already watching, not suggested again: " + state.watch_list.map(function (h) { return "@" + h; }).join(" ")
+      : "";
+    setDial("followers", state.settings.discover_min_followers);
+    setDial("views", state.settings.discover_min_views);
+    setDial("every", state.settings.discover_post_every_days);
+    var shortlist = $("dial-shortlist");
+    shortlist.max = Math.max(40, state.settings.discover_shortlist);
+    shortlist.value = state.settings.discover_shortlist;
+    $("dial-shortlist-out").textContent = shortlist.value;
+    $("remember").disabled = !state.set_up;
+    ["followers", "views", "every"].forEach(function (name) {
+      $("dial-" + name).addEventListener("input", function () { showDial(name); scheduleEstimate(); });
+    });
+    shortlist.addEventListener("input", function () {
+      $("dial-shortlist-out").textContent = shortlist.value;
+      scheduleEstimate();
+    });
+    $("keywords").addEventListener("input", scheduleEstimate);
+    $("hashtags").addEventListener("input", scheduleEstimate);
+    $("web-add-btn").addEventListener("click", addHandle);
+    $("web-add").addEventListener("keydown", function (event) { if (event.key === "Enter") { addHandle(); } });
+    $("run-btn").addEventListener("click", run);
+    $("save-btn").addEventListener("click", save);
+    $("close-btn").addEventListener("click", closePanel);
+    estimate();
+  }
+
+  api("GET", "/api/state").then(start).catch(function (error) { $("banner").textContent = error.message; });
+})();
+</script>
+</body>
 </html>

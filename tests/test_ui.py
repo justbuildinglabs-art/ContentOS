@@ -370,5 +370,27 @@ class UiCommandTests(NoNetworkTestCase):
         self.assertEqual(code, codes.EXIT_USAGE)
 
 
+class PageTests(NoNetworkTestCase):
+    def _page(self) -> str:
+        return ui.PAGE_PATH.read_text(encoding="utf-8")
+
+    def test_the_page_loads_nothing_from_outside_and_never_writes_raw_html(self) -> None:
+        text = self._page()
+        for banned in ("http://", "https://", "innerHTML", "outerHTML", "insertAdjacentHTML",
+                       "document.write", "<script src", "@import", "—"):
+            with self.subTest(banned=banned):
+                self.assertNotIn(banned, text)
+
+    def test_the_page_calls_every_route_and_sends_the_token(self) -> None:
+        text = self._page()
+        self.assertEqual(set(re.findall(r'"(/api/[a-z]+)"', text)), set(ui.ROUTES))
+        self.assertIn("X-ContentOS-Token", text)
+        self.assertIn("prefers-color-scheme: dark", text)
+        for element_id in ("dial-followers", "dial-views", "dial-every", "dial-shortlist", "run-btn",
+                           "save-btn", "close-btn", "established", "rising", "web-list", "remember"):
+            with self.subTest(element_id=element_id):
+                self.assertIn(f'id="{element_id}"', text)
+
+
 if __name__ == "__main__":
     unittest.main()
