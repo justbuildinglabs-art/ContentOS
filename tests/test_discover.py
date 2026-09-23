@@ -177,6 +177,21 @@ class MockDiscoverTests(NoNetworkTestCase):
              for handle in ("planwithpia", "coachcora", "webwillow", "habitharbor", "slowsam")],
         )
 
+    def test_format_accounts_are_never_checked_or_recommended(self) -> None:
+        transport = discover._default_transport(True)
+        with temp_project() as project, mock.patch.object(discover, "_default_transport", return_value=transport):
+            _seed_project(project, format_accounts=["coachcora"])
+            code, _out, _err = _main(_mock_args(project, "--mock", "--yes"))
+            self.assertEqual(code, codes.EXIT_OK)
+            doc = store.read_json(discover.discovery_path(project))
+        self.assertNotIn("coachcora", [row["handle"] for row in doc["candidates"]])
+        self.assertNotIn("coachcora", [item["handle"] for item in doc["dropped"]])
+        for call in transport.calls:
+            if call["method"] == "POST":
+                self.assertNotIn(
+                    "https://www.instagram.com/coachcora/", call["json_body"].get("directUrls") or []
+                )
+
     def test_runs_are_phased_and_share_the_cap(self) -> None:
         transport = discover._default_transport(True)
         with temp_project() as project, mock.patch.object(discover, "_default_transport", return_value=transport):

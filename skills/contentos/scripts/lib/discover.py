@@ -734,7 +734,9 @@ def run_discover(
         entries, warnings = normalize_web_entries(web_entries)
     seed_handles, seed_warnings = normalize_seeds(list(cfg.get("competitors") or []) + list(seeds or []))
     warnings.extend(seed_warnings)
-    web = web_handles(entries, seed_handles)
+    # Design spec, "0.6.0 changes" (Sources): format_accounts are never candidates.
+    format_handles, _format_warnings = normalize_seeds(list(cfg.get("format_accounts") or []))
+    web = web_handles(entries, seed_handles + format_handles)
     if len({entry["handle"] for entry in entries} - set(seed_handles)) > MAX_WEB_HANDLES:
         warnings.append(f"only the first {MAX_WEB_HANDLES} web handles were checked")
     if not (terms or tags or web or seed_handles):
@@ -809,11 +811,11 @@ def run_discover(
         pass_one(step_a, fetched.get("details", []), pointers)
 
         authors = search_authors(fetched.get("keyword", []) + fetched.get("hashtag", []))
-        found = top_authors(authors, cfg["discover_candidates"], set(step_a))
+        found = top_authors(authors, cfg["discover_candidates"], set(step_a) | set(format_handles))
         for handle in step_a + found:
             for source in authors.get(handle, {}).get("sources", []):
                 _add_source(sources, handle, source)
-        pointed = expansion_pointers(pointers, set(step_a) | set(found))
+        pointed = expansion_pointers(pointers, set(step_a) | set(found) | set(format_handles))
         expanded = rank_expansion(pointed, EXPAND_LIMIT)
         for handle in expanded:
             for pointer in sorted(pointed[handle]):
