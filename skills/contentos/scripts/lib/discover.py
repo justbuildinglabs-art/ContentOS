@@ -23,8 +23,8 @@ import statistics
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
-from urllib.parse import urlsplit
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from urllib.parse import parse_qs, urlsplit
 
 from lib import apify, codes, instagram, research, setup, store
 from lib.env import Keys
@@ -47,6 +47,12 @@ SAMPLE_CAPTIONS = 2
 _CAPTION_CHARS = 140
 
 _HASHTAG_RE = re.compile(r"^\w+$")
+
+# 0.6.0 (design spec, "0.6.0 changes").
+MAX_WEB_HANDLES = 40
+ACTIVE_DAYS = 30
+REASON_NO_RECENT_REEL = "no reel in 30 days"
+_CAPTION_TAG_RE = re.compile(r"#(\w+)")
 
 
 class DiscoverError(Exception):
@@ -111,9 +117,19 @@ def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, str]], List[s
         doc = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise DiscoverError(f"could not read --handles-file {path}: {exc}") from exc
-    if not isinstance(doc, list):
-        raise DiscoverError(f"--handles-file {path} must be a JSON list of {{handle, source_url}}")
+    return normalize_web_entries(doc)
 
+
+def normalize_web_entries(doc: Any) -> Tuple[List[Dict[str, str]], List[str]]:
+    """Clean the web finds: a list of `{handle, source_url}`, or bare handles.
+
+    Each handle goes through `setup.normalize_handle`. An entry that fails
+    it (another platform's URL, odd characters) is dropped with a warning,
+    because these come from web pages and one bad line must not stop the
+    run. A value that is not a list is a DiscoverError.
+    """
+    if not isinstance(doc, list):
+        raise DiscoverError("web handles must be a JSON list of {handle, source_url}")
     entries: List[Dict[str, str]] = []
     warnings: List[str] = []
     for item in doc:
@@ -127,6 +143,235 @@ def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, str]], List[s
         if handle:
             entries.append({"handle": handle, "source_url": str(source_url or "")})
     return entries, warnings
+
+
+def web_handles(entries: List[Dict[str, str]], seeds: List[str]) -> List[str]:
+    """The web handles to check: in order, once each, never a seed, at most 40."""
+    handles: List[str] = []
+    for entry in entries:
+        if entry["handle"] not in handles and entry["handle"] not in seeds:
+            handles.append(entry["handle"])
+    return handles[:MAX_WEB_HANDLES]
+
+
+def normalize_seeds(raw: List[str]) -> Tuple[List[str], List[str]]:
+    """Clean the seeds (the watch list plus handles the creator typed).
+
+    A seed that is not an Instagram handle is dropped with a warning; a
+    blank one is skipped. Order is kept and repeats are dropped.
+    """
+    seeds: List[str] = []
+    warnings: List[str] = []
+    for value in raw:
+        try:
+            handle = setup.normalize_handle(value)
+        except setup.SetupError as exc:
+            warnings.append(f"seed {value!r} dropped: {exc}")
+            continue
+        if handle and handle not in seeds:
+            seeds.append(handle)
+    return seeds, warnings
+
+
+def keyword_from_input_url(input_url: Any) -> Optional[str]:
+    """The phrase a keyword-search reel's `inputUrl` names, or None (0.6.0)."""
+    if not isinstance(input_url, str):
+        return None
+    parts = urlsplit(input_url)
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if segments[:3] != ["explore", "search", "keyword"]:
+        return None
+    values = parse_qs(parts.query).get("q")
+    phrase = " ".join(values[0].split()).lower() if values else ""
+    return phrase or None
+
+
+def search_authors(reel_items: List[Any]) -> Dict[str, Dict[str, Any]]:
+    """Group keyword and hashtag reels by lowercase author (0.6.0).
+
+    Each author gets `reels_seen`, `best_plays`, and `sources`
+    (`hashtag:<tag>` and `keyword:<phrase>`, sorted). Photos, pinned posts,
+    error items, and paid reels fall away as in research, so an account
+    found only through sponsored reels never becomes a candidate.
+    """
+    tagged: List[Dict[str, Any]] = []
+    for item in reel_items:
+        if not isinstance(item, dict):
+            continue
+        reel = instagram.normalize_reel(item)
+        if reel is None or reel["paid_partnership"]:
+            continue
+        tag = hashtag_from_input_url(item.get("inputUrl"))
+        phrase = keyword_from_input_url(item.get("inputUrl"))
+        source = f"hashtag:{tag}" if tag else (f"keyword:{phrase}" if phrase else None)
+        tagged.append(dict(reel, _source=source))
+
+    authors: Dict[str, Dict[str, Any]] = {}
+    for reel in instagram.dedupe_by_shortcode(tagged):
+        owner = str(reel.get("ownerUsername") or "").lower()
+        if not owner:
+            continue
+        entry = authors.setdefault(owner, {"reels_seen": 0, "best_plays": 0, "sources": []})
+        entry["reels_seen"] += 1
+        entry["best_plays"] = max(entry["best_plays"], reel.get("plays") or 0)
+        if reel["_source"] and reel["_source"] not in entry["sources"]:
+            entry["sources"].append(reel["_source"])
+    for entry in authors.values():
+        entry["sources"].sort()
+    return authors
+
+
+def top_authors(authors: Dict[str, Dict[str, Any]], limit: int, skip: Set[str]) -> List[str]:
+    """The `limit` search authors with the best reel, minus handles already checked."""
+    ranked = sorted(
+        (handle for handle in authors if handle not in skip),
+        key=lambda handle: (-authors[handle]["best_plays"], handle),
+    )
+    return ranked[:limit]
+
+
+def index_profiles(items: List[Any]) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+    """Key a details run's profiles by lowercase username; return the error items too.
+
+    Each row is `instagram.normalize_profile` plus `instagram.profile_extras`.
+    The mock transport serves every profile to every details run, so callers
+    look up only the handles they asked for.
+    """
+    rows: Dict[str, Dict[str, Any]] = {}
+    errors: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if "error" in item:
+            errors.append(item)
+            continue
+        profile = instagram.normalize_profile(item)
+        if profile is not None:
+            rows[profile["username"].lower()] = dict(profile, **instagram.profile_extras(item))
+    return rows, errors
+
+
+def profile_status(
+    handle: str, rows: Dict[str, Dict[str, Any]], error_items: List[Dict[str, Any]]
+) -> str:
+    """`ok`, `private`, `not_found`, or `error` for one handle a details run was asked for."""
+    error_item = instagram._find_error_item(error_items, handle)
+    if error_item is not None:
+        not_found = instagram._is_not_found_error(error_item.get("error"))
+        return instagram.STATUS_NOT_FOUND if not_found else instagram.STATUS_ERROR
+    row = rows.get(handle)
+    if row is None:
+        # No profile and no error item: the scrape returned nothing for it.
+        return instagram.STATUS_NOT_FOUND
+    return instagram.STATUS_PRIVATE if row["private"] else instagram.STATUS_OK
+
+
+def niche_matcher(keywords: List[str], hashtags: List[str]) -> Callable[..., bool]:
+    """Build `is_niche(text, tags=None)`: a keyword phrase or a niche hashtag is present.
+
+    Phrases match case-insensitively on word boundaries with any run of
+    spaces between words. Hashtags match whole, from the tag list or from
+    `#tags` inside the text. With no terms at all, nothing matches.
+    """
+    patterns = [
+        re.compile(r"\b" + r"\s+".join(map(re.escape, keyword.split())) + r"\b", re.IGNORECASE)
+        for keyword in keywords
+        if keyword.split()
+    ]
+    wanted = {tag.lower() for tag in hashtags}
+
+    def is_niche(text: Any, tags: Any = None) -> bool:
+        body = text if isinstance(text, str) else ""
+        if any(pattern.search(body) for pattern in patterns):
+            return True
+        found = {tag.lstrip("#").lower() for tag in (tags if isinstance(tags, list) else []) if isinstance(tag, str)}
+        found.update(tag.lower() for tag in _CAPTION_TAG_RE.findall(body))
+        return bool(wanted & found)
+
+    return is_niche
+
+
+def latest_niche_hit(row: Dict[str, Any], is_niche: Callable[..., bool]) -> bool:
+    """True when the bio or any latest post is about the niche (pass 1's hint)."""
+    if is_niche(row.get("bio")):
+        return True
+    return any(is_niche(post.get("caption"), post.get("hashtags")) for post in row.get("latest_posts") or [])
+
+
+def _count(value: Any) -> str:
+    """A count for people: `10000` -> `10,000`, `2500.5` -> `2,500.5`."""
+    number = float(value)
+    return f"{int(number):,}" if number.is_integer() else f"{number:,}"
+
+
+def _days_ago(timestamp: Any, now: datetime) -> int:
+    """Whole days from `timestamp` to `now`, rounded down."""
+    return int((now - instagram.parse_ts(timestamp)).total_seconds() // 86400)
+
+
+def pass1_reason(row: Dict[str, Any], cfg: Dict[str, Any], now: datetime) -> Optional[str]:
+    """Why a checked profile stops at pass 1, or None when it goes on.
+
+    The follower floor applies to every source (0 turns it off). When the
+    details run returned `latestPosts`, an account needs an unpinned reel
+    from the last 30 days; with no `latestPosts`, pass 2 decides activity.
+    """
+    floor = cfg["discover_min_followers"]
+    if (row.get("followers") or 0) < floor:
+        return f"under {_count(floor)} followers"
+    latest = row.get("latest_posts") or []
+    if latest:
+        recent = [
+            post for post in latest
+            if post["is_reel"] and not post["is_pinned"] and post["timestamp"]
+            and _days_ago(post["timestamp"], now) <= ACTIVE_DAYS
+        ]
+        if not recent:
+            return REASON_NO_RECENT_REEL
+    return None
+
+
+def expansion_pointers(pointer_rows: List[Dict[str, Any]], skip: Set[str]) -> Dict[str, Set[str]]:
+    """Map each similar account to the checked accounts that list it.
+
+    `pointer_rows` are the seeds and the web survivors. An account never
+    points at itself, and anything in `skip` (already checked or queued)
+    is left out.
+    """
+    pointed: Dict[str, Set[str]] = {}
+    for row in pointer_rows:
+        source = str(row["username"]).lower()
+        for handle in row.get("related") or []:
+            if handle != source and handle not in skip:
+                pointed.setdefault(handle, set()).add(source)
+    return pointed
+
+
+def rank_expansion(pointed: Dict[str, Set[str]], limit: int) -> List[str]:
+    """Most pointed-at similar accounts first, then by handle; at most `limit`."""
+    return sorted(pointed, key=lambda handle: (-len(pointed[handle]), handle))[:limit]
+
+
+def shortlist(rows: List[Dict[str, Any]], size: int, small_under: float) -> List[str]:
+    """Order pass-1 survivors for the reels pass and keep the first `size` handles.
+
+    Niche hits come first. Inside each group, Established and Rising
+    alternate, each by followers (most first), then handle, so a list of
+    big accounts never squeezes out every rising one.
+    """
+    def by_followers(group: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return sorted(group, key=lambda row: (-(row.get("followers") or 0), row["handle"]))
+
+    ordered: List[str] = []
+    for niche in (True, False):
+        group = [row for row in rows if bool(row.get("niche_hit")) is niche]
+        big = by_followers([row for row in group if (row.get("followers") or 0) >= small_under])
+        small = by_followers([row for row in group if (row.get("followers") or 0) < small_under])
+        for index in range(max(len(big), len(small))):
+            for side in (big, small):
+                if index < len(side):
+                    ordered.append(side[index]["handle"])
+    return ordered[:size]
 
 
 # ---------------------------------------------------------------------------

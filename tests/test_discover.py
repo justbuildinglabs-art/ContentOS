@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
-from typing import Any, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from unittest import mock
 
 from tests.helpers import REPO_ROOT, NoNetworkTestCase, temp_project
@@ -17,6 +18,8 @@ import contentos  # noqa: E402
 from lib import apify, codes, discover, env, instagram, research, store  # noqa: E402
 
 FIXTURES_DIR = REPO_ROOT / "fixtures"
+NOW = datetime(2026, 9, 16, tzinfo=timezone.utc)
+CFG = dict(store.DEFAULT_CONFIG)
 
 
 def _fixture(name: str) -> Any:
@@ -215,6 +218,151 @@ class DiscoverGateTests(NoNetworkTestCase):
                 _discover_args(project, "--handles-file", str(bad), "--mock", "--yes")
             )
             self.assertEqual(code, codes.EXIT_USAGE)
+
+
+class KeywordInputUrlTests(NoNetworkTestCase):
+    def test_phrase_from_a_keyword_url(self) -> None:
+        base = "https://www.instagram.com/explore/search/keyword/?q="
+        self.assertEqual(discover.keyword_from_input_url(base + "habit%20coach"), "habit coach")
+        self.assertEqual(discover.keyword_from_input_url(base + "Habit+Coach"), "habit coach")
+        self.assertIsNone(discover.keyword_from_input_url("https://www.instagram.com/explore/tags/habits/"))
+        self.assertIsNone(discover.keyword_from_input_url(None))
+
+
+class SearchAuthorsTests(NoNetworkTestCase):
+    def test_keyword_and_hashtag_reels_group_by_author(self) -> None:
+        items = (_fixture("apify_discover_keyword_reels_sample.json")
+                 + _fixture("apify_hashtag_reels_sample.json"))
+        authors = discover.search_authors(items)
+        self.assertEqual(
+            sorted(authors),
+            ["coachcora", "focusfern", "goneghost", "planwithpia", "quietquill", "tinyhabitshop"],
+        )
+        self.assertEqual(
+            authors["planwithpia"],
+            {"reels_seen": 3, "best_plays": 2100000, "sources": ["hashtag:habits", "keyword:habit coach"]},
+        )
+        self.assertEqual(authors["focusfern"]["sources"], ["hashtag:habits", "hashtag:productivity"])
+        self.assertNotIn("brandbox", authors)
+
+
+class SeedAndWebTests(NoNetworkTestCase):
+    def test_a_bad_seed_is_warned_not_fatal(self) -> None:
+        seeds, warnings = discover.normalize_seeds(["@HabitLab", "habitlab", "https://www.tiktok.com/@x", ""])
+        self.assertEqual(seeds, ["habitlab"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("tiktok.com", warnings[0])
+
+    def test_web_entries_accept_bare_handles_and_drop_bad_ones(self) -> None:
+        entries, warnings = discover.normalize_web_entries(
+            [{"handle": "@WebWillow", "source_url": "u1"}, "slowsam", {"handle": "https://x.com/y"}]
+        )
+        self.assertEqual(entries, [{"handle": "webwillow", "source_url": "u1"},
+                                   {"handle": "slowsam", "source_url": ""}])
+        self.assertEqual(len(warnings), 1)
+        with self.assertRaises(discover.DiscoverError):
+            discover.normalize_web_entries({"handle": "x"})
+
+    def test_web_handles_skip_seeds_dedupe_and_stop_at_40(self) -> None:
+        entries = [{"handle": f"h{i}", "source_url": "u"} for i in range(45)]
+        entries += [{"handle": "h1", "source_url": "u"}, {"handle": "habitlab", "source_url": "u"}]
+        handles = discover.web_handles(entries, ["habitlab"])
+        self.assertEqual(len(handles), 40)
+        self.assertEqual(handles[:2], ["h0", "h1"])
+        self.assertNotIn("habitlab", handles)
+
+
+class TopAuthorsTests(NoNetworkTestCase):
+    def test_best_plays_first_and_checked_handles_skipped(self) -> None:
+        authors = {"a": {"best_plays": 10}, "b": {"best_plays": 30}, "c": {"best_plays": 30},
+                   "d": {"best_plays": 99}}
+        self.assertEqual(discover.top_authors(authors, 2, {"d"}), ["b", "c"])
+
+
+class ProfileIndexTests(NoNetworkTestCase):
+    def test_index_and_status(self) -> None:
+        rows, errors = discover.index_profiles(_fixture("apify_discover_profiles_sample.json"))
+        self.assertEqual(discover.profile_status("planwithpia", rows, errors), "ok")
+        self.assertEqual(discover.profile_status("quietquill", rows, errors), "private")
+        self.assertEqual(discover.profile_status("goneghost", rows, errors), "not_found")
+        self.assertEqual(discover.profile_status("nobodyasked", rows, errors), "not_found")
+        self.assertEqual(rows["webwillow"]["related"], ["habitharbor"])
+        self.assertIsNone(rows["webwillow"]["category"])
+        self.assertEqual(rows["planwithpia"]["followers"], 610000)
+        self.assertEqual(rows["planwithpia"]["category"], "Digital creator")
+
+
+class NicheTests(NoNetworkTestCase):
+    def test_keyword_phrase_and_niche_hashtag(self) -> None:
+        is_niche = discover.niche_matcher(["habit coach"], ["habits"])
+        self.assertTrue(is_niche("Your HABIT   coach says hi"))
+        self.assertTrue(is_niche("nothing here", ["Habits"]))
+        self.assertTrue(is_niche("a caption with #habits inline"))
+        self.assertFalse(is_niche("habitcoach and habitual", ["habitual"]))
+        self.assertFalse(is_niche(None, None))
+        self.assertFalse(discover.niche_matcher([], [])("habit coach", ["habits"]))
+
+    def test_latest_niche_hit_reads_the_bio_and_latest_posts(self) -> None:
+        is_niche = discover.niche_matcher(["habit coach"], ["productivity"])
+        self.assertTrue(discover.latest_niche_hit({"bio": "Habit coach for parents", "latest_posts": []}, is_niche))
+        self.assertTrue(discover.latest_niche_hit(
+            {"bio": "", "latest_posts": [{"caption": "desk", "hashtags": ["productivity"]}]}, is_niche))
+        self.assertFalse(discover.latest_niche_hit(
+            {"bio": "Slow living", "latest_posts": [{"caption": "Sunday reset", "hashtags": []}]}, is_niche))
+
+
+def _post(day: str, reel: bool = True, pinned: bool = False) -> Dict[str, Any]:
+    return {"timestamp": f"{day}T12:00:00+00:00", "is_reel": reel, "is_pinned": pinned,
+            "caption": "", "hashtags": []}
+
+
+class Pass1Tests(NoNetworkTestCase):
+    def _row(self, followers: Any = 20000, latest: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        return {"username": "x", "followers": followers, "latest_posts": latest or []}
+
+    def test_every_source_is_held_to_the_floor(self) -> None:
+        self.assertEqual(discover.pass1_reason(self._row(9999), CFG, NOW), "under 10,000 followers")
+        self.assertEqual(discover.pass1_reason(self._row(None), CFG, NOW), "under 10,000 followers")
+        self.assertIsNone(discover.pass1_reason(self._row(10000), CFG, NOW))
+
+    def test_floor_zero_keeps_small_accounts(self) -> None:
+        self.assertIsNone(discover.pass1_reason(self._row(12), dict(CFG, discover_min_followers=0), NOW))
+
+    def test_the_newest_unpinned_reel_decides_activity(self) -> None:
+        old_pin_new_reel = [_post("2026-01-01", pinned=True), _post("2026-09-10")]
+        self.assertIsNone(discover.pass1_reason(self._row(latest=old_pin_new_reel), CFG, NOW))
+        new_pin_old_reel = [_post("2026-09-15", pinned=True), _post("2026-07-01")]
+        self.assertEqual(discover.pass1_reason(self._row(latest=new_pin_old_reel), CFG, NOW), "no reel in 30 days")
+        photos_only = [_post("2026-09-14", reel=False)]
+        self.assertEqual(discover.pass1_reason(self._row(latest=photos_only), CFG, NOW), "no reel in 30 days")
+
+    def test_missing_latest_posts_skips_the_activity_check(self) -> None:
+        self.assertIsNone(discover.pass1_reason(self._row(latest=[]), CFG, NOW))
+
+
+class ExpansionTests(NoNetworkTestCase):
+    def test_ranked_by_distinct_pointers_then_handle(self) -> None:
+        rows = [{"username": "HabitLab", "related": ["b", "a", "c", "habitlab"]},
+                {"username": "webwillow", "related": ["a", "c"]}]
+        pointed = discover.expansion_pointers(rows, skip={"c"})
+        self.assertEqual(pointed, {"a": {"habitlab", "webwillow"}, "b": {"habitlab"}})
+        self.assertEqual(discover.rank_expansion(pointed, 15), ["a", "b"])
+        self.assertEqual(discover.rank_expansion(pointed, 1), ["a"])
+
+
+class ShortlistTests(NoNetworkTestCase):
+    def test_niche_first_then_tiers_alternate(self) -> None:
+        rows = [
+            {"handle": "big1", "followers": 610000, "niche_hit": True},
+            {"handle": "big2", "followers": 52000, "niche_hit": True},
+            {"handle": "small1", "followers": 40000, "niche_hit": True},
+            {"handle": "small2", "followers": 18000, "niche_hit": True},
+            {"handle": "offbig", "followers": 900000, "niche_hit": False},
+            {"handle": "offsmall", "followers": 25000, "niche_hit": False},
+        ]
+        self.assertEqual(discover.shortlist(rows, 10, 50000),
+                         ["big1", "small1", "big2", "small2", "offbig", "offsmall"])
+        self.assertEqual(discover.shortlist(rows, 3, 50000), ["big1", "small1", "big2"])
 
 
 class FixtureShapeTests(NoNetworkTestCase):
