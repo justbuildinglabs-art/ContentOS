@@ -23,6 +23,7 @@ import re
 import statistics
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -61,10 +62,29 @@ TIER_ESTABLISHED = "established"
 TIER_RISING = "rising"
 REASON_SHORTLIST_FULL = "shortlist full"
 REASON_NOT_MEASURED = "not measured in time"
+# A cut-short or skipped account check never reached this handle, so it
+# is not called missing (design spec, "0.6.0 changes").
+REASON_NOT_CHECKED = "not checked in time"
 _REASON_LABELS = {"not_found": "not found", "error": "could not be checked", "private": "private"}
+_SEED_WARNINGS = {
+    instagram.STATUS_NOT_FOUND: "watch list account @{handle} was not found",
+    instagram.STATUS_PRIVATE: "watch list account @{handle} is private",
+    instagram.STATUS_ERROR: "watch list account @{handle} could not be checked",
+    REASON_NOT_CHECKED: "watch list account @{handle} was not checked in time",
+}
 # Every wait and every run's own timeout share this budget, so all of
 # discover's Apify runs fit inside one 10-minute Bash call.
 BUDGET_S = 540.0
+# A run that would start with less than this left is skipped, and counts
+# as timed out.
+MIN_RUN_S = 30
+# While a run is going, at most one "still running" line per this long.
+PROGRESS_EVERY_S = 60.0
+# Step names, for warnings and progress lines.
+STEP_KEYWORD = "keyword search"
+STEP_HASHTAG = "hashtag search"
+STEP_DETAILS = "account check"
+STEP_REELS = "reels check"
 
 
 class DiscoverError(Exception):
@@ -277,9 +297,14 @@ def index_profiles(items: List[Any]) -> Tuple[Dict[str, Dict[str, Any]], List[Di
 
 
 def profile_status(
-    handle: str, rows: Dict[str, Dict[str, Any]], error_items: List[Dict[str, Any]]
+    handle: str, rows: Dict[str, Dict[str, Any]], error_items: List[Dict[str, Any]], partial: bool = False
 ) -> str:
-    """`ok`, `private`, `not_found`, or `error` for one handle a details run was asked for."""
+    """`ok`, `private`, `not_found`, or `error` for one handle a details run was asked for.
+
+    `partial` says the run was cut short or skipped. Then a handle with no
+    profile and no error item is `REASON_NOT_CHECKED`: the run may simply
+    never have reached it. An error item that says not found still counts.
+    """
     error_item = instagram._find_error_item(error_items, handle)
     if error_item is not None:
         not_found = instagram._is_not_found_error(error_item.get("error"))
@@ -287,7 +312,7 @@ def profile_status(
     row = rows.get(handle)
     if row is None:
         # No profile and no error item: the scrape returned nothing for it.
-        return instagram.STATUS_NOT_FOUND
+        return REASON_NOT_CHECKED if partial else instagram.STATUS_NOT_FOUND
     return instagram.STATUS_PRIVATE if row["private"] else instagram.STATUS_OK
 
 
@@ -575,12 +600,16 @@ def render_table(doc: Dict[str, Any]) -> str:
         for row in group:
             number += 1
             found = ", ".join(row["sources"]) or "-"
+            followers = row.get("followers")
+            followers_text = "followers unknown" if followers is None else f"{_count(followers)} followers"
             lines.append(
-                f"{number:>2}. @{row['handle']}  {_count(row['followers'])} followers  "
+                f"{number:>2}. @{row['handle']}  {followers_text}  "
                 f"1 in 4 reels: {_count(row['top_quarter_plays'])} views  "
                 f"{row['posts_per_week']} reels a week  found via {found}"
             )
-    if not doc["candidates"]:
+    if not doc["candidates"] and doc["partial"]:
+        lines.append("Nobody cleared the bar in the time there was. Run it again to finish.")
+    elif not doc["candidates"]:
         lines.append("Nobody cleared the bar. Try other keyword phrases, more web finds, or lower settings.")
     if doc["dropped"]:
         counts: Dict[str, int] = {}
@@ -590,7 +619,7 @@ def render_table(doc: Dict[str, Any]) -> str:
         lines.append(f"Left out {len(doc['dropped'])}: {', '.join(parts)}.")
     lines.append(f"Beating their own average in the last 30 days: {len(doc['breakouts'])} reels.")
     if doc["partial"]:
-        lines.append("Some accounts were not measured in time. Run it again to finish them.")
+        lines.append("Some accounts were not checked or measured in time. Run it again to finish them.")
     return "\n".join(lines)
 
 
@@ -636,13 +665,25 @@ def _default_transport(mock: bool) -> apify.Transport:
     )
 
 
+@dataclass
+class _Started:
+    """One of discover's runs: its step's name, the Apify run (None when skipped), and when it began."""
+
+    step: str
+    run: Optional[apify.RunRef]
+    at: float
+
+
 class _Apify:
     """Starts discover's Apify runs inside one time budget and one charge cap.
 
     Design spec, "0.6.0 changes": each run's `maxTotalChargeUsd` is the cap
     minus what earlier runs reserved (their `maxItems` times the price), and
     every wait and every run's own `timeout` get what is left of
-    `BUDGET_S`, so all the runs fit one 10-minute Bash call.
+    `BUDGET_S`, so all the runs fit one 10-minute Bash call. A run that
+    would start with under `MIN_RUN_S` left is skipped and counts as timed
+    out. Progress goes to `log` as plain lines named after the step, never
+    a run id.
     """
 
     def __init__(
@@ -664,27 +705,62 @@ class _Apify:
         self.reserved = 0.0
 
     def _left(self) -> float:
-        return max(min(self.deadline - self.clock(), self.cfg["apify_timeout_s"]), 1.0)
+        """What is left of the budget for one run or wait, capped by `apify_timeout_s`."""
+        return max(min(self.deadline - self.clock(), self.cfg["apify_timeout_s"]), 0.0)
 
     def start(
-        self, actor_input: dict, max_items: int, label: str, runs_path: str = apify.ACTOR_RUNS_PATH
-    ) -> Tuple[apify.RunRef, str]:
+        self, actor_input: dict, max_items: int, step: str, runs_path: str = apify.ACTOR_RUNS_PATH
+    ) -> _Started:
+        if self.deadline - self.clock() < MIN_RUN_S:
+            self.log(f"{step.capitalize()} skipped: out of time.")
+            self.warnings.append(f"There was no time left for the {step}, so it was skipped.")
+            return _Started(step, None, self.clock())
         cap = round(max(self.cfg["apify_max_charge_usd"] - self.reserved, apify.PRICE_PER_RESULT), 4)
         self.reserved += max_items * apify.PRICE_PER_RESULT
         run = apify.start_run(
             self.token, actor_input, cap, max_items, self._left(), self.transport, runs_path=runs_path
         )
-        return run, label
+        self.log(f"{step.capitalize()} started.")
+        return _Started(step, run, self.clock())
 
-    def finish(self, started: Tuple[apify.RunRef, str]) -> Tuple[List[dict], bool]:
-        run, label = started
+    def finish(self, started: _Started) -> Tuple[List[dict], bool]:
+        """The run's items, and True when it was cut short or skipped."""
+        if started.run is None:
+            return [], True
         run = apify.wait_for_run(
-            self.token, run, self.cfg["poll_interval_s"], self._left(), self.transport,
-            log=self.log, clock=self.clock,
+            self.token, started.run, self.cfg["poll_interval_s"], self._left(), self.transport,
+            sleep=self._still_running(started), clock=self.clock,
         )
+        items = list(apify.iter_dataset_items(self.token, run.dataset_id, self.transport))
         if run.partial:
-            self.warnings.append(f"{label} run {run.id} did not finish in time; results may be partial")
-        return list(apify.iter_dataset_items(self.token, run.dataset_id, self.transport)), run.partial
+            self.log(f"{started.step.capitalize()} ran out of time.")
+            self.warnings.append(f"The {started.step} ran out of time, so its results are incomplete.")
+        else:
+            self.log(f"{started.step.capitalize()} done.")
+        return items, run.partial
+
+    def _still_running(self, started: _Started) -> Callable[[float], None]:
+        """`wait_for_run`'s sleep, which only runs between polls of a run still going.
+
+        It says so at most once per `PROGRESS_EVERY_S` of the clock, so a
+        run that finishes on its first poll says nothing here.
+        """
+        next_line = [started.at + PROGRESS_EVERY_S]
+
+        def sleep(seconds: float) -> None:
+            now = self.clock()
+            if now >= next_line[0]:
+                minutes = int((now - started.at) // 60)
+                self.log(f"{started.step.capitalize()} still running, {minutes} min so far.")
+                next_line[0] = now + PROGRESS_EVERY_S
+            time.sleep(seconds)
+
+        return sleep
+
+
+def _plural(count: int, word: str) -> str:
+    """`1 account`, `7 accounts`."""
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
 
 
 def _dropped(handle: str, reason: str, row: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -736,6 +812,11 @@ def run_discover(
     errors for the cost cap (6), a missing confirmation (3), a missing key
     (4), and an upstream failure (5). Nothing is written before the gates
     pass. Returns the document it wrote.
+
+    Progress goes to `log` as plain step lines. A step cut short or skipped
+    for time makes the document `partial`: accounts it never reached are
+    "not checked in time", and creators it could not fully measure are "not
+    measured in time", never missing or failing.
     """
     if log is None:
         log = _default_log
@@ -778,15 +859,15 @@ def run_discover(
     dropped: List[Dict[str, Any]] = []
     survivors: Dict[str, Dict[str, Any]] = {}
 
-    def pass_one(handles: List[str], items: List[Any], pointers: List[Dict[str, Any]]) -> None:
+    def pass_one(handles: List[str], items: List[Any], pointers: List[Dict[str, Any]], cut: bool) -> None:
         rows, error_items = index_profiles(items)
         for handle in handles:
-            status = profile_status(handle, rows, error_items)
+            status = profile_status(handle, rows, error_items, partial=cut)
             if handle in seed_handles:
                 if status == instagram.STATUS_OK:
                     pointers.append(rows[handle])
                 else:
-                    warnings.append(f"watch list account @{handle} could not be checked ({status})")
+                    warnings.append(_SEED_WARNINGS[status].format(handle=handle))
                 continue
             if status != instagram.STATUS_OK:
                 dropped.append(_dropped(handle, status, rows.get(handle)))
@@ -800,29 +881,34 @@ def run_discover(
 
     step_a = seed_handles + web
     chosen: List[str] = []
-    partial = False
+    # `partial`: any step cut short or skipped; `reels_cut`: step C was.
+    partial = reels_cut = False
     reels_by_owner: Dict[str, List[Dict[str, Any]]] = {}
     try:
+        log("Step 1 of 3: searching Instagram and checking accounts.")
         started = []
         if terms:
             started.append(("keyword", runs.start(
                 apify.build_keyword_reels_input(terms, KEYWORD_REELS_PER_TERM),
-                len(terms) * KEYWORD_REELS_PER_TERM, "keyword reels",
+                len(terms) * KEYWORD_REELS_PER_TERM, STEP_KEYWORD,
                 runs_path=apify.KEYWORD_ACTOR_RUNS_PATH,
             )))
         if tags:
             started.append(("hashtag", runs.start(
                 apify.build_hashtag_reels_input(tags, cfg["discover_reels_per_hashtag"], cfg["lookback_days"]),
-                len(tags) * cfg["discover_reels_per_hashtag"], "hashtag reels",
+                len(tags) * cfg["discover_reels_per_hashtag"], STEP_HASHTAG,
             )))
         if step_a:
-            started.append(("details", runs.start(apify.build_details_input(step_a), len(step_a), "details")))
-        fetched = {kind: runs.finish(ref)[0] for kind, ref in started}
+            started.append(("details", runs.start(apify.build_details_input(step_a), len(step_a), STEP_DETAILS)))
+        fetched = {kind: runs.finish(ref) for kind, ref in started}
+        partial = any(cut for _items, cut in fetched.values())
+        not_run: Tuple[List[dict], bool] = ([], False)
 
         pointers: List[Dict[str, Any]] = []
-        pass_one(step_a, fetched.get("details", []), pointers)
+        details_items, details_cut = fetched.get("details", not_run)
+        pass_one(step_a, details_items, pointers, details_cut)
 
-        authors = search_authors(fetched.get("keyword", []) + fetched.get("hashtag", []))
+        authors = search_authors(fetched.get("keyword", not_run)[0] + fetched.get("hashtag", not_run)[0])
         found = top_authors(authors, cfg["discover_candidates"], set(step_a) | set(format_handles))
         for handle in step_a + found:
             for source in authors.get(handle, {}).get("sources", []):
@@ -835,8 +921,12 @@ def run_discover(
 
         step_b = found + expanded
         if step_b:
-            items_b = runs.finish(runs.start(apify.build_details_input(step_b), len(step_b), "details"))[0]
-            pass_one(step_b, items_b, [])
+            log(f"Step 2 of 3: checking {_plural(len(step_b), 'more account')}.")
+            items_b, cut_b = runs.finish(runs.start(apify.build_details_input(step_b), len(step_b), STEP_DETAILS))
+            partial = partial or cut_b
+            pass_one(step_b, items_b, [], cut_b)
+        else:
+            log("Step 2 of 3: no more accounts to check.")
 
         pool = [
             {"handle": handle, "followers": row["followers"], "niche_hit": latest_niche_hit(row, is_niche)}
@@ -848,11 +938,15 @@ def run_discover(
                 dropped.append(_dropped(item["handle"], REASON_SHORTLIST_FULL, survivors[item["handle"]]))
 
         if chosen:
-            reel_items, partial = runs.finish(runs.start(
+            log(f"Step 3 of 3: measuring the reels of {_plural(len(chosen), 'creator')}.")
+            reel_items, reels_cut = runs.finish(runs.start(
                 apify.build_reels_input(chosen, REELS_PER_ACCOUNT, WINDOW_DAYS),
-                len(chosen) * REELS_PER_ACCOUNT, "reels",
+                len(chosen) * REELS_PER_ACCOUNT, STEP_REELS,
             ))
+            partial = partial or reels_cut
             reels_by_owner = group_reels(reel_items, chosen)
+        else:
+            log("Step 3 of 3: nobody to measure.")
     except (apify.ApifyRunFailed, HTTPError, OSError) as exc:
         raise research.UpstreamFailure(str(exc)) from exc
 
@@ -860,12 +954,16 @@ def run_discover(
     for handle in chosen:
         row = survivors[handle]
         owned = reels_by_owner.get(handle, [])
-        if partial and not owned:
+        if reels_cut and not owned:
             dropped.append(_dropped(handle, REASON_NOT_MEASURED, row))
             continue
         metrics = measure(owned, now, is_niche)
         reason = pass2_reason(metrics, cfg)
         if reason is not None:
+            # A cut-short reels check may have stopped partway through a
+            # creator's list, so a short list is not judged.
+            if reels_cut and len(owned) < REELS_PER_ACCOUNT:
+                reason = REASON_NOT_MEASURED
             dropped.append(_dropped(handle, reason, row))
             continue
         candidates.append(_candidate(handle, row, metrics, sources, cfg))

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import collections
 import json
+import re
 import statistics
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -118,17 +119,57 @@ def _mock_args(project: Path, *extra: str) -> List[str]:
     ]
 
 
+def _mock_transport(transport_class: Any = apify.FixtureTransport, reels: Optional[List[Any]] = None,
+                    profiles: Optional[List[Any]] = None) -> Any:
+    """The mock world's transport, or a scripted subclass of it."""
+    return transport_class(
+        _fixture("apify_discover_reels_sample.json") if reels is None else reels,
+        _fixture("apify_discover_profiles_sample.json") if profiles is None else profiles,
+        hashtag_items=_fixture("apify_hashtag_reels_sample.json"),
+        keyword_items=_fixture("apify_discover_keyword_reels_sample.json"),
+    )
+
+
+def _run_mock(project: Path, transport: Any, cfg: Optional[Dict[str, Any]] = None,
+              **kwargs: Any) -> Tuple[Dict[str, Any], List[str]]:
+    """One mock discovery through `run_discover`; returns the document and its progress lines."""
+    lines: List[str] = []
+    options: Dict[str, Any] = dict(hashtags=["habits", "productivity"], keywords=["habit coach"],
+                                   handles_file=WEB_FILE)
+    options.update(kwargs)
+    doc = discover.run_discover(
+        project, store.load_discovery_config(project) if cfg is None else cfg, None,
+        mock=True, yes=True, transport=transport, log=lines.append, **options,
+    )
+    return doc, lines
+
+
+class _FakeClock:
+    """A monotonic clock the test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
 class MockDiscoverTests(NoNetworkTestCase):
     def test_mock_run_finds_the_successful_creators(self) -> None:
         with temp_project() as project:
             _seed_project(project)
-            code, out, _err = _main(_mock_args(project, "--mock", "--yes"))
+            code, out, err = _main(_mock_args(project, "--mock", "--yes"))
             self.assertEqual(code, codes.EXIT_OK)
             doc = store.read_json(discover.discovery_path(project))
 
         self.assertEqual((doc["version"], doc["mode"], doc["partial"]), (2, "mock", False))
         self.assertEqual(doc["seeds"], ["habitlab"])
         self.assertEqual(doc["niche"], {"keywords": ["habit coach"], "hashtags": ["habits", "productivity"]})
+        self.assertEqual(doc["settings"]["established_at"], 50000)
+        self.assertEqual(doc["cost_estimate_usd"], 1.1502)
+        self.assertIn("Step 1 of 3: searching Instagram and checking accounts.", err.splitlines())
+        self.assertIn("Step 3 of 3: measuring the reels of 5 creators.", err.splitlines())
+        self.assertNotRegex(err, r"(?m)^run \S+: ")
         self.assertEqual(
             [(row["handle"], row["tier"]) for row in doc["candidates"]],
             [("planwithpia", "established"), ("coachcora", "rising"), ("habitharbor", "rising")],
@@ -244,7 +285,8 @@ class MockDiscoverTests(NoNetworkTestCase):
         dropped = {item["handle"]: item["reason"] for item in doc["dropped"]}
         for handle in ("coachcora", "webwillow", "habitharbor", "slowsam"):
             self.assertEqual(dropped[handle], "not measured in time")
-        self.assertTrue(any("did not finish in time" in warning for warning in doc["warnings"]))
+        self.assertIn("The reels check ran out of time, so its results are incomplete.", doc["warnings"])
+        self.assertFalse(any("mock-reels" in warning for warning in doc["warnings"]))
 
     def test_works_before_setup(self) -> None:
         with temp_project() as project:
@@ -253,6 +295,240 @@ class MockDiscoverTests(NoNetworkTestCase):
             )
             self.assertEqual(code, codes.EXIT_OK)
             self.assertEqual(store.read_json(discover.discovery_path(project))["seeds"], [])
+
+    def test_seed_warnings_are_plain(self) -> None:
+        profiles = _fixture("apify_discover_profiles_sample.json") + [
+            {"inputUrl": "https://www.instagram.com/oddone/", "error": "Rate limited, try later"},
+        ]
+        with temp_project() as project:
+            _seed_project(project)
+            doc, _lines = _run_mock(project, _mock_transport(profiles=profiles),
+                                    seeds=["goneghost", "quietquill", "oddone"])
+        for warning in ("watch list account @goneghost was not found",
+                        "watch list account @quietquill is private",
+                        "watch list account @oddone could not be checked"):
+            self.assertIn(warning, doc["warnings"])
+        self.assertFalse(any("(" in warning for warning in doc["warnings"] if "watch list" in warning))
+
+
+class OutOfTimeTests(NoNetworkTestCase):
+    """Design spec, "0.6.0 changes": a run that runs out of time says so, and never calls anyone missing."""
+
+    def test_no_time_left_skips_the_account_check_and_the_reels_check(self) -> None:
+        clock = _FakeClock()
+
+        class SlowStepA(apify.FixtureTransport):
+            def request_json(self, method, url, headers=None, json_body=None, params=None):  # type: ignore[override]
+                result = super().request_json(method, url, headers, json_body, params)
+                if method == "GET" and url.endswith("/actor-runs/mock-details"):
+                    clock.now = discover.BUDGET_S - 10
+                return result
+
+        transport = _mock_transport(SlowStepA)
+        with temp_project() as project:
+            _seed_project(project)
+            doc, lines = _run_mock(project, transport, clock=clock)
+        posts = [call for call in transport.calls if call["method"] == "POST"]
+        self.assertEqual(len(posts), 3)
+        self.assertEqual([call["params"]["timeout"] for call in posts], [540, 540, 540])
+        dropped = {item["handle"]: item["reason"] for item in doc["dropped"]}
+        self.assertEqual(dropped, {
+            "madeupmaya": "not_found", "focusfern": "under 10,000 followers",
+            "photophoebe": "no reel in 30 days",
+            "planwithpia": "not checked in time", "coachcora": "not checked in time",
+            "goneghost": "not checked in time", "quietquill": "not checked in time",
+            "tinyhabitshop": "not checked in time", "habitharbor": "not checked in time",
+            "stalestella": "not checked in time",
+            "webwillow": "not measured in time", "slowsam": "not measured in time",
+        })
+        self.assertEqual(doc["candidates"], [])
+        self.assertTrue(doc["partial"])
+        self.assertIn("There was no time left for the account check, so it was skipped.", doc["warnings"])
+        self.assertIn("There was no time left for the reels check, so it was skipped.", doc["warnings"])
+        self.assertIn("Account check skipped: out of time.", lines)
+        self.assertIn("Reels check skipped: out of time.", lines)
+
+    def test_a_timed_out_account_check_marks_the_accounts_it_missed(self) -> None:
+        clock = _FakeClock()
+        reached = [item for item in _fixture("apify_discover_profiles_sample.json")
+                   if item.get("username") in ("planwithpia", "coachcora")
+                   or str(item.get("inputUrl", "")).endswith("/goneghost/")]
+
+        class TimedOutStepB(apify.FixtureTransport):
+            details_posts = 0
+
+            def request_json(self, method, url, headers=None, json_body=None, params=None):  # type: ignore[override]
+                result = super().request_json(method, url, headers, json_body, params)
+                if method == "POST" and result["data"]["id"] == "mock-details":
+                    self.details_posts += 1
+                    if self.details_posts == 2:
+                        result["data"].update(id="mock-details-b", defaultDatasetId="ds-details-b")
+                elif method == "GET" and url.endswith("/actor-runs/mock-details"):
+                    clock.now = 440.0
+                elif method == "GET" and url.endswith("/actor-runs/mock-details-b"):
+                    result["data"].update(status="TIMED-OUT", defaultDatasetId="ds-details-b")
+                elif method == "GET" and url.endswith("/datasets/ds-details-b/items"):
+                    offset = int(params["offset"])
+                    return reached[offset:offset + int(params["limit"])]
+                return result
+
+        transport = _mock_transport(TimedOutStepB)
+        with temp_project() as project:
+            _seed_project(project)
+            doc, lines = _run_mock(project, transport, clock=clock)
+        posts = [call for call in transport.calls if call["method"] == "POST"]
+        self.assertEqual([call["params"]["timeout"] for call in posts], [540, 540, 540, 100, 100])
+        dropped = {item["handle"]: item["reason"] for item in doc["dropped"]}
+        self.assertEqual(dropped["goneghost"], "not_found")
+        for handle in ("quietquill", "tinyhabitshop", "habitharbor", "stalestella"):
+            self.assertEqual(dropped[handle], "not checked in time")
+        self.assertEqual((dropped["webwillow"], dropped["slowsam"]),
+                         ("1 in 4 reels under 5,000 views", "posts less than every 2 weeks"))
+        self.assertEqual([row["handle"] for row in doc["candidates"]], ["planwithpia", "coachcora"])
+        self.assertTrue(doc["partial"])
+        self.assertIn("The account check ran out of time, so its results are incomplete.", doc["warnings"])
+        self.assertIn("Account check ran out of time.", lines)
+
+    def test_a_seed_the_account_check_never_reached_gets_a_warning(self) -> None:
+        reached = [item for item in _fixture("apify_discover_profiles_sample.json")
+                   if item.get("username") == "webwillow"
+                   or str(item.get("inputUrl", "")).endswith("/madeupmaya/")]
+
+        class TimedOutStepA(apify.FixtureTransport):
+            details_polls = 0
+
+            def request_json(self, method, url, headers=None, json_body=None, params=None):  # type: ignore[override]
+                result = super().request_json(method, url, headers, json_body, params)
+                if method == "GET" and url.endswith("/actor-runs/mock-details"):
+                    self.details_polls += 1
+                    if self.details_polls == 1:
+                        result["data"].update(status="TIMED-OUT", defaultDatasetId="ds-details-a")
+                elif method == "GET" and url.endswith("/datasets/ds-details-a/items"):
+                    offset = int(params["offset"])
+                    return reached[offset:offset + int(params["limit"])]
+                return result
+
+        with temp_project() as project:
+            _seed_project(project)
+            doc, _lines = _run_mock(project, _mock_transport(TimedOutStepA))
+        dropped = {item["handle"]: item["reason"] for item in doc["dropped"]}
+        self.assertEqual(dropped["madeupmaya"], "not_found")
+        for handle in ("focusfern", "slowsam", "photophoebe"):
+            self.assertEqual(dropped[handle], "not checked in time")
+        self.assertNotIn("habitlab", dropped)
+        self.assertIn("watch list account @habitlab was not checked in time", doc["warnings"])
+        self.assertTrue(doc["partial"])
+
+    def test_a_cut_short_reels_check_does_not_judge_short_lists(self) -> None:
+        reels = _fixture("apify_discover_reels_sample.json")
+        # webwillow gets a full 15 reels back, so it is judged; slowsam's 4 may be cut short.
+        willow = [item for item in reels if item["ownerUsername"] == "webwillow"]
+        for index in range(discover.REELS_PER_ACCOUNT - len(willow)):
+            extra = dict(willow[0], shortCode=f"WWX{index:02d}", id=f"id-WWX{index:02d}",
+                         url=f"https://www.instagram.com/reel/WWX{index:02d}/",
+                         timestamp=f"2026-08-{10 + index:02d}T12:00:00.000Z")
+            reels.append(extra)
+
+        class TimedOutReels(apify.FixtureTransport):
+            def request_json(self, method, url, headers=None, json_body=None, params=None):  # type: ignore[override]
+                result = super().request_json(method, url, headers, json_body, params)
+                if method == "GET" and url.endswith("/actor-runs/mock-reels"):
+                    result["data"]["status"] = "TIMED-OUT"
+                return result
+
+        with temp_project() as project:
+            _seed_project(project)
+            doc, _lines = _run_mock(project, _mock_transport(TimedOutReels, reels=reels))
+        self.assertTrue(doc["partial"])
+        self.assertEqual([row["handle"] for row in doc["candidates"]], ["planwithpia", "coachcora", "habitharbor"])
+        dropped = {item["handle"]: item["reason"] for item in doc["dropped"]}
+        self.assertEqual(dropped["slowsam"], "not measured in time")
+        self.assertEqual(dropped["webwillow"], "1 in 4 reels under 5,000 views")
+        self.assertIn("The reels check ran out of time, so its results are incomplete.", doc["warnings"])
+
+    def test_a_failed_account_check_is_an_upstream_failure(self) -> None:
+        class FailedStepB(apify.FixtureTransport):
+            details_polls = 0
+
+            def request_json(self, method, url, headers=None, json_body=None, params=None):  # type: ignore[override]
+                result = super().request_json(method, url, headers, json_body, params)
+                if method == "GET" and url.endswith("/actor-runs/mock-details"):
+                    self.details_polls += 1
+                    if self.details_polls == 2:
+                        result["data"]["status"] = "FAILED"
+                return result
+
+        with temp_project() as project:
+            _seed_project(project)
+            with self.assertRaises(research.UpstreamFailure) as ctx:
+                _run_mock(project, _mock_transport(FailedStepB))
+            self.assertFalse(discover.discovery_path(project).exists())
+        self.assertEqual(ctx.exception.exit_code, codes.EXIT_UPSTREAM)
+
+
+class ProgressTests(NoNetworkTestCase):
+    """`run_discover` reports progress as plain step lines, never raw run ids."""
+
+    def test_the_mock_run_reports_each_step(self) -> None:
+        with temp_project() as project:
+            _seed_project(project)
+            _doc, lines = _run_mock(project, _mock_transport())
+        self.assertEqual(lines, [
+            "Step 1 of 3: searching Instagram and checking accounts.",
+            "Keyword search started.",
+            "Hashtag search started.",
+            "Account check started.",
+            "Keyword search done.",
+            "Hashtag search done.",
+            "Account check done.",
+            "Step 2 of 3: checking 7 more accounts.",
+            "Account check started.",
+            "Account check done.",
+            "Step 3 of 3: measuring the reels of 5 creators.",
+            "Reels check started.",
+            "Reels check done.",
+        ])
+        self.assertFalse(any(re.match(r"^run \S+: ", line) for line in lines))
+
+    def test_one_account_and_one_creator(self) -> None:
+        with temp_project() as project:
+            cfg = dict(store.load_discovery_config(project), discover_shortlist=1)
+            _doc, lines = _run_mock(project, _mock_transport(), cfg=cfg, hashtags=[], keywords=[],
+                                    handles_file=None, web_entries=[{"handle": "webwillow", "source_url": "u"}])
+        self.assertIn("Step 2 of 3: checking 1 more account.", lines)
+        self.assertIn("Step 3 of 3: measuring the reels of 1 creator.", lines)
+
+    def test_nothing_more_to_check_and_nobody_to_measure(self) -> None:
+        with temp_project() as project:
+            _doc, lines = _run_mock(project, _mock_transport(), hashtags=[], keywords=[], handles_file=None,
+                                    web_entries=[{"handle": "focusfern", "source_url": "u"}])
+        self.assertIn("Step 2 of 3: no more accounts to check.", lines)
+        self.assertIn("Step 3 of 3: nobody to measure.", lines)
+
+    def test_a_long_run_says_it_is_still_running_at_most_once_a_minute(self) -> None:
+        clock = _FakeClock()
+
+        class SlowKeywordSearch(apify.FixtureTransport):
+            def request_json(self, method, url, headers=None, json_body=None, params=None):  # type: ignore[override]
+                result = super().request_json(method, url, headers, json_body, params)
+                if method == "GET" and url.endswith("/actor-runs/mock-keyword"):
+                    clock.now += 25.0
+                    if clock.now < 250.0:
+                        result["data"]["status"] = "RUNNING"
+                return result
+
+        with temp_project() as project:
+            _seed_project(project)
+            cfg = dict(store.load_discovery_config(project), poll_interval_s=0)
+            doc, lines = _run_mock(project, _mock_transport(SlowKeywordSearch), cfg=cfg, clock=clock)
+        self.assertEqual([line for line in lines if "still running" in line], [
+            "Keyword search still running, 1 min so far.",
+            "Keyword search still running, 2 min so far.",
+            "Keyword search still running, 3 min so far.",
+        ])
+        self.assertLess(lines.index("Keyword search still running, 3 min so far."),
+                        lines.index("Keyword search done."))
+        self.assertFalse(doc["partial"])
 
 
 class DiscoverGateTests(NoNetworkTestCase):
@@ -366,6 +642,13 @@ class ProfileIndexTests(NoNetworkTestCase):
         self.assertEqual(discover.profile_status("goneghost", rows, errors), "not_found")
         self.assertEqual(discover.profile_status("nobodyasked", rows, errors), "not_found")
         self.assertEqual(rows["webwillow"]["related"], ["habitharbor"])
+
+    def test_a_cut_short_run_never_calls_a_missing_account_not_found(self) -> None:
+        rows, errors = discover.index_profiles(_fixture("apify_discover_profiles_sample.json"))
+        self.assertEqual(discover.REASON_NOT_CHECKED, "not checked in time")
+        self.assertEqual(discover.profile_status("nobodyasked", rows, errors, partial=True), "not checked in time")
+        self.assertEqual(discover.profile_status("goneghost", rows, errors, partial=True), "not_found")
+        self.assertEqual(discover.profile_status("planwithpia", rows, errors, partial=True), "ok")
         self.assertIsNone(rows["webwillow"]["category"])
         self.assertEqual(rows["planwithpia"]["followers"], 610000)
         self.assertEqual(rows["planwithpia"]["category"], "Digital creator")
@@ -624,10 +907,31 @@ class EstimateAndTableTests(NoNetworkTestCase):
 
     def test_render_table_when_nobody_passes_and_the_run_was_partial(self) -> None:
         doc = dict(self._doc(), candidates=[], dropped=[], breakouts=[], partial=True)
-        text = discover.render_table(doc)
-        self.assertIn("Nobody cleared the bar.", text)
-        self.assertIn("Some accounts were not measured in time.", text)
-        self.assertNotIn("—", text)
+        lines = discover.render_table(doc).splitlines()
+        self.assertIn("Nobody cleared the bar in the time there was. Run it again to finish.", lines)
+        self.assertIn("Some accounts were not checked or measured in time. Run it again to finish them.", lines)
+        self.assertNotIn("lower settings", "\n".join(lines))
+        self.assertNotIn("—", "\n".join(lines))
+
+    def test_render_table_when_nobody_passes_a_complete_run(self) -> None:
+        doc = dict(self._doc(), candidates=[], dropped=[], breakouts=[])
+        lines = discover.render_table(doc).splitlines()
+        self.assertIn("Nobody cleared the bar. Try other keyword phrases, more web finds, or lower settings.",
+                      lines)
+        self.assertFalse(any("in time" in line for line in lines))
+
+    def test_render_table_when_a_partial_run_has_candidates(self) -> None:
+        lines = discover.render_table(dict(self._doc(), partial=True)).splitlines()
+        self.assertEqual(lines[-1],
+                         "Some accounts were not checked or measured in time. Run it again to finish them.")
+        self.assertFalse(any(line.startswith("Nobody") for line in lines))
+
+    def test_render_table_with_an_unknown_follower_count(self) -> None:
+        doc = self._doc()
+        doc["candidates"][1]["followers"] = None
+        lines = discover.render_table(doc).splitlines()
+        self.assertIn(" 2. @coachcora  followers unknown  1 in 4 reels: 41,000 views  0.5 reels a week"
+                      "  found via keyword:habit coach", lines)
 
     def test_result_line(self) -> None:
         self.assertEqual(discover.result_line(self._doc(), Path("/p")), {
