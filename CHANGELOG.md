@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counts when all its words appear in a bio, caption, or hashtag, in any
   order or form, so `ai agents for business` matches "I help businesses
   automate with AI agents". Small words like "for" and "your" are skipped.
+- The full check goes to accounts in your niche first. Among those, and
+  then among the rest, web finds come first, then Instagram search finds,
+  then similar accounts.
 - The paid partnership filter also catches a brand's own partner tag, such
   as #higgsfieldpartner, #lovablepartner, or #replitpartners. Generic tags
   like #gympartner, #twitchpartner, or #studentambassador still pass.

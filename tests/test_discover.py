@@ -212,10 +212,12 @@ class MockDiscoverTests(NoNetworkTestCase):
         posts = [call for call in transport.calls if call["method"] == "POST"]
         self.assertEqual(posts[2]["json_body"]["directUrls"][0], "https://www.instagram.com/habitlab/")
         self.assertEqual(posts[-1]["json_body"]["resultsType"], "reels")
+        # Niche hits first, and among them the web find (webwillow) before
+        # the search finds and the similar account (habitharbor).
         self.assertEqual(
             posts[-1]["json_body"]["directUrls"],
             [f"https://www.instagram.com/{handle}/"
-             for handle in ("planwithpia", "coachcora", "webwillow", "habitharbor", "slowsam")],
+             for handle in ("webwillow", "planwithpia", "coachcora", "habitharbor", "slowsam")],
         )
 
     def test_format_accounts_are_never_checked_or_recommended(self) -> None:
@@ -790,16 +792,37 @@ class ExpansionTests(NoNetworkTestCase):
 class ShortlistTests(NoNetworkTestCase):
     def test_niche_first_then_tiers_alternate(self) -> None:
         rows = [
-            {"handle": "big1", "followers": 610000, "niche_hit": True},
-            {"handle": "big2", "followers": 52000, "niche_hit": True},
-            {"handle": "small1", "followers": 40000, "niche_hit": True},
-            {"handle": "small2", "followers": 18000, "niche_hit": True},
-            {"handle": "offbig", "followers": 900000, "niche_hit": False},
-            {"handle": "offsmall", "followers": 25000, "niche_hit": False},
+            {"handle": "big1", "followers": 610000, "niche_hit": True, "source_rank": 1},
+            {"handle": "big2", "followers": 52000, "niche_hit": True, "source_rank": 1},
+            {"handle": "small1", "followers": 40000, "niche_hit": True, "source_rank": 1},
+            {"handle": "small2", "followers": 18000, "niche_hit": True, "source_rank": 1},
+            {"handle": "offbig", "followers": 900000, "niche_hit": False, "source_rank": 1},
+            {"handle": "offsmall", "followers": 25000, "niche_hit": False, "source_rank": 1},
         ]
         self.assertEqual(discover.shortlist(rows, 10, 50000),
                          ["big1", "small1", "big2", "small2", "offbig", "offsmall"])
         self.assertEqual(discover.shortlist(rows, 3, 50000), ["big1", "small1", "big2"])
+
+    # Design spec, "0.6.0 changes" (Shortlist): after the niche hits, web
+    # finds come first, then search finds, then similar accounts.
+    def test_the_best_source_comes_first_after_the_niche_hits(self) -> None:
+        rows = [
+            {"handle": "offrelated", "followers": 2600000, "niche_hit": False, "source_rank": 2},
+            {"handle": "offweb", "followers": 200000, "niche_hit": False, "source_rank": 0},
+            {"handle": "offkeyword", "followers": 300000, "niche_hit": False, "source_rank": 1},
+            {"handle": "hitrelated", "followers": 20000, "niche_hit": True, "source_rank": 2},
+        ]
+        self.assertEqual(discover.shortlist(rows, 10, 50000),
+                         ["hitrelated", "offweb", "offkeyword", "offrelated"])
+        self.assertEqual(discover.shortlist(rows, 2, 50000), ["hitrelated", "offweb"])
+
+    def test_source_rank(self) -> None:
+        web, keyword = "web:https://example.invalid/top-10", "keyword:habit coach"
+        self.assertEqual(discover.source_rank(["related:habitlab", keyword, web]), 0)
+        self.assertEqual(discover.source_rank(["related:habitlab", keyword]), 1)
+        self.assertEqual(discover.source_rank(["hashtag:habits"]), discover.source_rank([keyword]))
+        self.assertEqual(discover.source_rank(["related:habitlab"]), 2)
+        self.assertEqual(discover.source_rank([]), 2)
 
 
 class FixtureShapeTests(NoNetworkTestCase):

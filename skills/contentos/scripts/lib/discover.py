@@ -68,6 +68,10 @@ BREAKOUTS_PER_CREATOR = 3
 TOP_REEL_CHARS = 140
 TIER_ESTABLISHED = "established"
 TIER_RISING = "rising"
+# After the niche hits, the shortlist takes web finds first, then search
+# finds, then similar accounts (design spec, "0.6.0 changes", Shortlist).
+SOURCE_RANKS = {"web": 0, "keyword": 1, "hashtag": 1, "related": 2}
+NO_SOURCE_RANK = 2
 REASON_SHORTLIST_FULL = "shortlist full"
 REASON_NOT_MEASURED = "not measured in time"
 # A cut-short or skipped account check never reached this handle, so it
@@ -443,25 +447,44 @@ def rank_expansion(pointed: Dict[str, Set[str]], limit: int) -> List[str]:
     return sorted(pointed, key=lambda handle: (-len(pointed[handle]), handle))[:limit]
 
 
+def source_rank(sources: List[str]) -> int:
+    """The best (lowest) rank over a handle's sources, for the shortlist.
+
+    `web:` is 0, `keyword:` and `hashtag:` are 1, and `related:` is 2. A
+    handle with no source, or only unknown ones, is 2.
+    """
+    return min(
+        (SOURCE_RANKS.get(str(source).split(":", 1)[0], NO_SOURCE_RANK) for source in sources),
+        default=NO_SOURCE_RANK,
+    )
+
+
 def shortlist(rows: List[Dict[str, Any]], size: int, small_under: float) -> List[str]:
     """Order pass-1 survivors for the reels pass and keep the first `size` handles.
 
-    Niche hits come first. Inside each group, Established and Rising
-    alternate, each by followers (most first), then handle, so a list of
-    big accounts never squeezes out every rising one.
+    Niche hits come first. Inside the niche hits, and inside the rest,
+    `source_rank` goes up: web finds, then search finds, then similar
+    accounts (a row without one counts as 2). Inside each of those groups,
+    Established and Rising alternate, each by followers (most first), then
+    handle, so a list of big accounts never squeezes out every rising one.
     """
     def by_followers(group: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return sorted(group, key=lambda row: (-(row.get("followers") or 0), row["handle"]))
 
+    def rank_of(row: Dict[str, Any]) -> int:
+        return row.get("source_rank", NO_SOURCE_RANK)
+
     ordered: List[str] = []
     for niche in (True, False):
-        group = [row for row in rows if bool(row.get("niche_hit")) is niche]
-        big = by_followers([row for row in group if (row.get("followers") or 0) >= small_under])
-        small = by_followers([row for row in group if (row.get("followers") or 0) < small_under])
-        for index in range(max(len(big), len(small))):
-            for side in (big, small):
-                if index < len(side):
-                    ordered.append(side[index]["handle"])
+        niche_group = [row for row in rows if bool(row.get("niche_hit")) is niche]
+        for rank in sorted({rank_of(row) for row in niche_group}):
+            group = [row for row in niche_group if rank_of(row) == rank]
+            big = by_followers([row for row in group if (row.get("followers") or 0) >= small_under])
+            small = by_followers([row for row in group if (row.get("followers") or 0) < small_under])
+            for index in range(max(len(big), len(small))):
+                for side in (big, small):
+                    if index < len(side):
+                        ordered.append(side[index]["handle"])
     return ordered[:size]
 
 
@@ -970,7 +993,8 @@ def run_discover(
             log("Step 2 of 3: no more accounts to check.")
 
         pool = [
-            {"handle": handle, "followers": row["followers"], "niche_hit": latest_niche_hit(row, is_niche)}
+            {"handle": handle, "followers": row["followers"], "niche_hit": latest_niche_hit(row, is_niche),
+             "source_rank": source_rank(sources.get(handle, []))}
             for handle, row in survivors.items()
         ]
         chosen = shortlist(pool, cfg["discover_shortlist"], cfg["small_account_followers"])
