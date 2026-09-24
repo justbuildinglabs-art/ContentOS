@@ -159,7 +159,7 @@ Leslie's review of the first live discovery (`contentos-demo`, 2026-09-20): it "
 
 **Paid filter (`lib/sponsored.py`)**
 
-- A hashtag also flags when, with underscores removed, it matches `^([a-z0-9]{3,})(partners?|ambassadors?)$` and the prefix is not in `GENERIC_PARTNER_PREFIXES` (life, business, gym, workout, training, study, accountability, dance, travel, running, crime). The demo run had 7 such reels with no label (#higgsfieldpartner, #lovablepartner, #omnisendpartner, #gammapartner, #replitpartner and #replitpartners, #chatgpt_partner). The signal stays `hashtag:<tag>`.
+- A hashtag also flags when, with underscores removed, it matches `^([a-z0-9]{3,})(partners?|ambassadors?)$` and the prefix is not in `GENERIC_PARTNER_PREFIXES`: general words (life, business, gym, workout, training, study, accountability, dance, travel, running, crime), platforms' own creator programs (youtube, twitch, tiktok, meta, spotify, instagram, facebook, snapchat), roles (student, campus, youth, community), and activities (writing, climbing, yoga, coding, lifting, gaming, reading, hiking, fitness, prayer), none of which is a brand paying for the reel. The demo run had 7 such reels with no label (#higgsfieldpartner, #lovablepartner, #omnisendpartner, #gammapartner, #replitpartner and #replitpartners, #chatgpt_partner). The signal stays `hashtag:<tag>`.
 
 **Control panel (`lib/ui.py`, `scripts/ui/discover.html`, `contentos.py ui`)**
 

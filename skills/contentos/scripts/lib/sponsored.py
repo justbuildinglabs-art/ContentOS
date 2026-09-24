@@ -31,12 +31,22 @@ SPONSORED_HASHTAGS = frozenset(
 # #LovablePartner, #replitpartners, or #nikeambassador (design spec, "0.6.0
 # changes", Paid filter). Underscores are dropped first (#chatgpt_partner).
 # The prefix must be 3 or more characters and not a generic word, so
-# #gympartner and #businesspartner never match.
+# #gympartner and #businesspartner never match. Platforms' own creator
+# programs (#twitchpartner), roles (#studentambassador), and activities
+# (#climbingpartner) are generic too: none of them is a brand paying for
+# the reel.
 _PARTNER_TAG_RE = re.compile(r"^([a-z0-9]{3,})(partners?|ambassadors?)$")
 GENERIC_PARTNER_PREFIXES = frozenset(
     {
         "life", "business", "gym", "workout", "training", "study",
         "accountability", "dance", "travel", "running", "crime",
+        # Platforms
+        "youtube", "twitch", "tiktok", "meta", "spotify", "instagram", "facebook", "snapchat",
+        # Roles
+        "student", "campus", "youth", "community",
+        # Activities
+        "writing", "climbing", "yoga", "coding", "lifting", "gaming", "reading", "hiking",
+        "fitness", "prayer",
     }
 )
 
