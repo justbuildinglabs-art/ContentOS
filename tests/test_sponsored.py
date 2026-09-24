@@ -102,5 +102,44 @@ class MalformedInputTests(NoNetworkTestCase):
         )
 
 
+class PartnerTagTests(NoNetworkTestCase):
+    def test_brand_partner_tags_are_detected(self) -> None:
+        for caption, tags, signal in (
+            ("keep it quiet #higgsfieldpartner @higgsfield.ai", ["higgsfieldpartner"], "hashtag:higgsfieldpartner"),
+            ("Built it in an hour #LovablePartner", [], "hashtag:lovablepartner"),
+            ("Email flows that sell", ["OmnisendPartner"], "hashtag:omnisendpartner"),
+            ("Slides in seconds", ["gammapartner"], "hashtag:gammapartner"),
+            ("My old app", ["replitpartner"], "hashtag:replitpartner"),
+            ("My new app", ["replitpartners"], "hashtag:replitpartners"),
+            ("Prompts that work #chatgpt_partner", [], "hashtag:chatgpt_partner"),
+            ("New drop", ["nikeambassador"], "hashtag:nikeambassador"),
+            ("Proud to rep them", ["brandambassador"], "hashtag:brandambassador"),
+        ):
+            with self.subTest(signal=signal):
+                self.assertEqual(sponsored.detect(_reel(caption, tags))["signals"], [signal])
+
+    def test_generic_partner_tags_do_not_match(self) -> None:
+        for tag in (
+            "gympartner", "workoutpartner", "lifepartner", "businesspartner", "studypartners",
+            "crimepartner", "partner", "partners", "partnerworkout", "ambassador",
+        ):
+            with self.subTest(tag=tag):
+                self.assertFalse(sponsored.detect(_reel(f"#{tag}", [tag]))["detected"])
+
+    def test_platform_role_and_activity_words_are_generic(self) -> None:
+        for word in ("youtube", "twitch", "tiktok", "meta", "spotify", "instagram", "facebook", "snapchat",
+                     "student", "campus", "youth", "community",
+                     "writing", "climbing", "yoga", "coding", "lifting", "gaming", "reading", "hiking",
+                     "fitness", "prayer"):
+            with self.subTest(word=word):
+                self.assertIn(word, sponsored.GENERIC_PARTNER_PREFIXES)
+
+    def test_no_generic_word_flags_with_any_partner_suffix(self) -> None:
+        for word in sorted(sponsored.GENERIC_PARTNER_PREFIXES):
+            with self.subTest(word=word):
+                for tag in (f"{word}partner", f"{word}partners", f"{word}ambassador"):
+                    self.assertFalse(sponsored.detect(_reel(f"#{tag}", [tag]))["detected"], tag)
+
+
 if __name__ == "__main__":
     unittest.main()

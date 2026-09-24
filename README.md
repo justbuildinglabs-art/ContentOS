@@ -100,12 +100,21 @@ fill in by hand. Those sections are what make the scripts sound like you, so
 they are worth an hour.
 
 You do not need to know your competitors. When setup asks for accounts, say
-"find them for me". Claude proposes hashtags and keywords for your niche,
-searches the web for creators when it can, and runs one small scrape to see
-who is getting the most plays under those hashtags. Every account it shows you
-was checked: it exists and it is public. You pick 3 to 8, and you can always
-type in accounts you already know. This costs about $0.30 to $0.80 once, and
-you see the estimate before anything is spent. To redo it later:
+"find them for me". Claude agrees a few search phrases with you and searches
+the web for creators in your niche. Then a small control panel opens in your
+browser, served from your own computer. You set how big and how active a
+creator must be, watch the cost change as you move the settings, press Run,
+and tick the ones to keep. A creator counts as successful when they have
+10,000 or more followers, post a reel at least every 2 weeks, and at least 1
+in 4 of their recent reels reach 5,000 views. The panel shows Established
+creators (50,000 or more followers) and Rising ones (10,000 to 50,000), with
+their top reels and how much of their content matches your niche. Every
+number comes from a real check. This costs about $1 to $1.30 once, and you
+see the estimate before anything is spent. The settings are
+`discover_min_followers`, `discover_min_views`, `discover_post_every_days`,
+and `discover_shortlist` (how many creators get the full check) in
+`.contentos/config.json`. Prefer chat? Say so, and Claude runs it in the
+conversation instead. To redo it later:
 
 ```
 /contentos discover
@@ -218,12 +227,17 @@ weekly list, or delete both lines to pick up the new defaults. Projects
 upgrading from 0.3.0 start with an empty ideas ledger, so briefs from earlier
 runs that you never picked do not carry over.
 
+If your project was set up before 0.6.0, `.contentos/config.json` still has
+`discover_min_followers: 1000`. Change it to 10000, or delete the line, so
+discovery holds every account to the new bar. The control panel shows the
+settings in force before you run.
+
 ## Commands
 
 | command | what it does |
 | --- | --- |
 | `/contentos setup` | Interview, then write `creator.md`, `config.json`, and `rules.md` |
-| `/contentos discover` | Find accounts in your niche from hashtags, keywords, and a web search, then save the ones you pick |
+| `/contentos discover` | Find creators who are winning in your niche: a web search, then a control panel to set the bar, run, and pick |
 | `/contentos run` | All four stages, end to end. `--auto` skips the brief question and scripts only the top `auto_scripts` ideas (default 3), `--yes` skips the spend question, `--mock` uses fixtures |
 | `/contentos research` | Stage 1 only: scrape, score, select, download, keyframes |
 | `/contentos direct` | Stage 2 only: analyze each selected reel, find the patterns, rank the briefs |

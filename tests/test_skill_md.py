@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import unittest
@@ -699,6 +700,50 @@ class ApifyKeyStepsTests(NoNetworkTestCase):
         self.assertIn("the key steps from Step 1", prose)
 
 
+class DiscoveryFlowTests(NoNetworkTestCase):
+    @staticmethod
+    def _flow() -> str:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        return body.split("## The discovery flow", 1)[1].split("\n## ", 1)[0]
+
+    def test_names_the_bar_the_sources_and_the_tiers(self) -> None:
+        flow = _collapse(self._flow())
+        for phrase in (
+            "10,000 or more followers", "every 2 weeks", "1 in 4", "Established", "Rising",
+            "site:instagram.com", "you must use it", "Never add a handle from memory",
+            "--seeds", "--keywords",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flow)
+        self.assertNotIn("small_account", flow)
+
+    def test_every_discover_command_parses(self) -> None:
+        blocks = re.findall(r"```bash\n(.*?)```", self._flow(), flags=re.DOTALL)
+        commands = [block for block in blocks if 'contentos.py" discover' in block]
+        self.assertTrue(commands)
+        parser = contentos.build_parser()
+        for block in commands:
+            argv = shlex.split(block.replace("\\\n", " "))
+            with self.subTest(block=block):
+                parser.parse_args(argv[argv.index("discover"):])
+
+    def test_the_save_step_keeps_the_current_watch_list(self) -> None:
+        flow = _collapse(self._flow())
+        self.assertIn(
+            "pass the current `competitors` first, then the picks", flow
+        )
+        self.assertIn(
+            "in the answers file, after the handles the creator typed", flow
+        )
+
+    def test_a_partial_run_is_explained_and_run_again(self) -> None:
+        flow = _collapse(self._flow())
+        for phrase in ('"not checked in time"', '"not measured in time"', "run it again",
+                       "never as not found"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flow)
+
+
 class CreatorRenameTests(NoNetworkTestCase):
     def test_skill_and_readme_have_no_product_leftovers(self) -> None:
         for path in (SKILL_MD, README):
@@ -710,6 +755,68 @@ class CreatorRenameTests(NoNetworkTestCase):
             # does not contain it either, so nothing here is exempt.
             with self.subTest(file=path.name, leftover="founder"):
                 self.assertNotIn("founder", text.lower())
+
+
+class ControlPanelSkillTests(NoNetworkTestCase):
+    def test_the_panel_is_the_default_and_the_only_background_command(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        self.assertIn("Never use `run_in_background`", _collapse(body))
+        self.assertEqual(body.count("run_in_background: true"), 1)
+        self.assertLess(body.index("### The control panel"), body.index("### Discovery in the chat"))
+        for phrase in ("ui-session.json", "discovery-picks.json", '"saved": false', "--open"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, body)
+
+    @staticmethod
+    def _panel() -> str:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        return _collapse(body.split("### The control panel", 1)[1].split("### Discovery in the chat", 1)[0])
+
+    def test_the_link_comes_from_the_ui_line_first(self) -> None:
+        panel = self._panel()
+        self.assertIn("`UI <url>`", panel)
+        self.assertIn("as a fallback", panel)
+        self.assertLess(panel.index("`UI <url>`"), panel.index("ui-session.json"))
+
+    def test_an_exit_with_no_result_line_is_explained(self) -> None:
+        panel = self._panel()
+        for phrase in ("no `RESULT` line", "stopped before", "open it again", "chat steps"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, panel)
+
+
+class DiscoveryReleaseNoteTests(NoNetworkTestCase):
+    @staticmethod
+    def _changelog_060() -> str:
+        text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        return _collapse(text.split("## [0.6.0]", 1)[1].split("\n## [", 1)[0])
+
+    def test_readme_and_changelog_state_the_bar_the_settings_and_the_panel(self) -> None:
+        readme = _collapse(README.read_text(encoding="utf-8"))
+        for name, prose in (("README", readme), ("CHANGELOG", self._changelog_060())):
+            for phrase in (
+                "10,000", "Established", "Rising", "1 in 4", "control panel",
+                "`discover_min_followers`", "`discover_min_views`",
+                "`discover_post_every_days`", "`discover_shortlist`",
+            ):
+                with self.subTest(doc=name, phrase=phrase):
+                    self.assertIn(phrase, prose)
+            with self.subTest(doc=name):
+                self.assertNotIn("—", prose)
+        changelog = self._changelog_060()
+        for phrase in ("#higgsfieldpartner", "keyword search", "discover_min_followers: 1000"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, changelog)
+        self.assertIn("discover_min_followers: 1000", readme)
+
+    def test_changelog_states_what_the_fix_wave_changed_for_creators(self) -> None:
+        changelog = self._changelog_060()
+        for phrase in (
+            "7 to 90 days", "#twitchpartner", '"not checked in time"', '"not measured in time"',
+            "instead of \"not found\"", "Reloading the control panel keeps your search",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, changelog)
 
 
 if __name__ == "__main__":

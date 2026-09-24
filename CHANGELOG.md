@@ -5,6 +5,60 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-23
+
+### Changed
+
+- Discovery now looks for creators who are actually successful in your
+  niche. A creator passes when they have 10,000 or more followers
+  (`discover_min_followers`, was 1000), post a reel at least every 2 weeks
+  (`discover_post_every_days`, default 14, any of 7 to 90 days), and at
+  least 1 in 4 of their recent reels reach 5,000 views
+  (`discover_min_views`). Passing creators come in two tiers, Established
+  (50,000 or more followers) and Rising (10,000 to 50,000), ranked by the
+  views 1 in 4 of their reels reach. The small-account bonus and the
+  one-reel ranking are gone.
+- Where creators come from: Claude's web search is required when it has
+  one, Instagram keyword search finds the top reels for your phrases, your
+  current watch list leads to Instagram's similar accounts, and hashtags are
+  a fallback. The profile search that returned tiny business accounts is
+  gone.
+- Every account gets a quick profile check, then the best 20
+  (`discover_shortlist`) get a full check of their last 15 reels.
+  `.contentos/discovery.json` is now version 2, with tiers, the numbers
+  behind each creator, what was left out and why, and the reels beating
+  their creators' own average this month.
+- Your search phrases also mark which accounts are in your niche. A phrase
+  counts when all its words appear in a bio, caption, or hashtag, in any
+  order or form, so `ai agents for business` matches "I help businesses
+  automate with AI agents". Small words like "for" and "your" are skipped.
+- The full check goes to accounts in your niche first. Among those, and
+  then among the rest, web finds come first, then Instagram search finds,
+  then similar accounts.
+- The paid partnership filter also catches a brand's own partner tag, such
+  as #higgsfieldpartner, #lovablepartner, or #replitpartners. Generic tags
+  like #gympartner, #twitchpartner, or #studentambassador still pass.
+- When discovery runs out of time, the accounts it did not reach say "not
+  checked in time" or "not measured in time" instead of "not found", and it
+  asks you to run it again.
+- Discovery costs about $1 to $1.30 once at the defaults.
+
+### Added
+
+- A control panel. `/contentos discover` opens a small page in your browser,
+  served from your own computer, where you set the bar, watch the cost
+  change, run discovery, read the evidence for each creator, and tick the
+  ones to keep. Saving adds them to your watch list. Chat still works when
+  you prefer it.
+- Reloading the control panel keeps your search: it picks up a run that is
+  still going or shows its results, so a reload never starts a new paid run.
+- `contentos.py ui` serves the panel, and `discover` gains `--seeds`.
+
+### Upgrading
+
+- Projects set up before 0.6.0 keep `discover_min_followers: 1000` in
+  `.contentos/config.json`. Change it to 10000, or delete the line.
+
 ## [0.5.0] - 2026-09-19
 
 ### Added

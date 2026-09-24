@@ -13,9 +13,30 @@
     "private": false,
     "verified": false,
     "isBusinessAccount": false,
+    "businessCategoryName": null,
     "profilePicUrl": "https://example.invalid/pics/focusfern.jpg",
-    "relatedProfiles": [],
-    "latestPosts": []
+    "latestPosts": [
+      {
+        "id": "id-LFF1",
+        "type": "Video",
+        "shortCode": "LFF1",
+        "caption": "The 2 minute rule #habits",
+        "hashtags": [
+          "habits"
+        ],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LFF1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LFF1.jpg",
+        "timestamp": "2026-09-13T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LFF1.mp4",
+        "videoViewCount": 20000
+      }
+    ],
+    "relatedProfiles": []
   },
   {
     "inputUrl": "https://www.instagram.com/planwithpia/",
@@ -23,17 +44,38 @@
     "username": "planwithpia",
     "url": "https://www.instagram.com/planwithpia/",
     "fullName": "Planwithpia",
-    "biography": "Planning, weekly.",
+    "biography": "Planning systems that survive a messy week.",
     "externalUrls": [],
     "followersCount": 610000,
     "followsCount": 300,
     "postsCount": 240,
     "private": false,
     "verified": true,
-    "isBusinessAccount": false,
+    "isBusinessAccount": true,
+    "businessCategoryName": "Digital creator",
     "profilePicUrl": "https://example.invalid/pics/planwithpia.jpg",
-    "relatedProfiles": [],
-    "latestPosts": []
+    "latestPosts": [
+      {
+        "id": "id-LPP1",
+        "type": "Video",
+        "shortCode": "LPP1",
+        "caption": "Plan the week in 10 minutes #habits",
+        "hashtags": [
+          "habits"
+        ],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LPP1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LPP1.jpg",
+        "timestamp": "2026-09-14T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LPP1.mp4",
+        "videoViewCount": 61000
+      }
+    ],
+    "relatedProfiles": []
   },
   {
     "inputUrl": "https://www.instagram.com/quietquill/",
@@ -41,7 +83,7 @@
     "username": "quietquill",
     "url": "https://www.instagram.com/quietquill/",
     "fullName": "Quietquill",
-    "biography": "",
+    "biography": "Journaling prompts.",
     "externalUrls": [],
     "followersCount": 22000,
     "followsCount": 300,
@@ -49,14 +91,15 @@
     "private": true,
     "verified": false,
     "isBusinessAccount": false,
+    "businessCategoryName": null,
     "profilePicUrl": "https://example.invalid/pics/quietquill.jpg",
-    "relatedProfiles": [],
-    "latestPosts": []
+    "latestPosts": [],
+    "relatedProfiles": []
   },
   {
     "inputUrl": "https://www.instagram.com/goneghost/",
     "error": "not_found",
-    "errorDescription": "Page not found"
+    "errorDescription": "Profile not found"
   },
   {
     "inputUrl": "https://www.instagram.com/habitharbor/",
@@ -64,7 +107,7 @@
     "username": "habitharbor",
     "url": "https://www.instagram.com/habitharbor/",
     "fullName": "Habitharbor",
-    "biography": "Daily habit walkthroughs.",
+    "biography": "Tiny habits, big weeks.",
     "externalUrls": [],
     "followersCount": 18000,
     "followsCount": 300,
@@ -72,9 +115,30 @@
     "private": false,
     "verified": false,
     "isBusinessAccount": false,
+    "businessCategoryName": null,
     "profilePicUrl": "https://example.invalid/pics/habitharbor.jpg",
-    "relatedProfiles": [],
-    "latestPosts": []
+    "latestPosts": [
+      {
+        "id": "id-LHH1",
+        "type": "Video",
+        "shortCode": "LHH1",
+        "caption": "One habit at a time #habits",
+        "hashtags": [
+          "habits"
+        ],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LHH1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LHH1.jpg",
+        "timestamp": "2026-09-09T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LHH1.mp4",
+        "videoViewCount": 14000
+      }
+    ],
+    "relatedProfiles": []
   },
   {
     "inputUrl": "https://www.instagram.com/tinyhabitshop/",
@@ -82,17 +146,18 @@
     "username": "tinyhabitshop",
     "url": "https://www.instagram.com/tinyhabitshop/",
     "fullName": "Tinyhabitshop",
-    "biography": "We sell planners.",
+    "biography": "Habit trackers, shipped worldwide.",
     "externalUrls": [],
     "followersCount": 140,
     "followsCount": 300,
     "postsCount": 240,
     "private": false,
     "verified": false,
-    "isBusinessAccount": false,
+    "isBusinessAccount": true,
+    "businessCategoryName": "Shopping & retail",
     "profilePicUrl": "https://example.invalid/pics/tinyhabitshop.jpg",
-    "relatedProfiles": [],
-    "latestPosts": []
+    "latestPosts": [],
+    "relatedProfiles": []
   },
   {
     "inputUrl": "https://www.instagram.com/webwillow/",
@@ -100,7 +165,7 @@
     "username": "webwillow",
     "url": "https://www.instagram.com/webwillow/",
     "fullName": "Webwillow",
-    "biography": "Routines that stick.",
+    "biography": "Focus tools and quiet desks.",
     "externalUrls": [],
     "followersCount": 52000,
     "followsCount": 300,
@@ -108,13 +173,307 @@
     "private": false,
     "verified": false,
     "isBusinessAccount": false,
+    "businessCategoryName": "None",
     "profilePicUrl": "https://example.invalid/pics/webwillow.jpg",
-    "relatedProfiles": [],
-    "latestPosts": []
+    "latestPosts": [
+      {
+        "id": "id-LWW1",
+        "type": "Video",
+        "shortCode": "LWW1",
+        "caption": "Desk reset #productivity",
+        "hashtags": [
+          "productivity"
+        ],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LWW1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LWW1.jpg",
+        "timestamp": "2026-09-11T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LWW1.mp4",
+        "videoViewCount": 2400
+      }
+    ],
+    "relatedProfiles": [
+      {
+        "id": "pid-habitharbor",
+        "username": "habitharbor",
+        "full_name": "Habitharbor",
+        "is_private": false,
+        "is_verified": false,
+        "profile_pic_url": "https://example.invalid/pics/habitharbor.jpg"
+      }
+    ]
   },
   {
     "inputUrl": "https://www.instagram.com/madeupmaya/",
     "error": "not_found",
-    "errorDescription": "Page not found"
+    "errorDescription": "Profile not found"
+  },
+  {
+    "inputUrl": "https://www.instagram.com/habitlab/",
+    "id": "pid-habitlab",
+    "username": "habitlab",
+    "url": "https://www.instagram.com/habitlab/",
+    "fullName": "Habitlab",
+    "biography": "Habit science, one reel a day.",
+    "externalUrls": [],
+    "followersCount": 80000,
+    "followsCount": 300,
+    "postsCount": 240,
+    "private": false,
+    "verified": false,
+    "isBusinessAccount": false,
+    "businessCategoryName": "Education",
+    "profilePicUrl": "https://example.invalid/pics/habitlab.jpg",
+    "latestPosts": [
+      {
+        "id": "id-LHL0",
+        "type": "Video",
+        "shortCode": "LHL0",
+        "caption": "Start here",
+        "hashtags": [],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LHL0/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LHL0.jpg",
+        "timestamp": "2026-01-05T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LHL0.mp4",
+        "videoViewCount": 900000,
+        "isPinned": true
+      },
+      {
+        "id": "id-LHL1",
+        "type": "Video",
+        "shortCode": "LHL1",
+        "caption": "Habit stacking #habits",
+        "hashtags": [
+          "habits"
+        ],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LHL1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LHL1.jpg",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LHL1.mp4",
+        "videoViewCount": 30000
+      }
+    ],
+    "relatedProfiles": [
+      {
+        "id": "pid-habitharbor",
+        "username": "habitharbor",
+        "full_name": "Habitharbor",
+        "is_private": false,
+        "is_verified": false,
+        "profile_pic_url": "https://example.invalid/pics/habitharbor.jpg"
+      },
+      {
+        "id": "pid-stalestella",
+        "username": "stalestella",
+        "full_name": "Stalestella",
+        "is_private": false,
+        "is_verified": false,
+        "profile_pic_url": "https://example.invalid/pics/stalestella.jpg"
+      },
+      {
+        "id": "pid-planwithpia",
+        "username": "planwithpia",
+        "full_name": "Planwithpia",
+        "is_private": false,
+        "is_verified": false,
+        "profile_pic_url": "https://example.invalid/pics/planwithpia.jpg"
+      },
+      {
+        "id": "pid-tinyhabitshop",
+        "username": "tinyhabitshop",
+        "full_name": "Tinyhabitshop",
+        "is_private": false,
+        "is_verified": false,
+        "profile_pic_url": "https://example.invalid/pics/tinyhabitshop.jpg"
+      }
+    ]
+  },
+  {
+    "inputUrl": "https://www.instagram.com/coachcora/",
+    "id": "pid-coachcora",
+    "username": "coachcora",
+    "url": "https://www.instagram.com/coachcora/",
+    "fullName": "Coachcora",
+    "biography": "Habit coach for busy parents.",
+    "externalUrls": [],
+    "followersCount": 40000,
+    "followsCount": 300,
+    "postsCount": 240,
+    "private": false,
+    "verified": false,
+    "isBusinessAccount": false,
+    "businessCategoryName": "Coach",
+    "profilePicUrl": "https://example.invalid/pics/coachcora.jpg",
+    "latestPosts": [
+      {
+        "id": "id-LCC1",
+        "type": "Video",
+        "shortCode": "LCC1",
+        "caption": "Two habits that stick",
+        "hashtags": [],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LCC1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LCC1.jpg",
+        "timestamp": "2026-09-12T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LCC1.mp4",
+        "videoViewCount": 52000
+      }
+    ]
+  },
+  {
+    "inputUrl": "https://www.instagram.com/slowsam/",
+    "id": "pid-slowsam",
+    "username": "slowsam",
+    "url": "https://www.instagram.com/slowsam/",
+    "fullName": "Slowsam",
+    "biography": "Slow living, one room at a time.",
+    "externalUrls": [],
+    "followersCount": 25000,
+    "followsCount": 300,
+    "postsCount": 240,
+    "private": false,
+    "verified": false,
+    "isBusinessAccount": false,
+    "businessCategoryName": null,
+    "profilePicUrl": "https://example.invalid/pics/slowsam.jpg",
+    "latestPosts": [
+      {
+        "id": "id-LSS1",
+        "type": "Video",
+        "shortCode": "LSS1",
+        "caption": "Sunday reset",
+        "hashtags": [],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LSS1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LSS1.jpg",
+        "timestamp": "2026-09-01T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LSS1.mp4",
+        "videoViewCount": 9000
+      }
+    ],
+    "relatedProfiles": []
+  },
+  {
+    "inputUrl": "https://www.instagram.com/photophoebe/",
+    "id": "pid-photophoebe",
+    "username": "photophoebe",
+    "url": "https://www.instagram.com/photophoebe/",
+    "fullName": "Photophoebe",
+    "biography": "Stills from a quiet life.",
+    "externalUrls": [],
+    "followersCount": 31000,
+    "followsCount": 300,
+    "postsCount": 240,
+    "private": false,
+    "verified": false,
+    "isBusinessAccount": false,
+    "businessCategoryName": null,
+    "profilePicUrl": "https://example.invalid/pics/photophoebe.jpg",
+    "latestPosts": [
+      {
+        "id": "id-LPH1",
+        "type": "Image",
+        "shortCode": "LPH1",
+        "caption": "Morning light",
+        "hashtags": [],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LPH1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LPH1.jpg",
+        "timestamp": "2026-09-14T12:00:00.000Z"
+      },
+      {
+        "id": "id-LPH2",
+        "type": "Image",
+        "shortCode": "LPH2",
+        "caption": "Desk",
+        "hashtags": [],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LPH2/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LPH2.jpg",
+        "timestamp": "2026-09-10T12:00:00.000Z"
+      },
+      {
+        "id": "id-LPH3",
+        "type": "Image",
+        "shortCode": "LPH3",
+        "caption": "Window seat",
+        "hashtags": [],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LPH3/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LPH3.jpg",
+        "timestamp": "2026-08-07T12:00:00.000Z"
+      }
+    ],
+    "relatedProfiles": []
+  },
+  {
+    "inputUrl": "https://www.instagram.com/stalestella/",
+    "id": "pid-stalestella",
+    "username": "stalestella",
+    "url": "https://www.instagram.com/stalestella/",
+    "fullName": "Stalestella",
+    "biography": "Planner spreads.",
+    "externalUrls": [],
+    "followersCount": 30000,
+    "followsCount": 300,
+    "postsCount": 240,
+    "private": false,
+    "verified": false,
+    "isBusinessAccount": false,
+    "businessCategoryName": null,
+    "profilePicUrl": "https://example.invalid/pics/stalestella.jpg",
+    "latestPosts": [
+      {
+        "id": "id-LST1",
+        "type": "Video",
+        "shortCode": "LST1",
+        "caption": "August spread #habits",
+        "hashtags": [
+          "habits"
+        ],
+        "mentions": [],
+        "taggedUsers": [],
+        "url": "https://www.instagram.com/p/LST1/",
+        "likesCount": 1200,
+        "commentsCount": 40,
+        "displayUrl": "https://example.invalid/covers/LST1.jpg",
+        "timestamp": "2026-08-01T12:00:00.000Z",
+        "productType": "clips",
+        "videoUrl": "https://example.invalid/videos/LST1.mp4",
+        "videoViewCount": 8000
+      }
+    ],
+    "relatedProfiles": []
   }
 ]

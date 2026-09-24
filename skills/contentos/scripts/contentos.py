@@ -1,9 +1,10 @@
 """ContentOS CLI entry point.
 
 The deterministic half of the four-stage pipeline (design spec, "Stage
-1" through "Stage 4"): `diagnose`, `setup`, `research`, `frames`,
-`transcribe`, `direct-prompt`, `synth-prompt`, `rank`, `intake`, `write-prompt`,
-`qa-prompt`, `verify`, `report`, `status`, `sync-plugin-key`, `mark`, `history`. The SKILL.md
+1" through "Stage 4"): `diagnose`, `setup`, `discover`, `ui`, `accounts`,
+`research`, `frames`, `transcribe`, `direct-prompt`, `synth-prompt`, `rank`,
+`intake`, `write-prompt`, `qa-prompt`, `verify`, `report`, `status`,
+`sync-plugin-key`, `mark`, `history`. The SKILL.md
 orchestrator dispatches the `contentos:content-director`,
 `contentos:script-writer`, and `contentos:qa-reviewer` subagents around
 these commands; nothing here calls a model.
@@ -29,7 +30,7 @@ from typing import Callable, Dict, List, Optional
 
 from lib import (
     agents, apify, codes, direct, discover, env, frames, history, report, report_html, research,
-    setup, store, transcribe,
+    setup, store, transcribe, ui,
 )
 
 SUBCOMMANDS = [
@@ -37,6 +38,7 @@ SUBCOMMANDS = [
     "setup",
     "discover",
     "accounts",
+    "ui",
     "research",
     "frames",
     "transcribe",
@@ -222,22 +224,24 @@ def _accounts_handler(args: argparse.Namespace) -> int:
 
 
 def _discover_handler(args: argparse.Namespace) -> int:
-    """Find accounts for the creator from hashtags, keywords, and web handles (0.5.0).
+    """Find creators who are winning in the niche (design spec, "0.6.0 changes").
 
-    Works before `setup` has run. Exit codes are the research stage's:
-    the estimate goes to stdout as indented JSON whenever an error
-    carries one, and the message to stderr.
+    Works before `setup` has run. Exit codes are the research stage's: the
+    estimate goes to stdout as indented JSON whenever an error carries
+    one, and the message to stderr. On success it prints the table, then
+    the `RESULT {...}` line.
     """
     project_dir = args.project.resolve()
     try:
         cfg = store.load_discovery_config(project_dir)
         keys = env.resolve_keys(project_dir)
-        discover.run_discover(
+        doc = discover.run_discover(
             project_dir,
             cfg,
             keys,
             hashtags=_split_list(args.hashtags),
             keywords=_split_list(args.keywords),
+            seeds=_split_list(args.seeds),
             handles_file=args.handles_file,
             mock=args.mock,
             yes=args.yes,
@@ -254,6 +258,49 @@ def _discover_handler(args: argparse.Namespace) -> int:
     except store.ConfigError as exc:
         print(str(exc), file=sys.stderr)
         return codes.EXIT_USAGE
+    print(discover.render_table(doc))
+    print("RESULT " + json.dumps(discover.result_line(doc, project_dir)))
+    return codes.EXIT_OK
+
+
+def _ui_handler(args: argparse.Namespace) -> int:
+    """Serve the discovery control panel until the creator saves or closes it (0.6.0).
+
+    The skill runs this one command in the background, because it waits
+    for the creator. `UI <url>` comes first and `RESULT {...}` last.
+    `--idle-minutes` of 0 or less, a bad config or handles file, and a
+    port that will not open are usage errors (exit 2), with no traceback.
+    SIGTERM or SIGHUP ends it with no RESULT line.
+    """
+    if not args.idle_minutes > 0:
+        print("--idle-minutes must be more than 0", file=sys.stderr)
+        return codes.EXIT_USAGE
+    project_dir = args.project.resolve()
+    try:
+        cfg = store.load_discovery_config(project_dir)
+        web_entries, warnings = discover.load_web_handles(args.handles_file)
+    except (store.ConfigError, discover.DiscoverError) as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    for warning in warnings:
+        print(warning, file=sys.stderr)
+    try:
+        result = ui.serve(
+            project_dir,
+            cfg,
+            keywords=discover.normalize_keywords(_split_list(args.keywords)),
+            hashtags=discover.normalize_hashtags(_split_list(args.hashtags)),
+            web_entries=web_entries,
+            seeds=[part.strip() for part in _split_list(args.seeds) if part.strip()],
+            mock=args.mock,
+            port=args.port,
+            open_browser=args.open,
+            idle_minutes=args.idle_minutes,
+        )
+    except ui.PanelError as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
+    print("RESULT " + json.dumps(result))
     return codes.EXIT_OK
 
 
@@ -618,6 +665,7 @@ HANDLERS["diagnose"] = _diagnose_handler
 HANDLERS["setup"] = _setup_handler
 HANDLERS["discover"] = _discover_handler
 HANDLERS["accounts"] = _accounts_handler
+HANDLERS["ui"] = _ui_handler
 HANDLERS["research"] = _research_handler
 HANDLERS["frames"] = _frames_handler
 HANDLERS["transcribe"] = _transcribe_handler
@@ -659,11 +707,20 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--competitors", required=True)
             sub.add_argument("--format-accounts", default=None)
         if name == "discover":
-            sub.add_argument("--hashtags", required=True)
             sub.add_argument("--keywords", default=None)
+            sub.add_argument("--hashtags", default=None)
+            sub.add_argument("--seeds", default=None)
             sub.add_argument("--handles-file", type=Path, default=None)
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")
+        if name == "ui":
+            sub.add_argument("--keywords", default=None)
+            sub.add_argument("--hashtags", default=None)
+            sub.add_argument("--seeds", default=None)
+            sub.add_argument("--handles-file", type=Path, default=None)
+            sub.add_argument("--port", type=int, default=0)
+            sub.add_argument("--open", action="store_true")
+            sub.add_argument("--idle-minutes", type=float, default=60.0)
         if name == "research":
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")

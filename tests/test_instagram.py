@@ -728,6 +728,69 @@ class FixtureTests(NoNetworkTestCase):
         self.assertEqual(profiles["privatepeople"]["followers"], 3000)
 
 
+class PartnerTagReelTests(NoNetworkTestCase):
+    def test_brand_partner_tag_flags_the_reel(self) -> None:
+        item = {
+            "shortCode": "P1", "productType": "clips", "timestamp": "2026-09-13T12:00:00.000Z",
+            "caption": "keep it quiet #higgsfieldpartner", "hashtags": ["higgsfieldpartner"],
+            "videoPlayCount": 203003,
+        }
+        reel = instagram.normalize_reel(item)
+        self.assertTrue(reel["paid_partnership"])
+        self.assertEqual(reel["paid_signals"], ["hashtag:higgsfieldpartner"])
+
+
+class ProfileExtrasTests(NoNetworkTestCase):
+    def test_category_none_string_is_null(self) -> None:
+        for value in ("None", "", "  ", None, 7):
+            with self.subTest(value=value):
+                self.assertIsNone(instagram.profile_extras({"businessCategoryName": value})["category"])
+        self.assertEqual(
+            instagram.profile_extras({"businessCategoryName": " Digital creator "})["category"],
+            "Digital creator",
+        )
+
+    def test_related_keeps_public_usernames_lowercased_once(self) -> None:
+        item = {"relatedProfiles": [
+            {"username": "HabitHarbor", "is_private": False},
+            {"username": "hiddenhana", "is_private": True},
+            {"username": "habitharbor"},
+            "StaleStella",
+            {"full_name": "no username"},
+            7,
+        ]}
+        self.assertEqual(instagram.profile_extras(item)["related"], ["habitharbor", "stalestella"])
+
+    def test_latest_posts_are_summarized(self) -> None:
+        item = {"latestPosts": [
+            {"shortCode": "A1", "type": "Video", "productType": "clips", "isPinned": True,
+             "timestamp": "2026-01-01T00:00:00.000Z", "caption": "old pinned", "hashtags": ["habits"],
+             "videoViewCount": 900000},
+            {"shortCode": "A2", "type": "Image", "timestamp": "not a date", "caption": None,
+             "hashtags": "habits"},
+            "junk",
+        ]}
+        self.assertEqual(instagram.profile_extras(item)["latest_posts"], [
+            {"shortCode": "A1", "timestamp": "2026-01-01T00:00:00+00:00", "is_reel": True,
+             "is_pinned": True, "caption": "old pinned", "hashtags": ["habits"]},
+            {"shortCode": "A2", "timestamp": None, "is_reel": False, "is_pinned": False,
+             "caption": "", "hashtags": []},
+        ])
+
+    def test_empty_item_defaults(self) -> None:
+        self.assertEqual(
+            instagram.profile_extras({}),
+            {"bio": "", "full_name": "", "category": None, "is_business": False,
+             "related": [], "latest_posts": []},
+        )
+
+    def test_normalize_profile_is_unchanged(self) -> None:
+        self.assertEqual(
+            set(instagram.normalize_profile({"username": "a"})),
+            {"username", "followers", "posts", "verified", "private", "url"},
+        )
+
+
 if __name__ == "__main__":
     import unittest
 

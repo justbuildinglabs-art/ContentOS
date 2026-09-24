@@ -29,6 +29,11 @@ PRICE_PER_RESULT = 0.0027
 # `apify_transcript_usd_per_min`.
 TRANSCRIPT_ACTOR_ID = "apify~instagram-reel-scraper"
 TRANSCRIPT_ACTOR_RUNS_PATH = f"/acts/{TRANSCRIPT_ACTOR_ID}/runs"
+# 0.6.0: Instagram keyword reel search is a second actor (design spec,
+# "Discovery probe (2026-09-23)"). It returns the top reels for a phrase,
+# not the newest, so its authors skew to established creators.
+KEYWORD_ACTOR_ID = "apify~instagram-hashtag-scraper"
+KEYWORD_ACTOR_RUNS_PATH = f"/acts/{KEYWORD_ACTOR_ID}/runs"
 RUN_TERMINAL = {"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"}
 
 
@@ -75,44 +80,43 @@ def build_hashtag_reels_input(
     }
 
 
-def build_profile_search_input(keyword: str, search_limit: int) -> dict:
-    """Build the actor input for one discovery profile search (one run per keyword).
+def build_keyword_reels_input(keywords: List[str], results_limit: int) -> dict:
+    """Build the keyword reel search input (0.6.0; checked live on 2026-09-23).
 
-    Checked with a live probe on 2026-09-19: items have the "details"
-    profile shape plus `searchTerm`.
+    Items have the reel shape plus `inputUrl`
+    `https://www.instagram.com/explore/search/keyword/?q=<phrase>`, which is
+    how a reel is tied to its phrase. `results_limit` applies per phrase.
     """
     return {
-        "search": keyword,
-        "searchType": "profile",
-        "searchLimit": search_limit,
-        "resultsType": "details",
+        "hashtags": list(keywords),
+        "keywordSearch": True,
+        "resultsType": "reels",
+        "resultsLimit": results_limit,
     }
 
 
-def estimate_discover_cost(
-    n_hashtags: int,
-    reels_per_hashtag: int,
-    n_keywords: int,
-    search_limit: int,
-    n_candidates: int,
-    n_web_handles: int,
+def estimate_discovery(
+    keyword_reels: int,
+    hashtag_reels: int,
+    details: int,
+    profile_reels: int,
     price: float = PRICE_PER_RESULT,
 ) -> Dict[str, float]:
-    """Estimate one discovery pass (design spec, "0.5.0 changes").
+    """Estimate one 0.6.0 discovery (design spec, "0.6.0 changes", Output).
 
-    One result per hashtag reel, one per profile-search hit, and one
-    per profile checked in the details run: at most `n_candidates`
-    hashtag authors, every search hit, and every web handle.
+    One result per keyword reel, hashtag reel, profile checked, and profile
+    reel measured, each at `price`. The probe was charged less than
+    $0.0027 per result, so this stays an upper bound. Rounded to 4 places.
     """
-    raw_reels = n_hashtags * reels_per_hashtag * price
-    raw_search = n_keywords * search_limit * price
-    raw_details = (n_candidates + n_keywords * search_limit + n_web_handles) * price
-    return {
-        "hashtag_reels_usd": round(raw_reels, 4),
-        "profile_search_usd": round(raw_search, 4),
-        "details_usd": round(raw_details, 4),
-        "total_usd": round(raw_reels + raw_search + raw_details, 4),
+    parts = {
+        "keyword_reels_usd": keyword_reels * price,
+        "hashtag_reels_usd": hashtag_reels * price,
+        "details_usd": details * price,
+        "reels_usd": profile_reels * price,
     }
+    estimate = {key: round(value, 4) for key, value in parts.items()}
+    estimate["total_usd"] = round(sum(parts.values()), 4)
+    return estimate
 
 
 def build_transcript_input(reel_urls: List[str]) -> dict:
@@ -231,11 +235,12 @@ class HttpTransport:
 class FixtureTransport:
     """Deterministic transport for `--mock`: no network touched.
 
-    Answers exactly the four Apify routes the research stage calls --
-    starting a run (branching on the input's `resultsType`), polling a
-    run to `SUCCEEDED`, paging a dataset's items, and checking a token
-    -- and raises `http.HTTPError(404, ...)` for anything else. Every
-    call is recorded in `.calls` regardless of route.
+    Answers the Apify routes research and discovery call -- starting a
+    run (branching on the input's `resultsType`, plus 0.6.0's keyword
+    actor), polling a run to `SUCCEEDED`, paging a dataset's items, and
+    checking a token -- and raises `http.HTTPError(404, ...)` for
+    anything else. Every call is recorded in `.calls` regardless of
+    route.
 
     Polling sequences (RUNNING -> SUCCEEDED, or a FAILED/TIMED-OUT run)
     need more than this fixture answers in one canned shot -- a run's
@@ -248,24 +253,25 @@ class FixtureTransport:
         reels_items: List[dict],
         details_items: List[dict],
         hashtag_items: Optional[List[dict]] = None,
-        search_items: Optional[List[dict]] = None,
+        keyword_items: Optional[List[dict]] = None,
     ) -> None:
         self.reels_items = reels_items
         self.details_items = details_items
         self.calls: List[Dict[str, Any]] = []
-        # 0.5.0: `discover --mock` also starts a hashtag reels run and
-        # profile searches; both default to empty for the research stage.
+        # 0.6.0 discovery starts keyword, hashtag, details, and reels
+        # runs; the research stage only ever starts reels and details
+        # runs, so the other two default to empty for it.
         self._datasets: Dict[str, List[dict]] = {
             "ds-reels": reels_items,
             "ds-details": details_items,
             "ds-hashtag": hashtag_items or [],
-            "ds-search": search_items or [],
+            "ds-keyword": keyword_items or [],
         }
         self._dataset_of_run: Dict[str, str] = {
             "mock-reels": "ds-reels",
             "mock-details": "ds-details",
             "mock-hashtag": "ds-hashtag",
-            "mock-search": "ds-search",
+            "mock-keyword": "ds-keyword",
         }
 
     def request_json(
@@ -286,14 +292,15 @@ class FixtureTransport:
             }
         )
 
+        if method == "POST" and url == f"{API_BASE}{KEYWORD_ACTOR_RUNS_PATH}":
+            return {"data": {"id": "mock-keyword", "status": "READY", "defaultDatasetId": "ds-keyword"}}
+
         runs_url = f"{API_BASE}{ACTOR_RUNS_PATH}"
         if method == "POST" and url == runs_url:
             body = json_body or {}
             results_type = body.get("resultsType")
             urls = body.get("directUrls") or []
-            if "search" in body:
-                run_id = "mock-search"
-            elif results_type == "reels" and any("/explore/tags/" in url for url in urls):
+            if results_type == "reels" and any("/explore/tags/" in url for url in urls):
                 run_id = "mock-hashtag"
             else:
                 run_id = "mock-reels" if results_type == "reels" else "mock-details"

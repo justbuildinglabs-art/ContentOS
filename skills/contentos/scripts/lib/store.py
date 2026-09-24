@@ -56,7 +56,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # 0.5.0: creator discovery (lib/discover.py; design spec, "0.5.0 changes").
     "discover_reels_per_hashtag": 30,
     "discover_candidates": 25,
-    "discover_min_followers": 1000,
+    # 0.6.0: the success bar (design spec, "0.6.0 changes").
+    "discover_min_followers": 10000,
+    "discover_shortlist": 20,
+    "discover_min_views": 5000,
+    "discover_post_every_days": 14,
 }
 
 TRANSCRIPT_MODES = ("auto", "local", "apify", "off")
@@ -68,7 +72,7 @@ TRANSCRIPT_MODES = ("auto", "local", "apify", "off")
 # list up to `briefs`).
 _COUNT_KEYS_ALLOWING_ZERO = (
     "max_format_briefs", "carry_weeks", "fill_ideas",
-    # 0.5.0: 0 keeps every keyword and web candidate, whatever its size.
+    # 0.6.0: 0 turns the follower floor off for every source.
     "discover_min_followers",
 )
 
@@ -105,6 +109,8 @@ _NUMERIC_CONFIG_KEYS = tuple(
 _INT_CONFIG_KEYS = (
     "discover_reels_per_hashtag",
     "discover_candidates",
+    "discover_shortlist",
+    "discover_post_every_days",
     "reels_per_account",
     "min_reels_for_median",
     "top_k_videos",
@@ -125,6 +131,7 @@ _GITIGNORE_LINES = (
     "runs/*/frames/",
     "runs/*/prompts/",
     "setup-answers.json",
+    "ui-session.json",
 )
 
 _RUN_MODES = ("live", "mock")
@@ -218,6 +225,11 @@ def _validate_config(config: Dict[str, Any]) -> None:
 
     if not 1 <= config["qa_pass_threshold"] <= 10:
         raise ConfigError("qa_pass_threshold must be between 1 and 10")
+
+    # Below 6 days the bar asks for more reels than the 15 discovery
+    # scrapes per creator (90 // days); every week is the panel's finest step.
+    if not 7 <= config["discover_post_every_days"] <= 90:
+        raise ConfigError("discover_post_every_days must be a whole number from 7 to 90")
 
     if not 0 < config["length_tolerance"] <= 1:
         raise ConfigError("length_tolerance must be greater than 0 and at most 1")
@@ -313,8 +325,41 @@ def load_discovery_config(project: Path) -> Dict[str, Any]:
             raise ConfigError("invalid .contentos/config.json: must be a JSON object")
         config.update(overrides)
     # Validate everything else exactly as load_config does.
-    _validate_config(dict(config, competitors=config.get("competitors") or ["_"]))
+    check_discovery_config(config)
     return config
+
+
+def check_discovery_config(config: Dict[str, Any]) -> None:
+    """Validate a discovery config: `load_config`'s checks, minus the competitor rule.
+
+    Discovery is how a creator finds competitors, so an empty or absent
+    `competitors` list is fine here. Used by `load_discovery_config` and by
+    the control panel, which checks the dials it is sent (0.6.0).
+    """
+    _validate_config(dict(config, competitors=config.get("competitors") or ["_"]))
+
+
+def update_config_keys(project: Path, updates: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge `updates` into an existing `config.json`, validated first (0.6.0).
+
+    The panel's "Remember these settings" writes its dials here. Every
+    other key in the file is kept, including keys ContentOS does not know.
+    Raises ConfigError, and writes nothing, when the file is missing,
+    unreadable, or the merged config fails validation.
+    """
+    config_path = contentos_dir(project) / "config.json"
+    if not config_path.exists():
+        raise ConfigError("no .contentos/config.json; run: /contentos setup")
+    try:
+        existing = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ConfigError(f"invalid .contentos/config.json: {exc}") from exc
+    if not isinstance(existing, dict):
+        raise ConfigError("invalid .contentos/config.json: must be a JSON object")
+    merged = dict(existing, **updates)
+    _validate_config(dict(copy.deepcopy(DEFAULT_CONFIG), **merged))
+    write_json_atomic(config_path, merged)
+    return merged
 
 
 def new_run_id(now: Optional[datetime] = None) -> str:
@@ -363,18 +408,30 @@ def resolve_run(project: Path, ref: str) -> Path:
     return candidate
 
 
-def write_json_atomic(path: Path, obj: Any) -> None:
+def write_json_atomic(path: Path, obj: Any, mode: Optional[int] = None) -> None:
     """Write `obj` as JSON to `path` without ever leaving a partial file.
 
     Creates `path`'s parent directories if needed, writes to a `.tmp`
     sibling in the same directory, then `os.replace`s it into place, so
-    a reader never observes a half-written file.
+    a reader never observes a half-written file. `mode` (such as 0o600
+    for a file holding a secret) is set on the temp file before anything
+    is written to it, whatever the umask allowed. A stale temp file left
+    behind by an earlier crash is removed first, so its old permissions
+    and contents are never reused.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(path.name + ".tmp")
     text = json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
-    tmp_path.write_text(text, encoding="utf-8")
+    if mode is None:
+        tmp_path.write_text(text, encoding="utf-8")
+    else:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), mode)
+            handle.write(text)
     os.replace(tmp_path, path)
 
 
