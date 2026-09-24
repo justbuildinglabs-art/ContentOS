@@ -695,11 +695,30 @@ class Pass1Tests(NoNetworkTestCase):
         self.assertIsNone(discover.pass1_reason(self._row(latest=old_pin_new_reel), CFG, NOW))
         new_pin_old_reel = [_post("2026-09-15", pinned=True), _post("2026-07-01")]
         self.assertEqual(discover.pass1_reason(self._row(latest=new_pin_old_reel), CFG, NOW), "no reel in 30 days")
-        photos_only = [_post("2026-09-14", reel=False)]
+        photos_only = [_post("2026-09-14", reel=False), _post("2026-08-07", reel=False)]
         self.assertEqual(discover.pass1_reason(self._row(latest=photos_only), CFG, NOW), "no reel in 30 days")
 
     def test_missing_latest_posts_skips_the_activity_check(self) -> None:
         self.assertIsNone(discover.pass1_reason(self._row(latest=[]), CFG, NOW))
+
+    def test_a_daily_carousel_poster_is_left_to_pass_2(self) -> None:
+        # 12 photos, 0 to 11 days old: the latest posts never reach back 30 days.
+        carousels = [_post(f"2026-09-{day:02d}", reel=False) for day in range(15, 3, -1)]
+        self.assertEqual(len(carousels), 12)
+        self.assertIsNone(discover.pass1_reason(self._row(latest=carousels), CFG, NOW))
+
+    def test_posts_reaching_back_40_days_with_no_reel_are_inactive(self) -> None:
+        days = ("2026-09-15", "2026-09-12", "2026-09-09", "2026-09-06", "2026-09-03", "2026-08-31",
+                "2026-08-28", "2026-08-25", "2026-08-21", "2026-08-17", "2026-08-12", "2026-08-06")
+        photos = [_post(day, reel=False) for day in days]
+        self.assertEqual(discover._days_ago(photos[-1]["timestamp"], NOW), 40)
+        self.assertEqual(discover.pass1_reason(self._row(latest=photos), CFG, NOW), "no reel in 30 days")
+
+    def test_pinned_posts_do_not_count_toward_30_days(self) -> None:
+        old_pinned_photo = [_post("2026-01-01", reel=False, pinned=True), _post("2026-09-14", reel=False)]
+        self.assertIsNone(discover.pass1_reason(self._row(latest=old_pinned_photo), CFG, NOW))
+        undated_post = [dict(_post("2026-09-14", reel=False)), dict(_post("2026-01-01", reel=False), timestamp=None)]
+        self.assertIsNone(discover.pass1_reason(self._row(latest=undated_post), CFG, NOW))
 
 
 class ExpansionTests(NoNetworkTestCase):

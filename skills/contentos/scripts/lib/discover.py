@@ -362,22 +362,21 @@ def _days_ago(timestamp: Any, now: datetime) -> int:
 def pass1_reason(row: Dict[str, Any], cfg: Dict[str, Any], now: datetime) -> Optional[str]:
     """Why a checked profile stops at pass 1, or None when it goes on.
 
-    The follower floor applies to every source (0 turns it off). When the
-    details run returned `latestPosts`, an account needs an unpinned reel
-    from the last 30 days; with no `latestPosts`, pass 2 decides activity.
+    The follower floor applies to every source (0 turns it off). An account
+    is called inactive only when its unpinned `latestPosts` cover the whole
+    30 days (one of them is more than 30 days old) and none of its unpinned
+    reels is from the last 30 days. `latestPosts` is the last 12 posts of
+    any kind, so a daily carousel poster's newest reel can sit just past
+    them: when the posts do not reach back 30 days, pass 2 decides activity.
     """
     floor = cfg["discover_min_followers"]
     if (row.get("followers") or 0) < floor:
         return f"under {_count(floor)} followers"
-    latest = row.get("latest_posts") or []
-    if latest:
-        recent = [
-            post for post in latest
-            if post["is_reel"] and not post["is_pinned"] and post["timestamp"]
-            and _days_ago(post["timestamp"], now) <= ACTIVE_DAYS
-        ]
-        if not recent:
-            return REASON_NO_RECENT_REEL
+    dated = [post for post in row.get("latest_posts") or [] if not post["is_pinned"] and post["timestamp"]]
+    covers_window = any(_days_ago(post["timestamp"], now) > ACTIVE_DAYS for post in dated)
+    recent_reel = any(post["is_reel"] and _days_ago(post["timestamp"], now) <= ACTIVE_DAYS for post in dated)
+    if covers_window and not recent_reel:
+        return REASON_NO_RECENT_REEL
     return None
 
 
