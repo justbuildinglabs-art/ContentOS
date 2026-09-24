@@ -226,8 +226,8 @@ def _validate_config(config: Dict[str, Any]) -> None:
     if not 1 <= config["qa_pass_threshold"] <= 10:
         raise ConfigError("qa_pass_threshold must be between 1 and 10")
 
-    # Below 7 days the bar asks for more reels than the 15 discovery
-    # scrapes per creator (90 // days), so nobody could pass.
+    # Below 6 days the bar asks for more reels than the 15 discovery
+    # scrapes per creator (90 // days); every week is the panel's finest step.
     if not 7 <= config["discover_post_every_days"] <= 90:
         raise ConfigError("discover_post_every_days must be a whole number from 7 to 90")
 
@@ -415,7 +415,9 @@ def write_json_atomic(path: Path, obj: Any, mode: Optional[int] = None) -> None:
     sibling in the same directory, then `os.replace`s it into place, so
     a reader never observes a half-written file. `mode` (such as 0o600
     for a file holding a secret) is set on the temp file before anything
-    is written to it, whatever the umask or a stale temp file allowed.
+    is written to it, whatever the umask allowed. A stale temp file left
+    behind by an earlier crash is removed first, so its old permissions
+    and contents are never reused.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -424,7 +426,9 @@ def write_json_atomic(path: Path, obj: Any, mode: Optional[int] = None) -> None:
     if mode is None:
         tmp_path.write_text(text, encoding="utf-8")
     else:
-        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+        if tmp_path.exists():
+            tmp_path.unlink()
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             os.fchmod(handle.fileno(), mode)
             handle.write(text)

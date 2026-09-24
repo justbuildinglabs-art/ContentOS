@@ -305,9 +305,9 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --open \
    - `"saved": true` during setup: the picks are in
      `.contentos/discovery-picks.json`. Put them in `competitors` in the
      answers file, after the handles the creator typed.
-   - `"saved": false`: nothing changed. Say so, and offer the chat steps.
+   - `"saved": false`: no picks were saved and the watch list did not change. Say so, and offer the chat steps.
    - There is no `RESULT` line: the panel stopped before the creator saved
-     or closed it (or it could not start), so nothing was saved. Say so in
+     or closed it (or it could not start), so no picks were saved. Say so in
      one line, and offer to open it again or to use the chat steps.
 
 ### Discovery in the chat
@@ -715,6 +715,8 @@ On exit 5, read the message before you act:
   `python3 "$CONTENTOS_ROOT/scripts/contentos.py" research --project "$PWD" --yes --resume <run_id>`
 - It says the Apify run ended FAILED or ABORTED. That run is dead and resuming
   only polls it forever. Start a new research run instead, and say why.
+- It came from `discover`: there is no run to resume, and nothing was written.
+  Say Apify failed, and offer to run discovery again.
 
 Two more worth knowing:
 

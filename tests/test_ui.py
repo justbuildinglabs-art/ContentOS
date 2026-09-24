@@ -685,6 +685,12 @@ class PageTests(NoNetworkTestCase):
                 self.assertIn(phrase, text)
         self.assertNotIn('row.last_post_days + " days ago"', text)
 
+    def test_the_save_note_covers_saving_before_setup(self) -> None:
+        # Before setup, Save writes discovery-picks.json rather than the
+        # watch list, so the note has to say so instead of claiming a
+        # watch list update that did not happen.
+        self.assertIn("for your setup", self._page())
+
 
 if __name__ == "__main__":
     unittest.main()

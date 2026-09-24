@@ -389,7 +389,8 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
   function save() {
     $("save-error").textContent = "";
     api("POST", "/api/save", { picks: picks() }).then(function (data) {
-      finish("Saved " + data.picks.length + " to your watch list. You can close this tab and go back to Claude.");
+      var target = data.picks_path ? "for your setup" : "to your watch list";
+      finish("Saved " + data.picks.length + " " + target + ". You can close this tab and go back to Claude.");
     }).catch(function (error) { $("save-error").textContent = error.message; });
   }
 

@@ -79,6 +79,28 @@ class WriteJsonAtomicTests(NoNetworkTestCase):
             self.assertEqual(read_json(target), {"url": "http://127.0.0.1:1/#t=secret"})
             self.assertFalse(stale.exists())
 
+    def test_a_mode_write_never_reuses_a_stale_tmp_files_inode(self) -> None:
+        # Resolution: O_TRUNC opened the stale .tmp file in place, reusing
+        # its inode, so a reader that already had that file open would see
+        # the new bytes land underneath it mid-write. Removing the stale
+        # file first and creating a fresh one with O_EXCL means an old
+        # handle keeps reading the old (now unlinked) inode's content.
+        with temp_project() as project_dir:
+            target = project_dir / "session.json"
+            stale = target.with_name(target.name + ".tmp")
+            stale.write_text("stale", encoding="utf-8")
+            os.chmod(stale, 0o644)
+            handle = open(stale, "r", encoding="utf-8")
+            try:
+                write_json_atomic(target, {"token": "new"}, mode=0o600)
+
+                self.assertEqual(handle.read(), "stale")
+            finally:
+                handle.close()
+
+            self.assertEqual(read_json(target), {"token": "new"})
+            self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o600)
+
 
 class LoadConfigTests(NoNetworkTestCase):
     def test_load_config_merges_defaults(self) -> None:
