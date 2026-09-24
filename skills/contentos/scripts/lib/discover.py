@@ -50,6 +50,14 @@ MAX_WEB_HANDLES = 40
 ACTIVE_DAYS = 30
 REASON_NO_RECENT_REEL = "no reel in 30 days"
 _CAPTION_TAG_RE = re.compile(r"#(\w+)")
+# A niche word is a run of letters and digits; underscores split words.
+_NICHE_WORD_RE = re.compile(r"[^\W_]+")
+# Words a keyword phrase can do without (design spec, "0.6.0 changes",
+# Who counts as successful).
+NICHE_FILLER_WORDS = frozenset({
+    "a", "an", "and", "or", "the", "for", "of", "to", "in", "on", "at", "by", "with", "from",
+    "your", "you", "my", "our", "how", "what", "is", "are",
+})
 KEYWORD_REELS_PER_TERM = 20
 EXPAND_LIMIT = 15
 REELS_PER_ACCOUNT = 15
@@ -318,25 +326,57 @@ def profile_status(
     return instagram.STATUS_PRIVATE if row["private"] else instagram.STATUS_OK
 
 
+def _niche_words(value: Any) -> List[str]:
+    """The lowercase runs of letters and digits in `value`, in any script."""
+    return _NICHE_WORD_RE.findall(value.lower()) if isinstance(value, str) else []
+
+
+def _has_word(word: str, searched: Set[str]) -> bool:
+    """True when one phrase word, or a form of it, is among the searched words.
+
+    A word of 4 characters or fewer matches itself or itself plus `s`
+    (`ai`, `n8n`, `meal` and `meals`). A longer word matches any searched
+    word that starts with its first `max(4, len(word) - 3)` characters
+    (`automation` matches automate and automations, `agents` matches agent).
+    """
+    if len(word) <= 4:
+        return word in searched or word + "s" in searched
+    stem = word[:max(4, len(word) - 3)]
+    return any(found.startswith(stem) for found in searched)
+
+
 def niche_matcher(keywords: List[str], hashtags: List[str]) -> Callable[..., bool]:
     """Build `is_niche(text, tags=None)`: a keyword phrase or a niche hashtag is present.
 
-    Phrases match case-insensitively on word boundaries with any run of
-    spaces between words. Hashtags match whole, from the tag list or from
-    `#tags` inside the text. With no terms at all, nothing matches.
+    A phrase matches by its words, not as an exact phrase. Words are
+    lowercase runs of letters and digits (underscores split them). Each of
+    the phrase's words, leaving out `NICHE_FILLER_WORDS`, must be among the
+    words searched: the text's words plus the words of every tag in
+    `tags`, in any order and anywhere. A phrase word of 4 characters or
+    fewer matches itself or itself plus `s`; a longer one matches any word
+    that starts with its first `max(4, len(word) - 3)` characters
+    (`_has_word`). So `ai agents for business` matches "I help businesses
+    automate with AI agents". A phrase left with no words never matches.
+    A niche hashtag matches whole, from the tag list or from `#tags` inside
+    the text. With no terms at all, nothing matches.
     """
-    patterns = [
-        re.compile(r"\b" + r"\s+".join(map(re.escape, keyword.split())) + r"\b", re.IGNORECASE)
-        for keyword in keywords
-        if keyword.split()
+    phrases = [
+        words
+        for words in ([word for word in _niche_words(keyword) if word not in NICHE_FILLER_WORDS]
+                      for keyword in keywords)
+        if words
     ]
     wanted = {tag.lower() for tag in hashtags}
 
     def is_niche(text: Any, tags: Any = None) -> bool:
         body = text if isinstance(text, str) else ""
-        if any(pattern.search(body) for pattern in patterns):
+        tag_list = [tag for tag in (tags if isinstance(tags, list) else []) if isinstance(tag, str)]
+        searched = set(_niche_words(body))
+        for tag in tag_list:
+            searched.update(_niche_words(tag))
+        if any(all(_has_word(word, searched) for word in words) for words in phrases):
             return True
-        found = {tag.lstrip("#").lower() for tag in (tags if isinstance(tags, list) else []) if isinstance(tag, str)}
+        found = {tag.lstrip("#").lower() for tag in tag_list}
         found.update(tag.lower() for tag in _CAPTION_TAG_RE.findall(body))
         return bool(wanted & found)
 

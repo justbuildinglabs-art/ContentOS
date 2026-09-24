@@ -682,6 +682,52 @@ class NicheTests(NoNetworkTestCase):
         self.assertFalse(discover.latest_niche_hit(
             {"bio": "Slow living", "latest_posts": [{"caption": "Sunday reset", "hashtags": []}]}, is_niche))
 
+    # Design spec, "0.6.0 changes" (Who counts as successful): a keyword
+    # phrase matches when all its words are there, in any order or form.
+    def test_every_word_of_a_phrase_must_be_there(self) -> None:
+        is_niche = discover.niche_matcher(["ai agents for business"], [])
+        self.assertTrue(is_niche("AI Agents and Automation for your business"))
+        self.assertTrue(is_niche("I help businesses automate with AI agents"))
+        self.assertFalse(is_niche("Helping You Master AI Agents"))
+
+    def test_longer_words_match_their_forms_and_short_ones_stand_alone(self) -> None:
+        is_niche = discover.niche_matcher(["ai automation"], [])
+        self.assertTrue(is_niche("Learn AI, Automations in 60 seconds"))
+        self.assertTrue(is_niche("Automate your ads, business and life with AI"))
+        self.assertFalse(is_niche("AIautomation tips"))
+        self.assertFalse(is_niche("We're so back #CanvaWorldTour"))
+
+    def test_tags_count_as_words(self) -> None:
+        is_niche = discover.niche_matcher(["n8n automation"], [])
+        self.assertTrue(is_niche("Build this workflow", ["n8n", "automation"]))
+        self.assertFalse(is_niche("n8n tips"))
+
+    def test_a_short_word_takes_only_a_plural_s(self) -> None:
+        is_niche = discover.niche_matcher(["meal prep for beginners"], [])
+        self.assertTrue(is_niche("Meal prep ideas for a beginner"))
+        self.assertFalse(is_niche("meals prepped"))
+
+    def test_word_order_does_not_matter(self) -> None:
+        is_niche = discover.niche_matcher(["habit coach"], [])
+        self.assertTrue(is_niche("coaching habits daily"))
+        self.assertTrue(is_niche("Habit coach tip"))
+
+    def test_filler_only_phrases_and_no_terms_never_match(self) -> None:
+        self.assertFalse(discover.niche_matcher(["how to"], [])("how to do anything, how to"))
+        self.assertFalse(discover.niche_matcher([], [])("how to do anything", ["anything"]))
+
+    def test_letters_beyond_ascii_are_words(self) -> None:
+        self.assertTrue(discover.niche_matcher(["café tips"], [])("Best café tips in town"))
+
+    def test_both_passes_match_by_words(self) -> None:
+        is_niche = discover.niche_matcher(["n8n automation"], [])
+        self.assertTrue(discover.latest_niche_hit(
+            {"bio": "", "latest_posts": [{"caption": "Build this workflow", "hashtags": ["n8n", "automation"]}]},
+            is_niche))
+        reels = [_reel("N1", "2026-09-10", 1000, caption="Automating invoices with n8n"),
+                 _reel("N2", "2026-09-09", 1000, caption="n8n tips")]
+        self.assertEqual(discover.measure(reels, NOW, is_niche)["niche_hits"], 1)
+
 
 def _post(day: str, reel: bool = True, pinned: bool = False) -> Dict[str, Any]:
     return {"timestamp": f"{day}T12:00:00+00:00", "is_reel": reel, "is_pinned": pinned,

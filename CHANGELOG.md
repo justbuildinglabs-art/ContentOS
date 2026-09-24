@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.contentos/discovery.json` is now version 2, with tiers, the numbers
   behind each creator, what was left out and why, and the reels beating
   their creators' own average this month.
+- Your search phrases also mark which accounts are in your niche. A phrase
+  counts when all its words appear in a bio, caption, or hashtag, in any
+  order or form, so `ai agents for business` matches "I help businesses
+  automate with AI agents". Small words like "for" and "your" are skipped.
 - The paid partnership filter also catches a brand's own partner tag, such
   as #higgsfieldpartner, #lovablepartner, or #replitpartners. Generic tags
   like #gympartner, #twitchpartner, or #studentambassador still pass.
