@@ -149,6 +149,8 @@ def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, str]], List[s
         doc = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise DiscoverError(f"could not read --handles-file {path}: {exc}") from exc
+    if not isinstance(doc, list):
+        raise DiscoverError(f"--handles-file {path} must be a JSON list of {{handle, source_url}}")
     return normalize_web_entries(doc)
 
 

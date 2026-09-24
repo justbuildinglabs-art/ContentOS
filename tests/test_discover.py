@@ -574,6 +574,16 @@ class DiscoverGateTests(NoNetworkTestCase):
             code, _out, _err = _main(self._args(project, "--handles-file", str(bad), "--mock", "--yes"))
         self.assertEqual(code, codes.EXIT_USAGE)
 
+    def test_a_handles_file_that_is_not_a_list_names_the_file(self) -> None:
+        with temp_project() as project:
+            bad = Path(project) / "web.json"
+            bad.write_text('{"handle": "webwillow"}', encoding="utf-8")
+            code, _out, err = _main(self._args(project, "--handles-file", str(bad), "--mock", "--yes"))
+            self.assertFalse(discover.discovery_path(project).exists())
+        self.assertEqual(code, codes.EXIT_USAGE)
+        self.assertIn(str(bad), err)
+        self.assertIn("must be a JSON list", err)
+
 
 class KeywordInputUrlTests(NoNetworkTestCase):
     def test_phrase_from_a_keyword_url(self) -> None:

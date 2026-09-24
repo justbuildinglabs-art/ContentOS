@@ -291,19 +291,24 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --open \
 
    Leave off any flag you have nothing for. `--open` opens the page in the
    creator's browser.
-2. **Hand over the link.** Read `.contentos/ui-session.json` and give the
-   creator its `url` as a link, in case the browser did not open. If the file
-   is not there yet, wait a few seconds and read it again. Say what to do:
-   check the settings, press Run, tick the creators to keep, then Save. Never
-   paste the page's contents into the chat.
+2. **Hand over the link.** The command prints `UI <url>` first. Read that
+   line from the command's output and give the creator the url as a link, in
+   case the browser did not open. If the line is not there yet, wait a few
+   seconds and read the output again. `.contentos/ui-session.json` holds the
+   same `url` while the panel is open, as a fallback. Say what to do: check
+   the settings, press Run, tick the creators to keep, then Save. Never paste
+   the page's contents into the chat.
 3. **Wait for it to finish.** You are told when the command exits. Its last
-   line is `RESULT {...}`:
+   line is usually `RESULT {...}`:
    - `"saved": true` in a project that is set up: the picks are already in
      the watch list. Name them and offer `/contentos run`.
    - `"saved": true` during setup: the picks are in
      `.contentos/discovery-picks.json`. Put them in `competitors` in the
      answers file, after the handles the creator typed.
    - `"saved": false`: nothing changed. Say so, and offer the chat steps.
+   - There is no `RESULT` line: the panel stopped before the creator saved
+     or closed it (or it could not start), so nothing was saved. Say so in
+     one line, and offer to open it again or to use the chat steps.
 
 ### Discovery in the chat
 
@@ -348,9 +353,13 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" accounts --project "$PWD" \
    accounts. Without it the current format accounts stay. `accounts` changes
    the two account lists in `config.json` and `creator.md` and nothing else.
 
-When `candidates` is empty, say so and offer other phrases, a wider web
-search, or lower settings. `--mock` runs discovery off sample data with no
-key and no spend.
+When `partial` is true in `discovery.json`, discovery ran out of time. The
+accounts it did not reach are left out as "not checked in time" or "not
+measured in time", never as not found or as missing the bar. Say so in one
+line, and offer to run it again to finish them before you change anything.
+When `candidates` is empty after a run that was not partial, say so and
+offer other phrases, a wider web search, or lower settings. `--mock` runs
+discovery off sample data with no key and no spend.
 
 ## Paid partnerships
 

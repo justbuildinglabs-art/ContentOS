@@ -736,6 +736,13 @@ class DiscoveryFlowTests(NoNetworkTestCase):
             "in the answers file, after the handles the creator typed", flow
         )
 
+    def test_a_partial_run_is_explained_and_run_again(self) -> None:
+        flow = _collapse(self._flow())
+        for phrase in ('"not checked in time"', '"not measured in time"', "run it again",
+                       "never as not found"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flow)
+
 
 class CreatorRenameTests(NoNetworkTestCase):
     def test_skill_and_readme_have_no_product_leftovers(self) -> None:
@@ -759,6 +766,23 @@ class ControlPanelSkillTests(NoNetworkTestCase):
         for phrase in ("ui-session.json", "discovery-picks.json", '"saved": false', "--open"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, body)
+
+    @staticmethod
+    def _panel() -> str:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        return _collapse(body.split("### The control panel", 1)[1].split("### Discovery in the chat", 1)[0])
+
+    def test_the_link_comes_from_the_ui_line_first(self) -> None:
+        panel = self._panel()
+        self.assertIn("`UI <url>`", panel)
+        self.assertIn("as a fallback", panel)
+        self.assertLess(panel.index("`UI <url>`"), panel.index("ui-session.json"))
+
+    def test_an_exit_with_no_result_line_is_explained(self) -> None:
+        panel = self._panel()
+        for phrase in ("no `RESULT` line", "stopped before", "open it again", "chat steps"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, panel)
 
 
 class DiscoveryReleaseNoteTests(NoNetworkTestCase):
@@ -784,6 +808,15 @@ class DiscoveryReleaseNoteTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, changelog)
         self.assertIn("discover_min_followers: 1000", readme)
+
+    def test_changelog_states_what_the_fix_wave_changed_for_creators(self) -> None:
+        changelog = self._changelog_060()
+        for phrase in (
+            "7 to 90 days", "#twitchpartner", '"not checked in time"', '"not measured in time"',
+            "instead of \"not found\"", "Reloading the control panel keeps your search",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, changelog)
 
 
 if __name__ == "__main__":

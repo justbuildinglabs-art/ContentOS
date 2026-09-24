@@ -235,12 +235,12 @@ class HttpTransport:
 class FixtureTransport:
     """Deterministic transport for `--mock`: no network touched.
 
-    Answers exactly the four Apify routes the research stage calls --
-    starting a run (branching on the input's `resultsType`), polling a
-    run to `SUCCEEDED`, paging a dataset's items, and checking a token
-    -- and raises `http.HTTPError(404, ...)` for anything else. Every
-    call is recorded in `.calls` regardless of route. 0.6.0 also answers
-    the keyword actor route.
+    Answers the Apify routes research and discovery call -- starting a
+    run (branching on the input's `resultsType`, plus 0.6.0's keyword
+    actor), polling a run to `SUCCEEDED`, paging a dataset's items, and
+    checking a token -- and raises `http.HTTPError(404, ...)` for
+    anything else. Every call is recorded in `.calls` regardless of
+    route.
 
     Polling sequences (RUNNING -> SUCCEEDED, or a FAILED/TIMED-OUT run)
     need more than this fixture answers in one canned shot -- a run's
