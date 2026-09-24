@@ -746,11 +746,14 @@ class DiscoverConfigTests(NoNetworkTestCase):
     def test_rejects_bad_discover_values(self) -> None:
         bad = [
             ({"discover_shortlist": 0}, "discover_shortlist"),
+            ({"discover_shortlist": -1}, "discover_shortlist"),
             ({"discover_shortlist": 2.5}, "discover_shortlist"),
             ({"discover_shortlist": True}, "discover_shortlist"),
             ({"discover_min_views": 0}, "discover_min_views"),
+            ({"discover_min_views": -1}, "discover_min_views"),
             ({"discover_min_views": "5000"}, "discover_min_views"),
             ({"discover_post_every_days": 0}, "discover_post_every_days"),
+            ({"discover_post_every_days": 6}, "discover_post_every_days"),
             ({"discover_post_every_days": 91}, "discover_post_every_days"),
             ({"discover_post_every_days": 7.5}, "discover_post_every_days"),
             ({"discover_min_followers": -1}, "discover_min_followers"),
@@ -762,6 +765,19 @@ class DiscoverConfigTests(NoNetworkTestCase):
                 with self.assertRaises(ConfigError) as ctx:
                     load_discovery_config(project)
                 self.assertIn(key, str(ctx.exception))
+
+    def test_the_cadence_dial_runs_from_7_to_90(self) -> None:
+        # Below 7 the bar needs more reels than the 15 scraped per creator.
+        for days in (7, 90):
+            with self.subTest(days=days), temp_project() as project:
+                _write_config(project, {"discover_post_every_days": days})
+                self.assertEqual(load_discovery_config(project)["discover_post_every_days"], days)
+        for days in (6, 91):
+            with self.subTest(days=days), temp_project() as project:
+                _write_config(project, {"discover_post_every_days": days})
+                with self.assertRaises(ConfigError) as ctx:
+                    load_discovery_config(project)
+                self.assertEqual(str(ctx.exception), "discover_post_every_days must be a whole number from 7 to 90")
 
     def test_min_views_may_be_a_fraction(self) -> None:
         with temp_project() as project:

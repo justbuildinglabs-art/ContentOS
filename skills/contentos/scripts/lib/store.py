@@ -226,8 +226,10 @@ def _validate_config(config: Dict[str, Any]) -> None:
     if not 1 <= config["qa_pass_threshold"] <= 10:
         raise ConfigError("qa_pass_threshold must be between 1 and 10")
 
-    if not config["discover_post_every_days"] <= 90:
-        raise ConfigError("discover_post_every_days must be a whole number from 1 to 90")
+    # Below 7 days the bar asks for more reels than the 15 discovery
+    # scrapes per creator (90 // days), so nobody could pass.
+    if not 7 <= config["discover_post_every_days"] <= 90:
+        raise ConfigError("discover_post_every_days must be a whole number from 7 to 90")
 
     if not 0 < config["length_tolerance"] <= 1:
         raise ConfigError("length_tolerance must be greater than 0 and at most 1")
