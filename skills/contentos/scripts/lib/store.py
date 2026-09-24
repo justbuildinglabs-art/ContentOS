@@ -408,18 +408,26 @@ def resolve_run(project: Path, ref: str) -> Path:
     return candidate
 
 
-def write_json_atomic(path: Path, obj: Any) -> None:
+def write_json_atomic(path: Path, obj: Any, mode: Optional[int] = None) -> None:
     """Write `obj` as JSON to `path` without ever leaving a partial file.
 
     Creates `path`'s parent directories if needed, writes to a `.tmp`
     sibling in the same directory, then `os.replace`s it into place, so
-    a reader never observes a half-written file.
+    a reader never observes a half-written file. `mode` (such as 0o600
+    for a file holding a secret) is set on the temp file before anything
+    is written to it, whatever the umask or a stale temp file allowed.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(path.name + ".tmp")
     text = json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
-    tmp_path.write_text(text, encoding="utf-8")
+    if mode is None:
+        tmp_path.write_text(text, encoding="utf-8")
+    else:
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), mode)
+            handle.write(text)
     os.replace(tmp_path, path)
 
 

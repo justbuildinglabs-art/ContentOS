@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -62,6 +64,20 @@ class WriteJsonAtomicTests(NoNetworkTestCase):
             self.assertEqual(list(target.parent.iterdir()), [target])
             self.assertEqual(read_json(target), payload)
             self.assertTrue(target.read_text(encoding="utf-8").endswith("\n"))
+
+    def test_a_mode_keeps_the_file_private_from_the_start(self) -> None:
+        with temp_project() as project_dir:
+            target = project_dir / "session.json"
+            # A stale temp file left readable must not leak its mode to the new file.
+            stale = target.with_name(target.name + ".tmp")
+            stale.write_text("old", encoding="utf-8")
+            os.chmod(stale, 0o644)
+
+            write_json_atomic(target, {"url": "http://127.0.0.1:1/#t=secret"}, mode=0o600)
+
+            self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o600)
+            self.assertEqual(read_json(target), {"url": "http://127.0.0.1:1/#t=secret"})
+            self.assertFalse(stale.exists())
 
 
 class LoadConfigTests(NoNetworkTestCase):

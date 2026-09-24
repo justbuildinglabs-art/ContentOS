@@ -1,11 +1,17 @@
 """Tests for `lib/ui.py`: the discovery control panel's API, server loop, and page."""
 from __future__ import annotations
 
+import functools
+import inspect
 import json
 import os
 import re
+import signal
+import stat
+import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from http.server import ThreadingHTTPServer
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -31,6 +37,15 @@ def _write_config(project: Path, config: Dict[str, Any]) -> None:
     config_dir = store.contentos_dir(project)
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+
+def _set_up_project(project: Path, config: Dict[str, Any]) -> None:
+    """A project `setup` has run on: both `config.json` and `creator.md` exist."""
+    _write_config(project, config)
+    handles = "\n".join(f"- {handle}" for handle in config.get("competitors", []))
+    (store.contentos_dir(project) / "creator.md").write_text(
+        f"# Creator\n\n## Competitors\n{handles}\n", encoding="utf-8"
+    )
 
 
 def _app(project: Path, **overrides: Any) -> ui.App:
@@ -85,6 +100,53 @@ class GuardTests(NoNetworkTestCase):
             app = _app(project)
             self.assertEqual(_call(app, "GET", "/api/nope")[0], 404)
             self.assertEqual(_call(app, "GET", "/api/run")[0], 405)
+
+    def test_only_accepted_requests_keep_the_panel_awake(self) -> None:
+        now = {"t": 0.0}
+        with temp_project() as project:
+            app = _app(project, clock=lambda: now["t"])
+            now["t"] = 10.0
+            app.handle("GET", "/", {"host": "evil.example:80"}, b"")
+            _call(app, "GET", "/api/state", headers={"host": "evil.example:80", "x-contentos-token": TOKEN})
+            _call(app, "GET", "/api/state", headers={"host": f"127.0.0.1:{PORT}"})
+            _call(app, "GET", "/api/state", headers=dict(HOST, **{"x-contentos-token": "wrong"}))
+            self.assertEqual(app.last_seen, 0.0)
+            now["t"] = 20.0
+            self.assertEqual(_call(app, "GET", "/api/state")[0], 200)
+            self.assertEqual(app.last_seen, 20.0)
+            now["t"] = 30.0
+            self.assertEqual(app.handle("GET", "/", {"host": f"localhost:{PORT}"}, b"").status, 200)
+            self.assertEqual(app.last_seen, 30.0)
+
+    def test_the_key_never_reaches_the_page(self) -> None:
+        secret = "apify_api_TESTSECRET123"
+        keys = env.Keys(apify=secret, source="env", warnings=[])
+
+        def mock_discover(project: Path, cfg: Dict[str, Any], _keys: Any, **kwargs: Any) -> Dict[str, Any]:
+            # The real discovery in the mock world, so no request leaves the machine.
+            return discover.run_discover(project, cfg, None, **dict(kwargs, mock=True))
+
+        with temp_project() as project:
+            _set_up_project(project, {"competitors": ["habitlab"]})
+            app = _app(project, mock=False, resolve_keys=lambda _project: keys, run_discover=mock_discover)
+            answers = [
+                app.handle("GET", "/", {"host": f"127.0.0.1:{PORT}"}, b""),
+                app.handle("GET", "/api/state", HOST, b""),
+                app.handle("POST", "/api/estimate", JSON_HEADERS, b"{}"),
+                app.handle("POST", "/api/run", JSON_HEADERS, b'{"remember": true}'),
+                app.handle("GET", "/api/status", HOST, b""),
+                app.handle("GET", "/api/discovery", HOST, b""),
+                app.handle("POST", "/api/save", JSON_HEADERS, b'{"picks": ["planwithpia"]}'),
+                app.handle("POST", "/api/close", JSON_HEADERS, b"{}"),
+                app.handle("POST", "/api/run", JSON_HEADERS, b"{}"),
+                app.handle("GET", "/api/state", {"host": f"127.0.0.1:{PORT}"}, b""),
+            ]
+            config_text = (store.contentos_dir(project) / "config.json").read_text(encoding="utf-8")
+        self.assertEqual([answer.status for answer in answers[:8]], [200, 200, 200, 202, 200, 200, 200, 409])
+        for answer in answers:
+            with self.subTest(status=answer.status):
+                self.assertNotIn(b"TESTSECRET", answer.body)
+        self.assertNotIn("TESTSECRET", config_text)
 
 
 class StateAndEstimateTests(NoNetworkTestCase):
@@ -184,7 +246,7 @@ class RunTests(NoNetworkTestCase):
 
     def test_remember_writes_the_dials_once_set_up(self) -> None:
         with temp_project() as project:
-            _write_config(project, {"competitors": ["habitlab"]})
+            _set_up_project(project, {"competitors": ["habitlab"]})
             _call(_app(project), "POST", "/api/run",
                   {"settings": {"discover_min_followers": 25000}, "remember": True})
             on_disk = store.read_json(store.contentos_dir(project) / "config.json")
@@ -211,18 +273,49 @@ class RunTests(NoNetworkTestCase):
         self.assertEqual((status["state"], status["error"]), ("error", "apify said no"))
 
     def test_save_and_close_wait_for_a_running_search(self) -> None:
+        running = "A search is running. Wait for it to finish, then save or close."
         with temp_project() as project:
             app = _app(project, runner=lambda job: None)
             self.assertEqual(_call(app, "POST", "/api/run", {})[0], 202)
-            self.assertEqual(_call(app, "POST", "/api/save", {"picks": ["planwithpia"]})[0], 409)
-            self.assertEqual(_call(app, "POST", "/api/close", {})[0], 409)
+            self.assertEqual(_call(app, "POST", "/api/save", {"picks": ["planwithpia"]}), (409, {"error": running}))
+            self.assertEqual(_call(app, "POST", "/api/close", {}), (409, {"error": running}))
         self.assertIsNone(app.finished)
+
+    def test_a_finished_panel_refuses_run_save_and_close(self) -> None:
+        finished = (409, {"error": "This panel is finished. Go back to Claude."})
+        for first, payload in (("/api/close", {}), ("/api/save", {"picks": ["planwithpia"]})):
+            with self.subTest(first=first), temp_project() as project:
+                app = _app(project)
+                self.assertEqual(_call(app, "POST", first, payload)[0], 200)
+                ended = dict(app.finished)
+                self.assertEqual(_call(app, "POST", "/api/run", {}), finished)
+                self.assertEqual(_call(app, "POST", "/api/save", {"picks": ["coachcora"]}), finished)
+                self.assertEqual(_call(app, "POST", "/api/close", {}), finished)
+                self.assertEqual(app.finished, ended)
+                self.assertEqual(app.state, "idle")
+
+    def test_run_save_and_close_check_and_change_state_under_the_lock(self) -> None:
+        for path, payload, status in (("/api/run", {}, 202), ("/api/save", {"picks": ["planwithpia"]}, 200),
+                                      ("/api/close", {}, 200)):
+            with self.subTest(path=path), temp_project() as project:
+                app = _app(project, runner=lambda job: None)
+                answers: List[Tuple[int, Any]] = []
+                worker = threading.Thread(target=lambda: answers.append(_call(app, "POST", path, payload)))
+                with app._lock:
+                    worker.start()
+                    worker.join(0.1)
+                    # The request waits for the lock before it reads or changes anything.
+                    self.assertTrue(worker.is_alive())
+                    self.assertEqual((app.state, app.finished), ("idle", None))
+                worker.join(5)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(answers[0][0], status)
 
 
 class SaveAndCloseTests(NoNetworkTestCase):
     def test_save_adds_picks_after_the_current_watch_list(self) -> None:
         with temp_project() as project:
-            _write_config(project, {"competitors": ["habitlab"], "format_accounts": ["kevbuildsapps"]})
+            _set_up_project(project, {"competitors": ["habitlab"], "format_accounts": ["kevbuildsapps"]})
             app = _app(project)
             status, data = _call(app, "POST", "/api/save", {"picks": ["@PlanWithPia", "coachcora", "habitlab"]})
             config = store.read_json(store.contentos_dir(project) / "config.json")
@@ -240,6 +333,36 @@ class SaveAndCloseTests(NoNetworkTestCase):
             self.assertFalse((store.contentos_dir(project) / "config.json").exists())
         self.assertEqual(status, 200)
         self.assertEqual(picks["picks"], ["planwithpia"])
+
+    def test_a_config_without_creator_md_is_not_set_up(self) -> None:
+        # The chat flow can write config.json before setup has run.
+        with temp_project() as project:
+            _write_config(project, {"discover_min_followers": 20000})
+            config_path = store.contentos_dir(project) / "config.json"
+            before = config_path.read_text(encoding="utf-8")
+            app = _app(project)
+            self.assertFalse(_call(app, "GET", "/api/state")[1]["set_up"])
+            self.assertEqual(_call(app, "POST", "/api/run", {"remember": True})[0], 202)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), before)
+            status, data = _call(app, "POST", "/api/save", {"picks": ["planwithpia"]})
+            picks = store.read_json(store.contentos_dir(project) / ui.PICKS_FILE_NAME)
+            after = config_path.read_text(encoding="utf-8")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["picks_path"], str(store.contentos_dir(project) / ui.PICKS_FILE_NAME))
+        self.assertEqual(picks["picks"], ["planwithpia"])
+        self.assertEqual(after, before)
+
+    def test_save_reads_the_watch_list_on_disk_at_save_time(self) -> None:
+        with temp_project() as project:
+            _set_up_project(project, {"competitors": ["habitlab"]})
+            app = _app(project)
+            # The watch list changed after the panel opened (the chat, or another save).
+            _set_up_project(project, {"competitors": ["habitlab", "chase.h.ai"]})
+            status, data = _call(app, "POST", "/api/save", {"picks": ["planwithpia"]})
+            config = store.read_json(store.contentos_dir(project) / "config.json")
+        self.assertEqual(status, 200)
+        self.assertEqual(config["competitors"], ["habitlab", "chase.h.ai", "planwithpia"])
+        self.assertEqual(data["competitors"], ["habitlab", "chase.h.ai", "planwithpia"])
 
     def test_save_needs_real_picks(self) -> None:
         with temp_project() as project:
@@ -331,6 +454,113 @@ class ServeTests(NoNetworkTestCase):
         self.assertEqual(len(opened), 1)
         self.assertTrue(opened[0].startswith(f"http://127.0.0.1:{PORT}/#t="))
 
+    def test_the_session_file_is_readable_only_by_the_creator(self) -> None:
+        modes: List[int] = []
+
+        def read_mode(_srv: _FakeServer) -> None:
+            # While serve runs, the link with the token is on disk.
+            modes.append(stat.S_IMODE(os.stat(ui.session_path(project)).st_mode))
+
+        def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+            server = _closing_factory(project, [], [])(address, handler)
+            server.steps.insert(0, read_mode)
+            return server
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                     server_factory=factory)
+        self.assertEqual(modes, [0o600])
+
+    def test_the_default_server_waits_for_its_answers(self) -> None:
+        default = inspect.signature(ui.serve).parameters["server_factory"].default
+        self.assertIs(default, ui.PanelServer)
+        self.assertTrue(issubclass(ui.PanelServer, ThreadingHTTPServer))
+        # server_close() joins the request threads, so a Save or Close answer is always sent.
+        self.assertIs(ui.PanelServer.daemon_threads, False)
+        self.assertEqual(ui._Handler.timeout, 10)
+
+    def test_the_idle_timeout_waits_for_a_running_search(self) -> None:
+        now = {"t": 0.0}
+        seen: List[Any] = []
+
+        def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+            server = _FakeServer(address, handler)
+
+            def start_search(srv: _FakeServer) -> None:
+                srv.app.state = "running"
+                now["t"] = 3601.0
+
+            def still_running(srv: _FakeServer) -> None:
+                seen.append(srv.app.finished)
+
+            def search_done(srv: _FakeServer) -> None:
+                srv.app.state = "done"
+
+            def too_far(_srv: _FakeServer) -> None:
+                raise AssertionError("serve kept going after the idle timeout")
+
+            server.steps = [start_search, still_running, search_done, too_far]
+            return server
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            result = ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                              idle_minutes=60, server_factory=factory, clock=lambda: now["t"])
+        self.assertEqual(seen, [None])
+        self.assertEqual((result["saved"], result["reason"]), (False, "idle"))
+
+    def test_sigterm_and_sighup_end_serve_and_clean_up(self) -> None:
+        names = [name for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)]
+        self.assertIn("SIGTERM", names)
+        for name in names:
+            signum = getattr(signal, name)
+            before = signal.getsignal(signum)
+            installed: List[Any] = []
+
+            def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+                server = _FakeServer(address, handler)
+
+                def signalled(_srv: _FakeServer) -> None:
+                    # What the OS would run on the main thread; no real signal is sent.
+                    stop = signal.getsignal(signum)
+                    installed.append(stop)
+                    stop(signum, None)
+
+                server.steps = [signalled]
+                return server
+
+            with self.subTest(signal=name), temp_project() as project, redirect_stdout(StringIO()):
+                with self.assertRaises(SystemExit) as ctx:
+                    ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                             server_factory=factory)
+                self.assertEqual(ctx.exception.code, 128 + signum)
+                self.assertFalse(ui.session_path(project).exists())
+                self.assertIsNot(installed[0], before)
+                self.assertEqual(signal.getsignal(signum), before)
+
+    def test_signals_are_left_alone_off_the_main_thread(self) -> None:
+        before = signal.getsignal(signal.SIGTERM)
+        during: List[Any] = []
+        errors: List[BaseException] = []
+
+        def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+            server = _closing_factory(project, [], [])(address, handler)
+            server.steps.insert(0, lambda _srv: during.append(signal.getsignal(signal.SIGTERM)))
+            return server
+
+        def serve_elsewhere() -> None:
+            try:
+                ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                         server_factory=factory)
+            except BaseException as exc:  # noqa: BLE001 - reported to the test thread
+                errors.append(exc)
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            worker = threading.Thread(target=serve_elsewhere)
+            worker.start()
+            worker.join(10)
+        self.assertEqual(errors, [])
+        self.assertEqual(during, [before])
+
 
 def _main(argv: Sequence[str]) -> Tuple[int, str, str]:
     out, err = StringIO(), StringIO()
@@ -363,11 +593,38 @@ class UiCommandTests(NoNetworkTestCase):
         self.assertEqual(json.loads(out.strip().splitlines()[-1][len("RESULT "):])["picks"], ["planwithpia"])
 
     def test_a_bad_handles_file_exits_2(self) -> None:
-        with temp_project() as project:
+        refuse = AssertionError("ui.serve must not run")
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=refuse) as serve:
             bad = Path(project) / "web.json"
             bad.write_text("{not json", encoding="utf-8")
             code, _out, _err = _main(["ui", "--project", str(project), "--handles-file", str(bad)])
         self.assertEqual(code, codes.EXIT_USAGE)
+        serve.assert_not_called()
+
+    def test_idle_minutes_must_be_more_than_0(self) -> None:
+        refuse = AssertionError("ui.serve must not run")
+        for minutes in ("0", "-5", "nan"):
+            with self.subTest(minutes=minutes), temp_project() as project, \
+                    mock.patch.object(ui, "serve", side_effect=refuse) as serve:
+                code, _out, err = _main(["ui", "--project", str(project), "--mock", "--idle-minutes", minutes])
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertIn("--idle-minutes must be more than 0", err)
+            serve.assert_not_called()
+
+    def test_a_port_that_will_not_open_exits_2(self) -> None:
+        real_serve = ui.serve
+        for port, failure in (("5055", OSError(48, "Address already in use")),
+                              ("70000", OverflowError("bind(): port must be 0-65535."))):
+            def refuse(_address: Tuple[str, int], _handler: Any, failure: BaseException = failure) -> Any:
+                raise failure
+
+            with self.subTest(port=port), temp_project() as project, \
+                    mock.patch.object(ui, "serve", functools.partial(real_serve, server_factory=refuse)):
+                code, out, err = _main(["ui", "--project", str(project), "--mock", "--port", port])
+                self.assertFalse(ui.session_path(project).exists())
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertEqual(err.strip(), f"Could not open the panel on port {port}: {failure}")
+            self.assertNotIn("RESULT", out)
 
 
 class PageTests(NoNetworkTestCase):

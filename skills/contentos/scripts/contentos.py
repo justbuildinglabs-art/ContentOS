@@ -268,7 +268,13 @@ def _ui_handler(args: argparse.Namespace) -> int:
 
     The skill runs this one command in the background, because it waits
     for the creator. `UI <url>` comes first and `RESULT {...}` last.
+    `--idle-minutes` of 0 or less, a bad config or handles file, and a
+    port that will not open are usage errors (exit 2), with no traceback.
+    SIGTERM or SIGHUP ends it with no RESULT line.
     """
+    if not args.idle_minutes > 0:
+        print("--idle-minutes must be more than 0", file=sys.stderr)
+        return codes.EXIT_USAGE
     project_dir = args.project.resolve()
     try:
         cfg = store.load_discovery_config(project_dir)
@@ -278,18 +284,22 @@ def _ui_handler(args: argparse.Namespace) -> int:
         return codes.EXIT_USAGE
     for warning in warnings:
         print(warning, file=sys.stderr)
-    result = ui.serve(
-        project_dir,
-        cfg,
-        keywords=discover.normalize_keywords(_split_list(args.keywords)),
-        hashtags=discover.normalize_hashtags(_split_list(args.hashtags)),
-        web_entries=web_entries,
-        seeds=[part.strip() for part in _split_list(args.seeds) if part.strip()],
-        mock=args.mock,
-        port=args.port,
-        open_browser=args.open,
-        idle_minutes=args.idle_minutes,
-    )
+    try:
+        result = ui.serve(
+            project_dir,
+            cfg,
+            keywords=discover.normalize_keywords(_split_list(args.keywords)),
+            hashtags=discover.normalize_hashtags(_split_list(args.hashtags)),
+            web_entries=web_entries,
+            seeds=[part.strip() for part in _split_list(args.seeds) if part.strip()],
+            mock=args.mock,
+            port=args.port,
+            open_browser=args.open,
+            idle_minutes=args.idle_minutes,
+        )
+    except ui.PanelError as exc:
+        print(str(exc), file=sys.stderr)
+        return codes.EXIT_USAGE
     print("RESULT " + json.dumps(result))
     return codes.EXIT_OK
 
