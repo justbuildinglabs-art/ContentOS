@@ -644,9 +644,46 @@ class PageTests(NoNetworkTestCase):
         self.assertIn("X-ContentOS-Token", text)
         self.assertIn("prefers-color-scheme: dark", text)
         for element_id in ("dial-followers", "dial-views", "dial-every", "dial-shortlist", "run-btn",
-                           "save-btn", "close-btn", "established", "rising", "web-list", "remember"):
+                           "save-btn", "close-btn", "established", "rising", "web-list", "remember",
+                           "partial", "warnings"):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', text)
+
+    def test_the_page_promises_nothing_0_6_0_does_not_do(self) -> None:
+        self.assertNotIn("Claude reads these for trends", self._page())
+
+    def test_the_token_comes_only_from_the_fragment(self) -> None:
+        text = self._page()
+        self.assertIn("window.location.hash.match(/(?:^#|&)t=([^&]+)/)", text)
+        self.assertNotIn("match(/t=([^&]+)/)", text)
+
+    def test_a_reload_picks_up_the_run_or_its_results(self) -> None:
+        start = self._page().split("function start(state)", 1)[1]
+        self.assertIn('state.state === "running"', start)
+        self.assertIn('state.state !== "idle"', start)
+        self.assertIn("poll();", start)
+
+    def test_save_and_close_wait_while_a_run_is_going(self) -> None:
+        text = self._page()
+        busy = text.split("function setRunning(running)", 1)[1].split("}", 1)[0]
+        for button in ("run-btn", "save-btn", "close-btn"):
+            with self.subTest(button=button):
+                self.assertIn(f'$("{button}").disabled = running;', busy)
+        self.assertIn("setRunning(true)", text.split("function run()", 1)[1])
+        self.assertIn("setRunning(false)", text.split("function poll()", 1)[1])
+
+    def test_a_partial_run_and_its_warnings_are_shown_as_plain_text(self) -> None:
+        text = self._page()
+        self.assertIn("Some accounts were not checked or measured in time. Run it again to finish them.", text)
+        self.assertIn("doc.partial", text)
+        self.assertIn("doc.warnings", text)
+
+    def test_counts_are_worded_plainly(self) -> None:
+        text = self._page()
+        for phrase in ('"last reel today"', '" day ago"', '" days ago"', '"followers unknown"'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+        self.assertNotIn('row.last_post_days + " days ago"', text)
 
 
 if __name__ == "__main__":

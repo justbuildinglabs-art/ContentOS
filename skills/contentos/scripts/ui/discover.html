@@ -99,6 +99,8 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
 
   <section id="results" class="card" hidden>
     <p id="summary"></p>
+    <p id="partial" class="warnline" hidden></p>
+    <div id="warnings"></div>
     <div id="established"></div>
     <div id="rising"></div>
     <details><summary id="left-out-summary"></summary><div id="left-out"></div></details>
@@ -116,7 +118,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
 <script>
 (function () {
   "use strict";
-  var token = (window.location.hash.match(/t=([^&]+)/) || [])[1] || "";
+  var token = (window.location.hash.match(/(?:^#|&)t=([^&]+)/) || [])[1] || "";
   var presets = {
     followers: [1000, 5000, 10000, 25000, 50000, 100000],
     views: [1000, 2500, 5000, 10000, 25000, 50000],
@@ -170,6 +172,15 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
   function everyWords(days) {
     if (days % 7 === 0) { return days === 7 ? "every week" : "every " + (days / 7) + " weeks"; }
     return days === 1 ? "every day" : "every " + days + " days";
+  }
+
+  function lastReel(days) {
+    if (days === 0) { return "last reel today"; }
+    return "last reel " + days + (days === 1 ? " day ago" : " days ago");
+  }
+
+  function followerWords(value) {
+    return value === null || value === undefined ? "followers unknown" : short(value) + " followers";
   }
 
   var dialWords = {
@@ -248,16 +259,22 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     }).catch(function (error) { $("run-error").textContent = error.message; });
   }
 
+  function setRunning(running) {
+    $("run-btn").disabled = running;
+    $("save-btn").disabled = running;
+    $("close-btn").disabled = running;
+  }
+
   function run() {
     var body = inputs();
     body.remember = $("remember").checked;
     $("run-error").textContent = "";
-    $("run-btn").disabled = true;
+    setRunning(true);
     api("POST", "/api/run", body).then(function () {
       $("log").textContent = "Starting.";
       poll();
     }).catch(function (error) {
-      $("run-btn").disabled = false;
+      setRunning(false);
       $("run-error").textContent = error.message;
     });
   }
@@ -266,11 +283,11 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     api("GET", "/api/status").then(function (data) {
       $("log").textContent = data.log.join("\n");
       if (data.state === "running") { window.setTimeout(poll, 1500); return null; }
-      $("run-btn").disabled = false;
+      setRunning(false);
       if (data.state === "error") { $("run-error").textContent = data.error; return null; }
       return api("GET", "/api/discovery").then(renderResults);
     }).catch(function (error) {
-      $("run-btn").disabled = false;
+      setRunning(false);
       $("run-error").textContent = error.message;
     });
   }
@@ -288,9 +305,9 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     var name = link("@" + row.handle, row.url);
     name.className = "name";
     body.appendChild(name);
-    body.appendChild(el("div", short(row.followers) + " followers · 1 in 4 reels reach " +
+    body.appendChild(el("div", followerWords(row.followers) + " · 1 in 4 reels reach " +
       short(row.top_quarter_plays) + " views, typical " + short(row.median_plays) + " · " +
-      row.posts_per_week + " reels a week · last reel " + row.last_post_days + " days ago", "facts"));
+      row.posts_per_week + " reels a week · " + lastReel(row.last_post_days), "facts"));
     body.appendChild(el("div", offNiche
       ? "None of " + row.reels_measured + " recent reels match your search terms"
       : row.niche_hits + " of " + row.reels_measured + " recent reels match your search terms",
@@ -323,6 +340,14 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     $("summary").textContent = doc.candidates.length + " cleared the bar and " + doc.dropped.length +
       " were left out. Held to " + count(s.min_followers) + "+ followers, a reel at least " +
       everyWords(s.post_every_days) + ", and 1 in 4 reels at " + count(s.min_views) + "+ views.";
+    var partial = $("partial");
+    partial.hidden = !doc.partial;
+    partial.textContent = doc.partial
+      ? "Some accounts were not checked or measured in time. Run it again to finish them."
+      : "";
+    var notes = $("warnings");
+    notes.textContent = "";
+    (doc.warnings || []).forEach(function (warning) { notes.appendChild(el("div", warning, "muted")); });
     renderTier("established", "Established, " + count(s.established_at) + "+ followers", doc);
     renderTier("rising", "Rising, " + count(s.min_followers) + " to " + count(s.established_at) + " followers", doc);
     var counts = {};
@@ -337,7 +362,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
       left.appendChild(el("div", "@" + item.handle + ": " + (REASONS[item.reason] || item.reason), "muted"));
     });
     $("breakouts-summary").textContent = "Beating their own average this month: " + doc.breakouts.length +
-      " reels. Claude reads these for trends after you save.";
+      " reels.";
     var list = $("breakouts");
     list.textContent = "";
     doc.breakouts.forEach(function (reel) {
@@ -421,6 +446,9 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     $("save-btn").addEventListener("click", save);
     $("close-btn").addEventListener("click", closePanel);
     estimate();
+    // A reload keeps the session: pick up the run in progress, or show its results.
+    if (state.state === "running") { setRunning(true); }
+    if (state.state !== "idle") { poll(); }
   }
 
   api("GET", "/api/state").then(start).catch(function (error) { $("banner").textContent = error.message; });
