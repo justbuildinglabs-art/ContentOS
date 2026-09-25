@@ -159,8 +159,15 @@ class StateAndEstimateTests(NoNetworkTestCase):
         self.assertEqual(data["settings"], {"discover_min_followers": 10000, "discover_min_views": 5000,
                                             "discover_post_every_days": 14, "discover_shortlist": 20})
         self.assertEqual(data["watch_list"], [])
-        self.assertEqual([entry["handle"] for entry in data["web"]],
+        self.assertEqual([card["handle"] for card in data["cards"]],
                          ["webwillow", "madeupmaya", "focusfern", "slowsam", "photophoebe"])
+        self.assertEqual(data["cards"][0], {
+            "handle": "webwillow", "source_url": "https://example.invalid/best-habit-creators",
+            "source_title": "The best habit creators to follow", "reason": "Listed for short habit-building tutorials",
+            "followers_seen": 48000, "origin": "claude", "kept": False, "removed": False, "new": False,
+        })
+        self.assertEqual((data["search_instagram"], data["notes"], data["finished"]), (True, [], False))
+        self.assertNotIn("web", data)
         self.assertEqual((data["cap_usd"], data["established_at"], data["state"]), (3.0, 50000, "idle"))
 
     def test_no_key_outside_mock(self) -> None:
@@ -206,6 +213,47 @@ class StateAndEstimateTests(NoNetworkTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["total_usd"], ctx.exception.payload["total_usd"])
 
+    def test_check_only_estimate(self) -> None:
+        with temp_project() as project:
+            data = _call(_app(project), "POST", "/api/estimate", {"search_instagram": False})[1]
+        expected = discover.estimate(dict(store.DEFAULT_CONFIG), 1, 2, 0, 5, search_instagram=False)
+        self.assertEqual(data["total_usd"], expected["total_usd"])
+
+
+class CardTests(NoNetworkTestCase):
+    def test_normalize_cards_keeps_known_fields_and_drops_the_rest(self) -> None:
+        cards = ui.normalize_cards([
+            {"handle": "@PlanWithPia", "reason": "r", "origin": "you", "kept": True, "removed": "yes",
+             "new": True, "check": {"passed": True}, "extra": 1},
+            {"handle": "planwithpia", "origin": "claude"},
+            {"handle": "https://www.tiktok.com/@nope"},
+            {"handle": "coachcora", "origin": "martian"},
+            "not a card",
+        ])
+        self.assertEqual(cards, [
+            {"handle": "planwithpia", "source_url": "", "source_title": None, "reason": "r",
+             "followers_seen": None, "origin": "you", "kept": True, "removed": False, "new": True},
+            {"handle": "coachcora", "source_url": "", "source_title": None, "reason": None,
+             "followers_seen": None, "origin": "claude", "kept": False, "removed": False, "new": False},
+        ])
+        self.assertEqual(ui.normalize_cards({"handle": "x"}), [])
+
+    def test_normalize_cards_holds_at_most_120(self) -> None:
+        cards = ui.normalize_cards([{"handle": f"h{i}"} for i in range(130)])
+        self.assertEqual(len(cards), ui.MAX_CARDS)
+
+    def test_the_estimate_records_the_page(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            _call(app, "POST", "/api/estimate", {
+                "keywords": ["habit stacking"], "hashtags": ["#Tiny"], "search_instagram": False,
+                "cards": [{"handle": "slowsam", "kept": True}],
+            })
+            data = _call(app, "GET", "/api/state")[1]
+        self.assertEqual((data["keywords"], data["hashtags"], data["search_instagram"]),
+                         (["habit stacking"], ["tiny"], False))
+        self.assertEqual([(card["handle"], card["kept"]) for card in data["cards"]], [("slowsam", True)])
+
 
 class RunTests(NoNetworkTestCase):
     def test_a_mock_run_finishes_and_serves_the_results(self) -> None:
@@ -243,6 +291,19 @@ class RunTests(NoNetworkTestCase):
         with temp_project() as project:
             status, data = _call(_app(project), "POST", "/api/run", {"keywords": [], "hashtags": [], "web": []})
         self.assertEqual((status, data["code"]), (400, codes.EXIT_USAGE))
+
+    def test_a_check_only_run(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            self.assertEqual(_call(app, "POST", "/api/run", {"search_instagram": False})[0], 202)
+            doc = _call(app, "GET", "/api/discovery")[1]
+        self.assertIs(doc["search_instagram"], False)
+
+    def test_check_only_needs_a_handle(self) -> None:
+        with temp_project() as project:
+            status, data = _call(_app(project), "POST", "/api/run", {"search_instagram": False, "web": []})
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], discover.CHECK_ONLY_NEEDS_HANDLES)
 
     def test_remember_writes_the_dials_once_set_up(self) -> None:
         with temp_project() as project:

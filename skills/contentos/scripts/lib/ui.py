@@ -67,6 +67,54 @@ def _strings(value: Any) -> List[str]:
     return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
 
 
+# 0.6.1: where a card came from, and how many the panel holds.
+CARD_ORIGINS = ("claude", "you", "instagram", "similar")
+MAX_CARDS = 120
+
+
+def cards_from_finds(entries: List[Dict[str, Any]], new: bool = False) -> List[Dict[str, Any]]:
+    """Claude's web finds as unticked cards (design spec, "0.6.1 changes")."""
+    return [dict(entry, origin="claude", kept=False, removed=False, new=new) for entry in entries]
+
+
+def normalize_cards(raw: Any) -> List[Dict[str, Any]]:
+    """Clean the cards the page sends: the find fields plus origin, kept, removed, and new.
+
+    A card whose handle is not an Instagram handle, or repeats an earlier
+    card, is left out. An unknown origin reads as "claude". Anything the
+    page adds beyond these fields (such as its scan status) is dropped,
+    and at most MAX_CARDS are kept. A value that is not a list gives [].
+    """
+    if not isinstance(raw, list):
+        return []
+    cards: List[Dict[str, Any]] = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        finds, _warnings = discover.normalize_web_entries([item])
+        if not finds or finds[0]["handle"] in seen:
+            continue
+        origin = item.get("origin")
+        cards.append(dict(
+            finds[0],
+            origin=origin if origin in CARD_ORIGINS else "claude",
+            kept=item.get("kept") is True,
+            removed=item.get("removed") is True,
+            new=item.get("new") is True,
+        ))
+        seen.add(finds[0]["handle"])
+        if len(cards) == MAX_CARDS:
+            break
+    return cards
+
+
+def _search_instagram(payload: Dict[str, Any], default: bool) -> bool:
+    """The page's "Also search Instagram" checkbox; only an explicit false turns it off."""
+    value = payload.get("search_instagram", default)
+    return value is not False
+
+
 class App:
     """The panel's API for one `ui` session."""
 
@@ -85,6 +133,11 @@ class App:
         resolve_keys: Callable[[Path], env.Keys] = env.resolve_keys,
         clock: Callable[[], float] = time.monotonic,
         run_discover: Callable[..., Dict[str, Any]] = discover.run_discover,
+        cards: Optional[List[Dict[str, Any]]] = None,
+        settings: Optional[Dict[str, Any]] = None,
+        search_instagram: bool = True,
+        done: bool = False,
+        notes: Optional[List[str]] = None,
     ) -> None:
         self.project = Path(project)
         self.cfg = cfg
@@ -99,14 +152,22 @@ class App:
         self.resolve_keys = resolve_keys
         self.clock = clock
         self.run_discover = run_discover
+        self.cards = normalize_cards(cards) if cards is not None else cards_from_finds(web_entries)
+        self.search_instagram = search_instagram
+        self.notes = list(notes or [])
         self.state = "idle"
         self.log: List[str] = []
         self.error: Optional[str] = None
         self.summary: Optional[Dict[str, Any]] = None
-        self.last_settings: Dict[str, Any] = {key: cfg[key] for key in DIAL_KEYS}
+        self.last_settings: Dict[str, Any] = {key: (settings or cfg)[key] for key in DIAL_KEYS}
         self.finished: Optional[Dict[str, Any]] = None
         self.last_seen = clock()
         self._lock = threading.Lock()
+        path = discover.discovery_path(self.project)
+        if done and path.exists():
+            # A resumed panel whose scan already ran shows its results again (0.6.1).
+            self.state = "done"
+            self.summary = discover.result_line(store.read_json(path), self.project)
 
     def handle(self, method: str, path: str, headers: Dict[str, str], body: bytes) -> Response:
         """Answer one request. Guards first: Host, then route, then token, then JSON.
@@ -177,21 +238,25 @@ class App:
         store.check_discovery_config(cfg)
         return cfg
 
-    def _inputs(self, payload: Dict[str, Any]) -> Tuple[List[str], List[str], List[Dict[str, str]]]:
+    def _inputs(
+        self, payload: Dict[str, Any]
+    ) -> Tuple[List[str], List[str], List[Dict[str, Any]], bool]:
         keywords = discover.normalize_keywords(_strings(payload.get("keywords", self.keywords)))
         hashtags = discover.normalize_hashtags(_strings(payload.get("hashtags", self.hashtags)))
+        default_web = [card for card in self.cards if not card["removed"]]
         try:
-            web, _warnings = discover.normalize_web_entries(payload.get("web", self.web_entries))
+            web, _warnings = discover.normalize_web_entries(payload.get("web", default_web))
         except discover.DiscoverError:
             web = []
-        return keywords, hashtags, web
+        return keywords, hashtags, web, _search_instagram(payload, self.search_instagram)
 
     def _cost(
-        self, cfg: Dict[str, Any], keywords: List[str], hashtags: List[str], web: List[Dict[str, str]]
+        self, cfg: Dict[str, Any], keywords: List[str], hashtags: List[str], web: List[Dict[str, str]],
+        search_instagram: bool,
     ) -> Dict[str, Any]:
         seeds, format_accounts, _warnings = discover.never_recommended(cfg, self.seeds)
         checked_web = discover.web_handles(web, seeds + format_accounts)
-        cost = discover.estimate(cfg, len(keywords), len(hashtags), len(seeds), len(checked_web))
+        cost = discover.estimate(cfg, len(keywords), len(hashtags), len(seeds), len(checked_web), search_instagram)
         cap = cfg["apify_max_charge_usd"]
         return dict(cost, cap_usd=cap, within_cap=cost["total_usd"] <= cap)
 
@@ -235,7 +300,10 @@ class App:
             "settings": dict(self.last_settings),
             "keywords": self.keywords,
             "hashtags": self.hashtags,
-            "web": self.web_entries,
+            "cards": self.cards,
+            "search_instagram": self.search_instagram,
+            "notes": self.notes,
+            "finished": self.finished is not None,
             "watch_list": list(self.cfg.get("competitors") or []),
             "state": self.state,
         })
@@ -245,7 +313,18 @@ class App:
             cfg = self._config_with(payload)
         except store.ConfigError as exc:
             return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
-        return json_response(200, self._cost(cfg, *self._inputs(payload)))
+        keywords, hashtags, web, search_instagram = self._inputs(payload)
+        with self._lock:
+            # The page calls this on every change, so an idle timeout's
+            # handoff holds what the creator last saw (0.6.1).
+            if "keywords" in payload:
+                self.keywords = keywords
+            if "hashtags" in payload:
+                self.hashtags = hashtags
+            if "cards" in payload:
+                self.cards = normalize_cards(payload["cards"])
+            self.search_instagram = search_instagram
+        return json_response(200, self._cost(cfg, keywords, hashtags, web, search_instagram))
 
     def _run(self, payload: Dict[str, Any]) -> Response:
         with self._lock:
@@ -257,14 +336,16 @@ class App:
                 cfg = self._config_with(payload)
             except store.ConfigError as exc:
                 return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
-            keywords, hashtags, web = self._inputs(payload)
+            keywords, hashtags, web, search_instagram = self._inputs(payload)
             seeds, format_accounts, _warnings = discover.never_recommended(cfg, self.seeds)
             checked_web = discover.web_handles(web, seeds + format_accounts)
+            if not search_instagram and not checked_web:
+                return json_response(400, {"error": discover.CHECK_ONLY_NEEDS_HANDLES, "code": codes.EXIT_USAGE})
             if not (keywords or hashtags or checked_web or seeds):
                 return json_response(400, {
                     "error": "Add a keyword phrase, a hashtag, or a handle first.", "code": codes.EXIT_USAGE,
                 })
-            cost = self._cost(cfg, keywords, hashtags, web)
+            cost = self._cost(cfg, keywords, hashtags, web, search_instagram)
             if not cost["within_cap"]:
                 return json_response(400, {
                     "error": f"This would cost about ${cost['total_usd']:.2f}, over your "
@@ -278,23 +359,24 @@ class App:
                     "code": codes.EXIT_KEYS,
                 })
             self.last_settings = {key: cfg[key] for key in DIAL_KEYS}
+            self.search_instagram = search_instagram
             if payload.get("remember") is True and self._set_up():
                 try:
                     store.update_config_keys(self.project, self.last_settings)
                 except store.ConfigError as exc:
                     return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
             self.state, self.log, self.error, self.summary = "running", [], None, None
-        self.runner(lambda: self._work(cfg, keys, keywords, hashtags, web))
+        self.runner(lambda: self._work(cfg, keys, keywords, hashtags, web, search_instagram))
         return json_response(202, {"state": "running"})
 
     def _work(
         self, cfg: Dict[str, Any], keys: env.Keys, keywords: List[str], hashtags: List[str],
-        web: List[Dict[str, str]],
+        web: List[Dict[str, str]], search_instagram: bool,
     ) -> None:
         try:
             doc = self.run_discover(
                 self.project, cfg, keys, hashtags=hashtags, keywords=keywords, seeds=self.seeds,
-                web_entries=web, mock=self.mock, yes=True, log=self._log,
+                web_entries=web, mock=self.mock, yes=True, log=self._log, search_instagram=search_instagram,
             )
         except (research.ResearchError, discover.DiscoverError) as exc:
             self._fail(str(exc))
