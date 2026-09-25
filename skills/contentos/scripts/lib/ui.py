@@ -50,6 +50,8 @@ ROUTES = (
 LOG_LINES_KEPT = 200
 FINISHED_ERROR = "This panel is finished. Go back to Claude."
 STALE_ERROR = "This page is from before Claude's last search, so it reloads now."
+# A resumed panel whose last results file cannot be read opens without it (0.6.1).
+RESULTS_UNREADABLE = "The last scan's results could not be read, so they are not shown. Run the scan again to see them."
 # The panel's words for a check-only scan with nothing to check (0.6.1).
 CHECK_ONLY_NEEDS_CARDS = (
     "To check only Claude's finds, add at least one creator first, or tick Also search Instagram for more creators."
@@ -125,6 +127,23 @@ def normalize_cards(raw: Any) -> List[Dict[str, Any]]:
     return [card for i, card in enumerate(cards) if i in chosen]
 
 
+def _results_summary(path: Path, project: Path) -> Optional[Dict[str, Any]]:
+    """The status summary of a saved `discovery.json`, or None when it cannot be read.
+
+    A hand-edited or half-written file must not stop a resumed panel from
+    opening, so anything that is not the shape the page reads gives None.
+    """
+    try:
+        doc = store.read_json(path)
+        summary = discover.result_line(doc, project)
+        rows = [doc["candidates"], doc["dropped"], doc["breakouts"]]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not all(isinstance(part, list) and all(isinstance(row, dict) for row in part) for part in rows):
+        return None
+    return summary
+
+
 def _search_instagram(payload: Dict[str, Any], default: bool) -> bool:
     """The page's "Also search Instagram" checkbox; only an explicit false turns it off."""
     value = payload.get("search_instagram", default)
@@ -191,9 +210,11 @@ class App:
         path = discover.discovery_path(self.project)
         if done and path.exists():
             # A resumed panel whose scan already ran shows its results again (0.6.1).
-            self.state = "done"
-            self.summary = discover.result_line(store.read_json(path), self.project)
-            self.had_results = True
+            summary = _results_summary(path, self.project)
+            if summary is None:
+                self.notes.append(RESULTS_UNREADABLE)
+            else:
+                self.state, self.summary, self.had_results = "done", summary, True
 
     def handle(self, method: str, path: str, headers: Dict[str, str], body: bytes) -> Response:
         """Answer one request. Guards first: Host, then route, then token, then JSON.

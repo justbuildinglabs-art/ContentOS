@@ -951,6 +951,19 @@ class ResumeTests(NoNetworkTestCase):
         self.assertEqual((status["state"], status["summary"]["candidates"]), ("done", 3))
         self.assertEqual((doc_status, doc["version"]), (200, 2))
 
+    def test_a_results_file_that_cannot_be_read_opens_the_panel_without_it(self) -> None:
+        for text in ('{"candidates": 5}', '{"cand', "{}", "[]", '"text"',
+                     '{"candidates": ["x"], "dropped": [], "breakouts": []}'):
+            with self.subTest(text=text), temp_project() as project:
+                path = discover.discovery_path(project)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+                app = _app(project, done=True)
+                self.assertEqual((app.state, app.summary, app.had_results), ("idle", None, False))
+                self.assertEqual(app.notes, [ui.RESULTS_UNREADABLE])
+                self.assertEqual(_call(app, "GET", "/api/discovery")[0], 409)
+        self.assertIn("could not be read", ui.RESULTS_UNREADABLE)
+
     def test_serve_reuses_the_token_and_port_and_removes_the_handoff(self) -> None:
         made: List[_FakeServer] = []
         seen: List[Dict[str, Any]] = []
@@ -1134,6 +1147,20 @@ class UiCommandTests(NoNetworkTestCase):
         self.assertEqual(code, codes.EXIT_USAGE)
         self.assertIn("leave off --mock", err)
         self.assertNotIn("RESULT", out)
+
+    def test_resume_with_a_results_file_that_cannot_be_read_still_opens(self) -> None:
+        with temp_project() as project:
+            _handoff(project, has_results=True, mock=True)
+            path = discover.discovery_path(project)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"candidates": 5}', encoding="utf-8")
+            factory = _closing_factory(project, [], [])
+            with mock.patch.object(ui, "serve", functools.partial(ui.serve, server_factory=factory)):
+                code, out, _err = _main(["ui", "--project", str(project), "--resume"])
+            self.assertFalse(ui.handoff_path(project).exists())
+        self.assertEqual(code, codes.EXIT_OK)
+        self.assertTrue(out.startswith("UI http://127.0.0.1:"))
+        self.assertEqual(json.loads(out.strip().splitlines()[-1][len("RESULT "):])["saved"], False)
 
     def test_resume_adds_the_new_finds_and_serves(self) -> None:
         captured: Dict[str, Any] = {}
