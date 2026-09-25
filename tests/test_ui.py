@@ -1196,6 +1196,14 @@ class PageTests(NoNetworkTestCase):
         self.assertIn("instagram\\.com", handle_of)
         self.assertIn("/^[a-z0-9._]{1,30}$/", handle_of)
 
+    def test_a_stated_follower_count_gives_way_to_a_measured_one(self) -> None:
+        text = self._page()
+        measured = text.split("function measured(card)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("card.check.row", measured)
+        self.assertIn("card.check.followers", measured)
+        render = text.split("function renderCard(card)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("card.followers_seen !== undefined && !measured(card)", render)
+
     def test_the_token_comes_only_from_the_fragment(self) -> None:
         text = self._page()
         self.assertIn("window.location.hash.match(/(?:^#|&)t=([^&]+)/)", text)

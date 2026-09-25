@@ -312,6 +312,12 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     return ORIGINS[card.origin] || ORIGINS.claude;
   }
 
+  // True once the scan has the creator's real follower count.
+  function measured(card) {
+    return Boolean(card.check && (card.check.row ||
+      (card.check.followers !== undefined && card.check.followers !== null)));
+  }
+
   function sourceName(card) { return card.source_title || host(card.source_url); }
 
   function checkedLine(row) {
@@ -355,7 +361,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
       source.appendChild(outLink(sourceName(card), card.source_url));
       body.appendChild(source);
     }
-    if (card.followers_seen !== null && card.followers_seen !== undefined && !(card.check && card.check.row)) {
+    if (card.followers_seen !== null && card.followers_seen !== undefined && !measured(card)) {
       body.appendChild(el("div", "About " + short(card.followers_seen) + " followers, per " +
         (isWeb(card.source_url) ? sourceName(card) : "the source") + ", not checked", "facts"));
     }
