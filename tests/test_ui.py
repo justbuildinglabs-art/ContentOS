@@ -87,6 +87,21 @@ class GuardTests(NoNetworkTestCase):
             self.assertEqual(_call(app, "GET", "/api/state", headers=wrong)[0], 403)
             self.assertEqual(_call(app, "GET", "/api/state")[0], 200)
 
+    def test_search_again_needs_a_local_host_and_the_token(self) -> None:
+        now = {"t": 0.0}
+        with temp_project() as project:
+            app = _app(project, clock=lambda: now["t"])
+            now["t"] = 10.0
+            json_type = {"content-type": "application/json"}
+            for headers in ({"host": f"127.0.0.1:{PORT}", **json_type},
+                            {"host": f"127.0.0.1:{PORT}", "x-contentos-token": "wrong", **json_type},
+                            {"host": "evil.example:80", "x-contentos-token": TOKEN, **json_type}):
+                with self.subTest(headers=headers):
+                    self.assertEqual(_call(app, "POST", "/api/search-again", {}, headers=headers)[0], 403)
+            self.assertFalse(ui.handoff_path(project).exists())
+        self.assertIsNone(app.finished)
+        self.assertEqual(app.last_seen, 0.0)
+
     def test_posts_must_be_json_objects(self) -> None:
         with temp_project() as project:
             app = _app(project)
