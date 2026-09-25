@@ -699,6 +699,18 @@ class ApifyKeyStepsTests(NoNetworkTestCase):
         # Exit 4 sends the creator to the same steps.
         self.assertIn("the key steps from Step 1", prose)
 
+    def test_discovery_and_setup_carry_on_with_no_key(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        preflight = body.split("## Step 1: pre-flight", 1)[1].split("\n## ", 1)[0]
+        bullet = _collapse(preflight.split("- **`apify` is false.**", 1)[1].split("\n  1. ", 1)[0])
+        # The stop covers the paid pipeline; Claude's search, the panel, and Save need no key.
+        self.assertIn("Stop unless they asked for `--mock`", bullet)
+        for phrase in ("`/contentos discover` and `/contentos setup` do not stop",
+                       "Claude's web search, the panel, and Save need no key",
+                       "only when the creator wants the Apify scan"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, bullet)
+
 
 class DiscoveryFlowTests(NoNetworkTestCase):
     @staticmethod

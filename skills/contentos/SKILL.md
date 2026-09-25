@@ -97,7 +97,11 @@ It always exits 0 and prints JSON. Read these fields and act:
 - **`config_json` or `creator_md` is false.** This project has no ContentOS
   state yet. Say so in one line and offer to run setup. Do not run research.
 - **`apify` is false.** No Apify key resolved. Stop unless they asked for
-  `--mock`, and hand them these steps to do themselves. Never ask the creator
+  `--mock`, and hand them these steps to do themselves. `/contentos discover`
+  and `/contentos setup` do not stop: Claude's web search, the panel, and
+  Save need no key. For those, say in one line that the optional Apify scan
+  needs a key, and hand over these steps only when the creator wants the
+  Apify scan. Never ask the creator
   to paste the token into the chat, and never write it to a file for them: a
   token in a chat transcript is a leaked token. Say the steps in plain words:
   1. Copy the personal API token from the Apify Console: Settings, then
