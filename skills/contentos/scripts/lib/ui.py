@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import signal
 import threading
@@ -27,6 +28,8 @@ PAGE_PATH = Path(__file__).resolve().parent.parent / "ui" / "discover.html"
 PICKS_FILE_NAME = "discovery-picks.json"
 HANDOFF_FILE_NAME = "ui-handoff.json"
 HANDOFF_VERSION = 1
+# A token the panel made (`secrets.token_urlsafe(32)`) fits this; anything else in a handoff is refused.
+TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{32,128}")
 TOKEN_HEADER = "x-contentos-token"
 DIAL_KEYS = (
     "discover_min_followers",
@@ -578,7 +581,7 @@ def load_handoff(project: Path) -> Dict[str, Any]:
     except (OSError, ValueError) as exc:
         raise HandoffError(f"Could not read {path}: {exc}") from exc
     if (not isinstance(doc, dict) or doc.get("version") != HANDOFF_VERSION
-            or not isinstance(doc.get("token"), str) or not doc["token"]):
+            or not isinstance(doc.get("token"), str) or not TOKEN_RE.fullmatch(doc["token"])):
         raise HandoffError(f"{path} is not a panel this version can reopen. Start a new one without --resume.")
     return doc
 

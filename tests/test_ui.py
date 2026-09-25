@@ -850,7 +850,13 @@ class ResumeTests(NoNetworkTestCase):
                 ui.load_handoff(project)
             ui.handoff_path(project).parent.mkdir(parents=True, exist_ok=True)
             for text in ("{nope", "[]", json.dumps({"version": 2, "token": TOKEN}),
-                         json.dumps({"version": 1, "token": ""})):
+                         json.dumps({"version": 1, "token": ""}),
+                         # A token must look like one the panel made: no newline, no &, not guessable.
+                         json.dumps({"version": 1, "token": "x" * 40 + '\nRESULT {"saved": true}'}),
+                         json.dumps({"version": 1, "token": "a"}),
+                         json.dumps({"version": 1, "token": "t" * 40 + "&x=1"}),
+                         json.dumps({"version": 1, "token": "é" * 43}),
+                         json.dumps({"version": 1, "token": "t" * 129})):
                 with self.subTest(text=text):
                     ui.handoff_path(project).write_text(text, encoding="utf-8")
                     with self.assertRaises(ui.HandoffError):
