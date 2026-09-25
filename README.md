@@ -101,20 +101,24 @@ they are worth an hour.
 
 You do not need to know your competitors. When setup asks for accounts, say
 "find them for me". Claude agrees a few search phrases with you and searches
-the web for creators in your niche. Then a small control panel opens in your
-browser, served from your own computer. You set how big and how active a
-creator must be, watch the cost change as you move the settings, press Run,
-and tick the ones to keep. A creator counts as successful when they have
-10,000 or more followers, post a reel at least every 2 weeks, and at least 1
-in 4 of their recent reels reach 5,000 views. The panel shows Established
-creators (50,000 or more followers) and Rising ones (10,000 to 50,000), with
-their top reels and how much of their content matches your niche. Every
-number comes from a real check. This costs about $1 to $1.30 once, and you
-see the estimate before anything is spent. The settings are
-`discover_min_followers`, `discover_min_views`, `discover_post_every_days`,
-and `discover_shortlist` (how many creators get the full check) in
-`.contentos/config.json`. Prefer chat? Say so, and Claude runs it in the
-conversation instead. To redo it later:
+the web for creators in your niche and accounts like the ones you name. This
+part is free. Then a small control panel opens in your browser, served from
+your own computer, with what Claude found as creator cards: why each one
+fits and where it was found. Tick Keep and Save, and you are done. Want more?
+Press Search again with Claude, and Claude searches again with your new
+phrases while the page waits. Want the real numbers? The Apify scan is
+optional: it checks each creator and, by default, searches Instagram for
+more. A creator counts as successful when they have 10,000 or more
+followers, post a reel at least every 2 weeks, and at least 1 in 4 of their
+recent reels reach 5,000 views. The scan shows Established creators (50,000
+or more followers) and Rising ones (10,000 to 50,000), with their top reels
+and how much of their content matches your niche. It costs about $1 to $1.30
+once, less if it only checks Claude's finds, and you see the estimate before
+anything is spent. The settings are `discover_min_followers`,
+`discover_min_views`, `discover_post_every_days`, and `discover_shortlist`
+(how many creators get the full check) in `.contentos/config.json`. Prefer
+chat? Say so, and Claude runs it in the conversation instead. To redo it
+later:
 
 ```
 /contentos discover
@@ -237,7 +241,7 @@ settings in force before you run.
 | command | what it does |
 | --- | --- |
 | `/contentos setup` | Interview, then write `creator.md`, `config.json`, and `rules.md` |
-| `/contentos discover` | Find creators who are winning in your niche: a web search, then a control panel to set the bar, run, and pick |
+| `/contentos discover` | Find creators who are winning in your niche: a free Claude web search, then a control panel to pick, search again, or run the optional Apify scan |
 | `/contentos run` | All four stages, end to end. `--auto` skips the brief question and scripts only the top `auto_scripts` ideas (default 3), `--yes` skips the spend question, `--mock` uses fixtures |
 | `/contentos research` | Stage 1 only: scrape, score, select, download, keyframes |
 | `/contentos direct` | Stage 2 only: analyze each selected reel, find the patterns, rank the briefs |

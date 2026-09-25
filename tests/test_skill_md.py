@@ -854,5 +854,21 @@ class DiscoveryReleaseNoteTests(NoNetworkTestCase):
                 self.assertIn(phrase, changelog)
 
 
+class ClaudeSearchReleaseNoteTests(NoNetworkTestCase):
+    @staticmethod
+    def _changelog_061() -> str:
+        text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        return _collapse(text.split("## [0.6.1]", 1)[1].split("\n## [", 1)[0])
+
+    def test_readme_and_changelog_explain_the_two_searches(self) -> None:
+        readme = _collapse(README.read_text(encoding="utf-8"))
+        for name, prose in (("README", readme), ("CHANGELOG", self._changelog_061())):
+            for phrase in ("Search again with Claude", "optional", "Apify scan", "free"):
+                with self.subTest(file=name, phrase=phrase):
+                    self.assertIn(phrase, prose)
+        self.assertIn("--check-only", self._changelog_061())
+        self.assertIn("--resume", self._changelog_061())
+
+
 if __name__ == "__main__":
     unittest.main()

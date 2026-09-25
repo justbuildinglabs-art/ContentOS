@@ -16,7 +16,7 @@ DESCRIPTION = (
     "Competitor research to vetted Reel scripts: a four-stage Instagram "
     "Reels content pipeline for creators."
 )
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 
 
 class ManifestTests(NoNetworkTestCase):
