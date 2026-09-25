@@ -132,6 +132,7 @@ _GITIGNORE_LINES = (
     "runs/*/prompts/",
     "setup-answers.json",
     "ui-session.json",
+    "ui-handoff.json",
 )
 
 _RUN_MODES = ("live", "mock")

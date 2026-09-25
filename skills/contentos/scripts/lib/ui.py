@@ -25,6 +25,8 @@ from lib import codes, discover, env, research, setup, store
 
 PAGE_PATH = Path(__file__).resolve().parent.parent / "ui" / "discover.html"
 PICKS_FILE_NAME = "discovery-picks.json"
+HANDOFF_FILE_NAME = "ui-handoff.json"
+HANDOFF_VERSION = 1
 TOKEN_HEADER = "x-contentos-token"
 DIAL_KEYS = (
     "discover_min_followers",
@@ -39,6 +41,7 @@ ROUTES = (
     "/api/status",
     "/api/discovery",
     "/api/save",
+    "/api/search-again",
     "/api/close",
 )
 LOG_LINES_KEPT = 200
@@ -209,6 +212,7 @@ class App:
             ("GET", "/api/status"): self._status,
             ("GET", "/api/discovery"): self._discovery,
             ("POST", "/api/save"): self._save,
+            ("POST", "/api/search-again"): self._search_again,
             ("POST", "/api/close"): self._close,
         }
         handler = handlers.get((method, route))
@@ -270,7 +274,7 @@ class App:
             self.state, self.error = "error", message
 
     def _refusal(self) -> Optional[Response]:
-        """The 409 for Save or Close when the panel is finished or a search is running.
+        """The 409 for Save, Close, or Search again when the panel is finished or a search is running.
 
         Callers hold `self._lock`, so the check and the change that follows
         it are one step.
@@ -278,14 +282,43 @@ class App:
         if self.finished is not None:
             return json_response(409, {"error": FINISHED_ERROR})
         if self.state == "running":
-            return json_response(409, {"error": "A search is running. Wait for it to finish, then save or close."})
+            return json_response(409, {"error": "A search is running. Wait for it to finish first."})
         return None
+
+    def _known(self, cards: List[Dict[str, Any]]) -> List[str]:
+        """Every handle the next Claude search must skip: the cards (removed too), seeds, and format accounts."""
+        seeds, format_accounts, _warnings = discover.never_recommended(self.cfg, self.seeds)
+        known: List[str] = []
+        for handle in [card["handle"] for card in cards] + seeds + format_accounts:
+            if handle not in known:
+                known.append(handle)
+        return known
+
+    def _write_handoff(self, settings: Dict[str, Any]) -> Path:
+        """Write `ui-handoff.json` from the panel's current state. Callers hold `self._lock`."""
+        path = handoff_path(self.project)
+        store.write_json_atomic(path, {
+            "version": HANDOFF_VERSION,
+            "token": self.token,
+            "port": self.port,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "keywords": self.keywords,
+            "hashtags": self.hashtags,
+            "seeds": self.seeds,
+            "cards": self.cards,
+            "settings": settings,
+            "search_instagram": self.search_instagram,
+            "has_results": self.state == "done",
+        }, mode=SESSION_FILE_MODE)
+        return path
 
     def stop_if_idle(self, idle_s: float) -> None:
         """Finish the session when no accepted request came for `idle_s` and no search is running."""
         with self._lock:
             if self.finished is None and self.state != "running" and self.clock() - self.last_seen > idle_s:
-                self.finished = {"saved": False, "picks": [], "settings": self.last_settings, "reason": "idle"}
+                path = self._write_handoff(self.last_settings)
+                self.finished = {"saved": False, "picks": [], "settings": self.last_settings, "reason": "idle",
+                                 "handoff_path": str(path)}
 
     # -- routes --------------------------------------------------------------
 
@@ -414,6 +447,7 @@ class App:
                 return json_response(400, {"error": str(exc)})
             if not picks:
                 return json_response(400, {"error": "Tick at least one creator, or press Close."})
+            handoff_path(self.project).unlink(missing_ok=True)
             if self._set_up():
                 try:
                     # The watch list as it is now, not as it was when the panel opened.
@@ -430,11 +464,35 @@ class App:
             self.finished = dict(answer, settings=self.last_settings)
             return json_response(200, answer)
 
+    def _search_again(self, payload: Dict[str, Any]) -> Response:
+        """Hand the turn back to Claude for another web search (design spec, "0.6.1 changes")."""
+        with self._lock:
+            refused = self._refusal()
+            if refused is not None:
+                return refused
+            try:
+                cfg = self._config_with(payload)
+            except store.ConfigError as exc:
+                return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
+            keywords, hashtags, _web, search_instagram = self._inputs(payload)
+            self.keywords, self.hashtags, self.search_instagram = keywords, hashtags, search_instagram
+            if "cards" in payload:
+                self.cards = normalize_cards(payload["cards"])
+            self.last_settings = {key: cfg[key] for key in DIAL_KEYS}
+            path = self._write_handoff(self.last_settings)
+            self.finished = {
+                "saved": False, "picks": [], "settings": self.last_settings, "next": "claude_search",
+                "keywords": keywords, "hashtags": hashtags, "known": self._known(self.cards),
+                "handoff_path": str(path),
+            }
+            return json_response(200, {"next": "claude_search"})
+
     def _close(self, _payload: Dict[str, Any]) -> Response:
         with self._lock:
             refused = self._refusal()
             if refused is not None:
                 return refused
+            handoff_path(self.project).unlink(missing_ok=True)
             self.finished = {"saved": False, "picks": [], "settings": self.last_settings}
             return json_response(200, {"saved": False})
 
@@ -454,6 +512,11 @@ _CSP = (
 def session_path(project: Path) -> Path:
     """`<project>/.contentos/ui-session.json`: where the skill finds the panel's link."""
     return store.contentos_dir(project) / SESSION_FILE_NAME
+
+
+def handoff_path(project: Path) -> Path:
+    """`<project>/.contentos/ui-handoff.json`: the panel's state while Claude searches again (0.6.1)."""
+    return store.contentos_dir(project) / HANDOFF_FILE_NAME
 
 
 class PanelError(Exception):

@@ -334,7 +334,7 @@ class RunTests(NoNetworkTestCase):
         self.assertEqual((status["state"], status["error"]), ("error", "apify said no"))
 
     def test_save_and_close_wait_for_a_running_search(self) -> None:
-        running = "A search is running. Wait for it to finish, then save or close."
+        running = "A search is running. Wait for it to finish first."
         with temp_project() as project:
             app = _app(project, runner=lambda job: None)
             self.assertEqual(_call(app, "POST", "/api/run", {})[0], 202)
@@ -441,6 +441,106 @@ class SaveAndCloseTests(NoNetworkTestCase):
         self.assertEqual(app.finished["picks"], [])
 
 
+class SearchAgainTests(NoNetworkTestCase):
+    PAGE = {
+        "keywords": ["habit stacking"], "hashtags": ["tiny"], "search_instagram": False,
+        "settings": {"discover_shortlist": 12},
+        "cards": [{"handle": "webwillow", "kept": True},
+                  {"handle": "focusfern", "removed": True}],
+    }
+
+    def test_search_again_writes_the_handoff_and_finishes(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["habitlab"], "format_accounts": ["formatfred"]})
+            app = _app(project, seeds=["typedtia"])
+            status, data = _call(app, "POST", "/api/search-again", self.PAGE)
+            path = ui.handoff_path(project)
+            doc = store.read_json(path)
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+        self.assertEqual((status, data), (200, {"next": "claude_search"}))
+        self.assertEqual(mode, 0o600)
+        self.assertEqual((doc["version"], doc["token"], doc["port"]), (1, TOKEN, PORT))
+        self.assertEqual((doc["keywords"], doc["hashtags"], doc["seeds"]), (["habit stacking"], ["tiny"], ["typedtia"]))
+        self.assertEqual([(c["handle"], c["kept"], c["removed"]) for c in doc["cards"]],
+                         [("webwillow", True, False), ("focusfern", False, True)])
+        self.assertEqual(doc["settings"]["discover_shortlist"], 12)
+        self.assertEqual((doc["search_instagram"], doc["has_results"]), (False, False))
+        finished = app.finished
+        self.assertEqual(finished["next"], "claude_search")
+        self.assertEqual(finished["handoff_path"], str(path))
+        # Removed cards, the watch list, typed seeds, and format accounts are all known.
+        self.assertEqual(finished["known"], ["webwillow", "focusfern", "habitlab", "typedtia", "formatfred"])
+        self.assertEqual((finished["saved"], finished["picks"]), (False, []))
+
+    def test_has_results_after_a_finished_scan(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            _call(app, "POST", "/api/run", {})
+            _call(app, "POST", "/api/search-again", {})
+            self.assertIs(store.read_json(ui.handoff_path(project))["has_results"], True)
+
+    def test_search_again_waits_for_a_scan_and_refuses_a_finished_panel(self) -> None:
+        with temp_project() as project:
+            app = _app(project, runner=lambda job: None)
+            _call(app, "POST", "/api/run", {})
+            self.assertEqual(_call(app, "POST", "/api/search-again", {})[0], 409)
+            self.assertFalse(ui.handoff_path(project).exists())
+        with temp_project() as project:
+            app = _app(project)
+            _call(app, "POST", "/api/close", {})
+            self.assertEqual(_call(app, "POST", "/api/search-again", {})[1]["error"], ui.FINISHED_ERROR)
+
+    def test_a_bad_setting_is_refused_and_nothing_is_written(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            status, _data = _call(app, "POST", "/api/search-again", {"settings": {"discover_shortlist": 0}})
+            self.assertEqual(status, 400)
+            self.assertFalse(ui.handoff_path(project).exists())
+            self.assertIsNone(app.finished)
+
+    def test_an_idle_timeout_writes_the_handoff_from_the_last_estimate(self) -> None:
+        now = {"t": 0.0}
+        with temp_project() as project:
+            app = _app(project, clock=lambda: now["t"])
+            _call(app, "POST", "/api/estimate", {"keywords": ["morning routine"],
+                                                 "cards": [{"handle": "slowsam", "kept": True}]})
+            now["t"] = 4000.0
+            app.stop_if_idle(3600)
+            doc = store.read_json(ui.handoff_path(project))
+        self.assertEqual((app.finished["reason"], app.finished["handoff_path"]),
+                         ("idle", str(ui.handoff_path(project))))
+        self.assertEqual(doc["keywords"], ["morning routine"])
+        self.assertEqual([(c["handle"], c["kept"]) for c in doc["cards"]], [("slowsam", True)])
+
+    def test_save_and_close_remove_a_stale_handoff(self) -> None:
+        for route, payload in (("/api/save", {"picks": ["webwillow"]}), ("/api/close", {})):
+            with self.subTest(route=route), temp_project() as project:
+                ui.handoff_path(project).parent.mkdir(parents=True, exist_ok=True)
+                ui.handoff_path(project).write_text("{}", encoding="utf-8")
+                self.assertEqual(_call(_app(project), "POST", route, payload)[0], 200)
+                self.assertFalse(ui.handoff_path(project).exists())
+
+    def test_serve_ends_with_the_search_again_result(self) -> None:
+        def search_again(srv: _FakeServer) -> None:
+            session = store.read_json(ui.session_path(project))
+            token = session["url"].split("#t=", 1)[1]
+            srv.app.handle("POST", "/api/search-again", {"host": f"127.0.0.1:{PORT}", "x-contentos-token": token,
+                                                         "content-type": "application/json"}, b"{}")
+
+        def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+            server = _FakeServer(address, handler)
+            server.steps = [search_again]
+            return server
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            result = ui.serve(project, store.load_discovery_config(project), ["habit coach"], [], [], [],
+                              mock=True, server_factory=factory)
+            self.assertTrue(ui.handoff_path(project).exists())
+            self.assertFalse(ui.session_path(project).exists())
+        self.assertEqual((result["next"], result["keywords"]), ("claude_search", ["habit coach"]))
+        self.assertTrue(result["discovery_path"].endswith("discovery.json"))
+
+
 class _FakeServer:
     """Stands in for ThreadingHTTPServer: no socket, scripted requests."""
 
@@ -491,6 +591,7 @@ class ServeTests(NoNetworkTestCase):
             self.assertFalse(ui.session_path(project).exists())
             gitignore = (store.contentos_dir(project) / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("ui-session.json", gitignore.splitlines())
+        self.assertIn("ui-handoff.json", gitignore.splitlines())
         self.assertEqual(made[0].address, ("127.0.0.1", 0))
         self.assertTrue(made[0].closed)
         self.assertTrue(seen[0]["url"].startswith(f"http://127.0.0.1:{PORT}/#t="))
