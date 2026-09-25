@@ -187,9 +187,22 @@ class App:
         self.resolve_keys = resolve_keys
         self.clock = clock
         self.run_discover = run_discover
-        self.cards = normalize_cards(cards) if cards is not None else cards_from_finds(web_entries)
-        self.search_instagram = search_instagram
         self.notes = list(notes or [])
+        if cards is not None:
+            self.cards = normalize_cards(cards)
+        else:
+            # A first open skips finds the creator already named, as a resumed panel does (0.6.1).
+            known = self._known([])
+            skipped: List[str] = []
+            for entry in web_entries:
+                if entry["handle"] in known and entry["handle"] not in skipped:
+                    skipped.append(entry["handle"])
+            self.cards = normalize_cards(cards_from_finds(
+                [entry for entry in web_entries if entry["handle"] not in known]))
+            if skipped:
+                self.notes.append("Claude's finds skip accounts you already named: "
+                                  + " ".join(f"@{handle}" for handle in skipped) + ".")
+        self.search_instagram = search_instagram
         self.state = "idle"
         self.log: List[str] = []
         self.error: Optional[str] = None

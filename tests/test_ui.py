@@ -185,6 +185,13 @@ class StateAndEstimateTests(NoNetworkTestCase):
         self.assertNotIn("web", data)
         self.assertEqual((data["cap_usd"], data["established_at"], data["state"]), (3.0, 50000, "idle"))
 
+    def test_the_first_cards_skip_the_watch_list_typed_handles_and_format_accounts(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["webwillow"], "format_accounts": ["focusfern"]})
+            data = _call(_app(project, seeds=["@SlowSam"]), "GET", "/api/state")[1]
+        self.assertEqual([card["handle"] for card in data["cards"]], ["madeupmaya", "photophoebe"])
+        self.assertEqual(data["notes"], ["Claude's finds skip accounts you already named: @webwillow @focusfern @slowsam."])
+
     def test_no_key_outside_mock(self) -> None:
         with temp_project() as project:
             self.assertFalse(_call(_app(project, mock=False), "GET", "/api/state")[1]["has_key"])

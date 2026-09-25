@@ -752,6 +752,13 @@ class DiscoveryFlowTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, flow)
 
+    def test_the_claude_search_never_suggests_accounts_already_named(self) -> None:
+        flow = _collapse(self._flow())
+        self.assertIn("leave the watch list, the handles the creator typed, their own handle, and the format "
+                      "accounts out of the finds", flow)
+        # Said before the finds are written, so it shapes the file.
+        self.assertLess(flow.index("out of the finds"), flow.index("Write the finds to"))
+
     def test_the_chat_can_stop_after_the_claude_search(self) -> None:
         body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
         chat = _collapse(body.split("### Discovery in the chat", 1)[1].split("\n## ", 1)[0])

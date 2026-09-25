@@ -272,6 +272,10 @@ followers) and Rising (10,000 to 50,000).
      each handle the creator typed, including their own if they gave it.
    - Profile pages: `site:instagram.com "<phrase>"` for each search phrase.
 
+   Those handles are where the search starts, not what it suggests: leave
+   the watch list, the handles the creator typed, their own handle, and the
+   format accounts out of the finds. The panel also skips the ones it knows.
+
    Write the finds to `.contentos/discovery-web.json` as a JSON list. Each
    find has `handle`, `source_url`, `source_title`, `reason`, and
    `followers_seen`. `reason` is one short sentence from the source on why
