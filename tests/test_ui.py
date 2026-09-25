@@ -490,6 +490,32 @@ class SearchAgainTests(NoNetworkTestCase):
             _call(app, "POST", "/api/search-again", {})
             self.assertIs(store.read_json(ui.handoff_path(project))["has_results"], True)
 
+    def test_has_results_after_a_scan_then_a_failed_scan(self) -> None:
+        calls: List[int] = []
+
+        def succeed_then_fail(project: Path, cfg: Dict[str, Any], keys: Any, **kwargs: Any) -> Dict[str, Any]:
+            calls.append(1)
+            if len(calls) > 1:
+                raise discover.DiscoverError("Apify timed out")
+            return discover.run_discover(project, cfg, keys, **kwargs)
+
+        with temp_project() as project:
+            app = _app(project, run_discover=succeed_then_fail)
+            _call(app, "POST", "/api/run", {})
+            _call(app, "POST", "/api/run", {})
+            self.assertEqual(app.state, "error")
+            _call(app, "POST", "/api/search-again", {})
+            # discovery.json still holds the first scan, so the resumed panel shows it.
+            self.assertIs(store.read_json(ui.handoff_path(project))["has_results"], True)
+
+    def test_a_resumed_panel_with_results_hands_them_on(self) -> None:
+        with temp_project() as project:
+            _call(_app(project), "POST", "/api/run", {})
+            app = _app(project, done=True, run_discover=mock.Mock(side_effect=discover.DiscoverError("boom")))
+            _call(app, "POST", "/api/run", {})
+            _call(app, "POST", "/api/search-again", {})
+            self.assertIs(store.read_json(ui.handoff_path(project))["has_results"], True)
+
     def test_search_again_waits_for_a_scan_and_refuses_a_finished_panel(self) -> None:
         with temp_project() as project:
             app = _app(project, runner=lambda job: None)

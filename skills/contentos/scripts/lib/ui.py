@@ -170,6 +170,8 @@ class App:
         # The dials as the page last sent them; an idle handoff keeps these (0.6.1).
         self.page_settings: Dict[str, Any] = dict(self.last_settings)
         self.finished: Optional[Dict[str, Any]] = None
+        # True once a scan finished in this session, even if a later one failed (the handoff's has_results).
+        self.had_results = False
         self.last_seen = clock()
         self._lock = threading.Lock()
         path = discover.discovery_path(self.project)
@@ -177,6 +179,7 @@ class App:
             # A resumed panel whose scan already ran shows its results again (0.6.1).
             self.state = "done"
             self.summary = discover.result_line(store.read_json(path), self.project)
+            self.had_results = True
 
     def handle(self, method: str, path: str, headers: Dict[str, str], body: bytes) -> Response:
         """Answer one request. Guards first: Host, then route, then token, then JSON.
@@ -316,7 +319,7 @@ class App:
             "cards": self.cards,
             "settings": settings,
             "search_instagram": self.search_instagram,
-            "has_results": self.state == "done",
+            "has_results": self.had_results,
         }, mode=SESSION_FILE_MODE)
         return path
 
@@ -430,6 +433,7 @@ class App:
         with self._lock:
             self.state = "done"
             self.summary = discover.result_line(doc, self.project)
+            self.had_results = True
 
     def _status(self, _payload: Dict[str, Any]) -> Response:
         with self._lock:
