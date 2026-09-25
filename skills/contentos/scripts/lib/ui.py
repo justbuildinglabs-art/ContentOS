@@ -519,6 +519,82 @@ def handoff_path(project: Path) -> Path:
     return store.contentos_dir(project) / HANDOFF_FILE_NAME
 
 
+class HandoffError(Exception):
+    """There is no panel to reopen, or its handoff cannot be read (exit 2)."""
+
+
+def load_handoff(project: Path) -> Dict[str, Any]:
+    """Read `ui-handoff.json` for `ui --resume` (design spec, "0.6.1 changes")."""
+    path = handoff_path(project)
+    if not path.exists():
+        raise HandoffError("Nothing to resume: there is no panel to reopen. Start a new one without --resume.")
+    try:
+        doc = store.read_json(path)
+    except (OSError, ValueError) as exc:
+        raise HandoffError(f"Could not read {path}: {exc}") from exc
+    if (not isinstance(doc, dict) or doc.get("version") != HANDOFF_VERSION
+            or not isinstance(doc.get("token"), str) or not doc["token"]):
+        raise HandoffError(f"{path} is not a panel this version can reopen. Start a new one without --resume.")
+    return doc
+
+
+def merge_finds(
+    cards: List[Dict[str, Any]], entries: List[Dict[str, Any]], known: List[str]
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Add a new Claude search's finds to the cards: earlier cards lose `new`, new ones get it.
+
+    A find already on a card (removed ones too) or in `known` is skipped.
+    The panel holds MAX_CARDS; finds past that are left out with a warning.
+    """
+    merged = [dict(card, new=False) for card in cards]
+    have = {card["handle"] for card in merged} | set(known)
+    left_out = 0
+    for entry in entries:
+        if entry["handle"] in have:
+            continue
+        if len(merged) >= MAX_CARDS:
+            left_out += 1
+            continue
+        merged.extend(cards_from_finds([entry], new=True))
+        have.add(entry["handle"])
+    warnings = [f"The panel holds {MAX_CARDS} creators, so {left_out} new finds were left out."] if left_out else []
+    return merged, warnings
+
+
+def resume_session(
+    project: Path, cfg: Dict[str, Any], handoff: Dict[str, Any], new_entries: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Everything `serve` needs to reopen the handed-off panel, with the new finds added.
+
+    Settings that no longer validate fall back to the config's, and a port
+    that is not a real port becomes 0 (the OS picks one).
+    """
+    seeds = _strings(handoff.get("seeds"))
+    watch, format_accounts, _warnings = discover.never_recommended(cfg, seeds)
+    cards, notes = merge_finds(normalize_cards(handoff.get("cards")), new_entries, watch + format_accounts)
+    raw_settings = handoff.get("settings") if isinstance(handoff.get("settings"), dict) else {}
+    settings = {key: raw_settings.get(key, cfg[key]) for key in DIAL_KEYS}
+    try:
+        store.check_discovery_config(dict(cfg, **settings))
+    except store.ConfigError:
+        settings = {key: cfg[key] for key in DIAL_KEYS}
+    port = handoff.get("port")
+    if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+        port = 0
+    return {
+        "token": handoff["token"],
+        "port": port,
+        "keywords": discover.normalize_keywords(_strings(handoff.get("keywords"))),
+        "hashtags": discover.normalize_hashtags(_strings(handoff.get("hashtags"))),
+        "seeds": seeds,
+        "cards": cards,
+        "settings": settings,
+        "search_instagram": handoff.get("search_instagram") is not False,
+        "done": handoff.get("has_results") is True and discover.discovery_path(project).exists(),
+        "notes": notes,
+    }
+
+
 class PanelError(Exception):
     """The panel could not start, such as a port that will not open (exit 2)."""
 
@@ -615,6 +691,7 @@ def serve(
     server_factory: Callable[..., Any] = PanelServer,
     clock: Callable[[], float] = time.monotonic,
     opener: Callable[[str], Any] = webbrowser.open,
+    resume: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Serve the panel until the creator saves or closes it, or it sits idle.
 
@@ -624,15 +701,30 @@ def serve(
     link. Raises PanelError when the port will not open. SIGTERM and
     SIGHUP end it with SystemExit(128 + the signal). The session file is
     removed on the way out, whatever happens. Returns the RESULT dict.
+    `resume` (from `resume_session`) reopens a handed-off panel: same
+    token, the same port when it opens (else a new one), its cards and
+    settings, and the handoff file is removed once the panel is up.
     """
     project = Path(project)
-    token = secrets.token_urlsafe(32)
+    resume = resume or {}
+    token = resume.get("token") or secrets.token_urlsafe(32)
     try:
         server = server_factory(("127.0.0.1", port), _Handler)
     except (OSError, OverflowError) as exc:
-        raise PanelError(f"Could not open the panel on port {port}: {exc}") from exc
+        if not resume or port == 0:
+            raise PanelError(f"Could not open the panel on port {port}: {exc}") from exc
+        # The page's old port is taken: open a new one, and the skill hands over the new link.
+        try:
+            server = server_factory(("127.0.0.1", 0), _Handler)
+        except (OSError, OverflowError) as retry:
+            raise PanelError(f"Could not open the panel on port 0: {retry}") from retry
     actual_port = server.server_address[1]
-    app = App(project, cfg, token, actual_port, keywords, hashtags, web_entries, seeds, mock=mock, clock=clock)
+    app = App(
+        project, cfg, token, actual_port, keywords, hashtags, web_entries, seeds, mock=mock, clock=clock,
+        cards=resume.get("cards"), settings=resume.get("settings"),
+        search_instagram=resume.get("search_instagram", True), done=resume.get("done", False),
+        notes=resume.get("notes"),
+    )
     server.app = app
     server.timeout = 1.0
     url = f"http://127.0.0.1:{actual_port}/#t={token}"
@@ -646,6 +738,8 @@ def serve(
             mode=SESSION_FILE_MODE,
         )
         print(f"UI {url}", flush=True)
+        if resume:
+            handoff_path(project).unlink(missing_ok=True)
         if open_browser:
             opener(url)
         while app.finished is None:

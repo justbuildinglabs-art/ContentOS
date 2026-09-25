@@ -724,6 +724,127 @@ class ServeTests(NoNetworkTestCase):
         self.assertEqual(during, [before])
 
 
+def _handoff(project: Path, **overrides: Any) -> Dict[str, Any]:
+    doc: Dict[str, Any] = {
+        "version": 1, "token": TOKEN, "port": PORT, "created_at": "2026-09-24T00:00:00+00:00",
+        "keywords": ["habit coach"], "hashtags": ["habits"], "seeds": ["typedtia"],
+        "cards": [{"handle": "webwillow", "kept": True, "new": True},
+                  {"handle": "focusfern", "removed": True}],
+        "settings": {"discover_min_followers": 25000, "discover_min_views": 5000,
+                     "discover_post_every_days": 14, "discover_shortlist": 12},
+        "search_instagram": False, "has_results": False,
+    }
+    doc.update(overrides)
+    ui.handoff_path(project).parent.mkdir(parents=True, exist_ok=True)
+    ui.handoff_path(project).write_text(json.dumps(doc), encoding="utf-8")
+    return doc
+
+
+class ResumeTests(NoNetworkTestCase):
+    def test_load_handoff_refuses_what_it_cannot_reopen(self) -> None:
+        with temp_project() as project:
+            with self.assertRaises(ui.HandoffError):
+                ui.load_handoff(project)
+            ui.handoff_path(project).parent.mkdir(parents=True, exist_ok=True)
+            for text in ("{nope", "[]", json.dumps({"version": 2, "token": TOKEN}),
+                         json.dumps({"version": 1, "token": ""})):
+                with self.subTest(text=text):
+                    ui.handoff_path(project).write_text(text, encoding="utf-8")
+                    with self.assertRaises(ui.HandoffError):
+                        ui.load_handoff(project)
+            _handoff(project)
+            self.assertEqual(ui.load_handoff(project)["token"], TOKEN)
+
+    def test_merge_finds_marks_only_new_handles_new(self) -> None:
+        cards = ui.normalize_cards([{"handle": "webwillow", "new": True}, {"handle": "focusfern", "removed": True}])
+        finds, _warnings = discover.normalize_web_entries(
+            ["focusfern", "habitlab", "coachcora", "coachcora", "webwillow", "planwithpia"])
+        merged, warnings = ui.merge_finds(cards, finds, ["habitlab"])
+        self.assertEqual([(c["handle"], c["new"], c["removed"]) for c in merged], [
+            ("webwillow", False, False), ("focusfern", False, True),
+            ("coachcora", True, False), ("planwithpia", True, False),
+        ])
+        self.assertEqual(warnings, [])
+
+    def test_merge_finds_holds_at_most_120_cards(self) -> None:
+        cards = ui.normalize_cards([{"handle": f"h{i}"} for i in range(118)])
+        finds, _warnings = discover.normalize_web_entries([f"n{i}" for i in range(5)])
+        merged, warnings = ui.merge_finds(cards, finds, [])
+        self.assertEqual(len(merged), 120)
+        self.assertEqual(warnings, ["The panel holds 120 creators, so 3 new finds were left out."])
+
+    def test_resume_session_restores_the_panel(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["habitlab"]})
+            handoff = _handoff(project)
+            finds, _warnings = discover.normalize_web_entries(["habitlab", "coachcora"])
+            session = ui.resume_session(project, store.load_discovery_config(project), handoff, finds)
+        self.assertEqual((session["token"], session["port"]), (TOKEN, PORT))
+        self.assertEqual((session["keywords"], session["hashtags"], session["seeds"]),
+                         (["habit coach"], ["habits"], ["typedtia"]))
+        self.assertEqual([c["handle"] for c in session["cards"]], ["webwillow", "focusfern", "coachcora"])
+        self.assertEqual(session["settings"]["discover_min_followers"], 25000)
+        self.assertEqual((session["search_instagram"], session["done"], session["notes"]), (False, False, []))
+
+    def test_bad_settings_or_port_fall_back_to_defaults(self) -> None:
+        with temp_project() as project:
+            handoff = _handoff(project, settings={"discover_shortlist": 0}, port="x")
+            session = ui.resume_session(project, store.load_discovery_config(project), handoff, [])
+        self.assertEqual(session["settings"]["discover_shortlist"], 20)
+        self.assertEqual(session["port"], 0)
+
+    def test_done_only_when_the_results_file_exists(self) -> None:
+        with temp_project() as project:
+            handoff = _handoff(project, has_results=True)
+            cfg = store.load_discovery_config(project)
+            self.assertFalse(ui.resume_session(project, cfg, handoff, [])["done"])
+            app = _app(project)
+            _call(app, "POST", "/api/run", {})
+            self.assertTrue(ui.resume_session(project, cfg, handoff, [])["done"])
+
+    def test_a_resumed_panel_shows_the_last_results_with_no_new_spend(self) -> None:
+        with temp_project() as project:
+            _call(_app(project), "POST", "/api/run", {})
+            app = _app(project, done=True)
+            status = _call(app, "GET", "/api/status")[1]
+            doc_status, doc = _call(app, "GET", "/api/discovery")
+        self.assertEqual((status["state"], status["summary"]["candidates"]), ("done", 3))
+        self.assertEqual((doc_status, doc["version"]), (200, 2))
+
+    def test_serve_reuses_the_token_and_port_and_removes_the_handoff(self) -> None:
+        made: List[_FakeServer] = []
+        seen: List[Dict[str, Any]] = []
+        with temp_project() as project, redirect_stdout(StringIO()) as out:
+            handoff = _handoff(project)
+            cfg = store.load_discovery_config(project)
+            session = ui.resume_session(project, cfg, handoff, [])
+            ui.serve(project, cfg, session["keywords"], session["hashtags"], [], session["seeds"], mock=True,
+                     port=session["port"], resume=session, server_factory=_closing_factory(project, made, seen))
+            self.assertFalse(ui.handoff_path(project).exists())
+        self.assertEqual(made[0].address, ("127.0.0.1", PORT))
+        self.assertTrue(seen[0]["url"].endswith(f"#t={TOKEN}"))
+        self.assertIn(f"#t={TOKEN}", out.getvalue())
+
+    def test_a_taken_port_falls_back_to_a_new_one(self) -> None:
+        tried: List[int] = []
+        inner = _closing_factory
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            closing = inner(project, [], [])
+
+            def factory(address: Tuple[str, int], handler: Any) -> Any:
+                tried.append(address[1])
+                if address[1] == PORT:
+                    raise OSError(48, "Address already in use")
+                return closing(address, handler)
+
+            handoff = _handoff(project)
+            cfg = store.load_discovery_config(project)
+            session = ui.resume_session(project, cfg, handoff, [])
+            ui.serve(project, cfg, [], [], [], [], mock=True, port=PORT, resume=session, server_factory=factory)
+        self.assertEqual(tried, [PORT, 0])
+
+
 def _main(argv: Sequence[str]) -> Tuple[int, str, str]:
     out, err = StringIO(), StringIO()
     with redirect_stdout(out), redirect_stderr(err):
@@ -787,6 +908,41 @@ class UiCommandTests(NoNetworkTestCase):
             self.assertEqual(code, codes.EXIT_USAGE)
             self.assertEqual(err.strip(), f"Could not open the panel on port {port}: {failure}")
             self.assertNotIn("RESULT", out)
+
+    def test_resume_with_nothing_to_resume_exits_2(self) -> None:
+        refuse = AssertionError("ui.serve must not run")
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=refuse):
+            code, out, err = _main(["ui", "--project", str(project), "--resume"])
+        self.assertEqual(code, codes.EXIT_USAGE)
+        self.assertIn("Nothing to resume", err)
+        self.assertNotIn("RESULT", out)
+
+    def test_resume_refuses_new_search_terms(self) -> None:
+        refuse = AssertionError("ui.serve must not run")
+        for flag in ("--keywords", "--hashtags", "--seeds"):
+            with self.subTest(flag=flag), temp_project() as project, \
+                    mock.patch.object(ui, "serve", side_effect=refuse):
+                _handoff(project)
+                code, _out, err = _main(["ui", "--project", str(project), "--resume", flag, "x"])
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertIn("--resume", err)
+
+    def test_resume_adds_the_new_finds_and_serves(self) -> None:
+        captured: Dict[str, Any] = {}
+
+        def fake_serve(project: Path, cfg: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+            captured.update(kwargs)
+            return {"saved": False, "picks": [], "settings": {}, "discovery_path": "x"}
+
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=fake_serve):
+            _handoff(project)
+            code, _out, _err = _main(["ui", "--project", str(project), "--mock", "--resume",
+                                      "--handles-file", str(WEB_FILE)])
+        self.assertEqual(code, codes.EXIT_OK)
+        cards = captured["resume"]["cards"]
+        self.assertEqual([(c["handle"], c["new"]) for c in cards][:3],
+                         [("webwillow", False), ("focusfern", False), ("madeupmaya", True)])
+        self.assertEqual((captured["port"], captured["keywords"]), (PORT, ["habit coach"]))
 
 
 class PageTests(NoNetworkTestCase):
