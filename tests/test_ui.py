@@ -264,6 +264,36 @@ class CardTests(NoNetworkTestCase):
         self.assertEqual([(card["handle"], card["kept"]) for card in data["cards"]], [("slowsam", True)])
 
 
+    def test_a_finished_panel_no_longer_records_the_page(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            _call(app, "POST", "/api/close", {})
+            status, _data = _call(app, "POST", "/api/estimate", {"keywords": ["late"], "cards": [],
+                                                                "settings": {"discover_shortlist": 5}})
+        self.assertEqual(status, 200)
+        self.assertEqual(app.keywords, ["habit coach"])
+        self.assertEqual(len(app.cards), 5)
+        self.assertEqual(app.page_settings["discover_shortlist"], 20)
+
+    def test_a_page_from_an_older_panel_cannot_overwrite_the_cards(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            generation = _call(app, "GET", "/api/state")[1]["generation"]
+            self.assertIsInstance(generation, str)
+            self.assertNotEqual(generation, _call(_app(project), "GET", "/api/state")[1]["generation"])
+            stale = {"generation": "older", "cards": [{"handle": "slowsam"}], "keywords": ["old"]}
+            for route in ("/api/estimate", "/api/search-again"):
+                with self.subTest(route=route):
+                    status, data = _call(app, "POST", route, stale)
+                    self.assertEqual(status, 409)
+                    self.assertIs(data["stale"], True)
+            self.assertEqual((len(app.cards), app.keywords, app.finished), (5, ["habit coach"], None))
+            self.assertFalse(ui.handoff_path(project).exists())
+            current = {"generation": generation, "cards": [{"handle": "slowsam"}]}
+            self.assertEqual(_call(app, "POST", "/api/estimate", current)[0], 200)
+        self.assertEqual([card["handle"] for card in app.cards], ["slowsam"])
+
+
 class RunTests(NoNetworkTestCase):
     def test_a_mock_run_finishes_and_serves_the_results(self) -> None:
         with temp_project() as project:
@@ -1052,6 +1082,16 @@ class PageTests(NoNetworkTestCase):
         self.assertIn("state.finished", wait)
         self.assertIn("window.location.reload()", wait)
         self.assertIn("WAIT_MS = 15 * 60 * 1000", text)
+
+    def test_a_page_from_an_older_panel_reloads(self) -> None:
+        text = self._page()
+        self.assertIn("generation: generation", text.split("function inputs()", 1)[1].split("\n  }\n", 1)[0])
+        self.assertIn("generation = state.generation", text.split("function start(state)", 1)[1])
+        for name in ("function estimate()", "function searchAgain()"):
+            with self.subTest(name=name):
+                body = text.split(name, 1)[1].split("\n  }\n", 1)[0]
+                self.assertIn("reloadIfStale(error)", body)
+        self.assertIn("window.location.reload()", text.split("function reloadIfStale(error)", 1)[1])
 
     def test_the_token_comes_only_from_the_fragment(self) -> None:
         text = self._page()

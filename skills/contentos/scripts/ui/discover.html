@@ -154,6 +154,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
   var cards = [];
   var established = 50000;
   var timer = null;
+  var generation = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -165,10 +166,21 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     }
     return fetch(path, options).then(function (response) {
       return response.json().then(function (data) {
-        if (!response.ok) { throw new Error(data.error || "Something went wrong."); }
+        if (!response.ok) {
+          var error = new Error(data.error || "Something went wrong.");
+          error.stale = data.stale === true;
+          throw error;
+        }
         return data;
       });
     });
+  }
+
+  // A page loaded before Claude's last search reloads, so it shows the panel as it is now.
+  function reloadIfStale(error) {
+    if (!error.stale) { return false; }
+    window.location.reload();
+    return true;
   }
 
   function el(tag, text, className) {
@@ -283,7 +295,8 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
       hashtags: splitTags($("hashtags").value),
       web: scanCards().map(findOf),
       cards: cards.map(cardOut),
-      search_instagram: $("search-instagram").checked
+      search_instagram: $("search-instagram").checked,
+      generation: generation
     };
   }
 
@@ -399,7 +412,9 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
       $("cost-note").textContent = data.within_cap
         ? "of your $" + data.cap_usd.toFixed(2) + " cap"
         : "Over your $" + data.cap_usd.toFixed(2) + " cap. Check fewer creators or drop the hashtags.";
-    }).catch(function (error) { $("run-error").textContent = error.message; });
+    }).catch(function (error) {
+      if (!reloadIfStale(error)) { $("run-error").textContent = error.message; }
+    });
   }
 
   function setRunning(running) {
@@ -562,7 +577,9 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
       $("waiting").hidden = false;
       $("waiting").textContent = "Claude is searching in your chat. This page comes back by itself.";
       waitForPanel(Date.now());
-    }).catch(function (error) { $("claude-error").textContent = error.message; });
+    }).catch(function (error) {
+      if (!reloadIfStale(error)) { $("claude-error").textContent = error.message; }
+    });
   }
 
   function addHandle() {
@@ -584,6 +601,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     if (!state.set_up) { notes.push("Your project is not set up yet, so your picks go into setup."); }
     $("banner").textContent = notes.concat(state.notes || []).join(" ");
     established = state.established_at;
+    generation = state.generation;
     $("keywords").value = state.keywords.join(", ");
     $("hashtags").value = state.hashtags.map(function (tag) { return "#" + tag; }).join(" ");
     cards = state.cards.map(function (card) {

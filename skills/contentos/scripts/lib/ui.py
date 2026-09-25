@@ -46,6 +46,7 @@ ROUTES = (
 )
 LOG_LINES_KEPT = 200
 FINISHED_ERROR = "This panel is finished. Go back to Claude."
+STALE_ERROR = "This page is from before Claude's last search, so it reloads now."
 # The panel's words for a check-only scan with nothing to check (0.6.1).
 CHECK_ONLY_NEEDS_CARDS = (
     "To check only Claude's finds, add at least one creator first, or tick Also search Instagram for more creators."
@@ -172,6 +173,11 @@ class App:
         self.finished: Optional[Dict[str, Any]] = None
         # True once a scan finished in this session, even if a later one failed (the handoff's has_results).
         self.had_results = False
+        # Each panel process has its own generation. A page loaded from an
+        # earlier one (a second tab left open across Search again) sends
+        # the old value and is told to reload, so it cannot overwrite the
+        # resumed panel's cards (0.6.1).
+        self.generation = secrets.token_hex(8)
         self.last_seen = clock()
         self._lock = threading.Lock()
         path = discover.discovery_path(self.project)
@@ -296,6 +302,13 @@ class App:
             return json_response(409, {"error": "A search is running. Wait for it to finish first."})
         return None
 
+    def _stale(self, payload: Dict[str, Any]) -> Optional[Response]:
+        """The 409 for a page loaded from an earlier panel; a payload with no generation is not checked."""
+        sent = payload.get("generation")
+        if sent is not None and sent != self.generation:
+            return json_response(409, {"error": STALE_ERROR, "stale": True})
+        return None
+
     def _known(self, cards: List[Dict[str, Any]]) -> List[str]:
         """Every handle the next Claude search must skip: the cards (removed too), seeds, and format accounts."""
         seeds, format_accounts, _warnings = discover.never_recommended(self.cfg, self.seeds)
@@ -350,9 +363,13 @@ class App:
             "finished": self.finished is not None,
             "watch_list": list(self.cfg.get("competitors") or []),
             "state": self.state,
+            "generation": self.generation,
         })
 
     def _estimate(self, payload: Dict[str, Any]) -> Response:
+        stale = self._stale(payload)
+        if stale is not None:
+            return stale
         try:
             cfg = self._config_with(payload)
         except store.ConfigError as exc:
@@ -360,7 +377,10 @@ class App:
         keywords, hashtags, web, search_instagram = self._inputs(payload)
         with self._lock:
             # The page calls this on every change, so an idle timeout's
-            # handoff holds what the creator last saw (0.6.1).
+            # handoff holds what the creator last saw (0.6.1). A finished
+            # panel keeps what it handed off.
+            if self.finished is not None:
+                return json_response(200, self._cost(cfg, keywords, hashtags, web, search_instagram))
             if "keywords" in payload:
                 self.keywords = keywords
             if "hashtags" in payload:
@@ -481,7 +501,7 @@ class App:
     def _search_again(self, payload: Dict[str, Any]) -> Response:
         """Hand the turn back to Claude for another web search (design spec, "0.6.1 changes")."""
         with self._lock:
-            refused = self._refusal()
+            refused = self._refusal() or self._stale(payload)
             if refused is not None:
                 return refused
             try:
