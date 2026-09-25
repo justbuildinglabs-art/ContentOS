@@ -345,6 +345,8 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --resume \
    - `"reason": "idle"`: the panel closed after an hour with nothing
      happening. Offer to reopen it with `--resume` (no new search needed). It
      comes back with the creator's ticks and any scan results, at no cost.
+     When the line has a `warning` and no `handoff_path`, the panel could not
+     be kept, so `--resume` will not work: offer to start a new panel instead.
    - There is no `RESULT` line: the panel stopped before the creator saved
      or closed it (or it could not start), so no picks were saved. Say so in
      one line, and offer to open it again or to use the chat steps.

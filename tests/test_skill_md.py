@@ -808,6 +808,13 @@ class ControlPanelSkillTests(NoNetworkTestCase):
                 self.assertIn(phrase, panel)
         self.assertIn("give the creator the new link and open it", panel)
 
+    def test_an_idle_panel_that_could_not_be_kept_starts_fresh(self) -> None:
+        panel = self._panel()
+        idle = panel.split('`"reason": "idle"`', 1)[1]
+        for phrase in ("`warning`", "no `handoff_path`", "start a new panel"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, idle)
+
     def test_every_ui_command_parses(self) -> None:
         body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
         blocks = [block for block in re.findall(r"```bash\n(.*?)```", body, flags=re.DOTALL)

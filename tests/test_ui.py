@@ -594,6 +594,26 @@ class SearchAgainTests(NoNetworkTestCase):
         self.assertEqual((app.finished["settings"]["discover_min_followers"],
                           app.finished["settings"]["discover_shortlist"]), (10000, 20))
 
+    def test_a_failed_handoff_write_still_ends_an_idle_panel(self) -> None:
+        now = {"t": 0.0}
+        full = OSError(28, "No space left on device")
+        with temp_project() as project, mock.patch.object(ui.App, "_write_handoff", side_effect=full):
+            app = _app(project, clock=lambda: now["t"])
+            now["t"] = 4000.0
+            app.stop_if_idle(3600)
+        self.assertEqual((app.finished["saved"], app.finished["reason"]), (False, "idle"))
+        self.assertNotIn("handoff_path", app.finished)
+        self.assertIn("could not be saved to reopen", app.finished["warning"])
+        self.assertIn("No space left on device", app.finished["warning"])
+
+    def test_a_failed_handoff_write_leaves_search_again_open(self) -> None:
+        full = OSError(28, "No space left on device")
+        with temp_project() as project, mock.patch.object(ui.App, "_write_handoff", side_effect=full):
+            app = _app(project)
+            status, data = _call(app, "POST", "/api/search-again", {})
+        self.assertEqual((status, data), (500, {"error": "Could not save the panel for Claude. Try again."}))
+        self.assertIsNone(app.finished)
+
     def test_save_and_close_remove_a_stale_handoff(self) -> None:
         for route, payload in (("/api/save", {"picks": ["webwillow"]}), ("/api/close", {})):
             with self.subTest(route=route), temp_project() as project:

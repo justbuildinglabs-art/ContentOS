@@ -340,9 +340,14 @@ class App:
         """Finish the session when no accepted request came for `idle_s` and no search is running."""
         with self._lock:
             if self.finished is None and self.state != "running" and self.clock() - self.last_seen > idle_s:
-                path = self._write_handoff(self.page_settings)
-                self.finished = {"saved": False, "picks": [], "settings": self.last_settings, "reason": "idle",
-                                 "handoff_path": str(path)}
+                finished: Dict[str, Any] = {"saved": False, "picks": [], "settings": self.last_settings,
+                                            "reason": "idle"}
+                try:
+                    finished["handoff_path"] = str(self._write_handoff(self.page_settings))
+                except OSError as exc:
+                    # The panel still ends with its RESULT; it just cannot be reopened.
+                    finished["warning"] = f"The panel could not be saved to reopen later: {exc}"
+                self.finished = finished
 
     # -- routes --------------------------------------------------------------
 
@@ -514,7 +519,10 @@ class App:
                 self.cards = normalize_cards(payload["cards"])
             self.last_settings = {key: cfg[key] for key in DIAL_KEYS}
             self.page_settings = dict(self.last_settings)
-            path = self._write_handoff(self.last_settings)
+            try:
+                path = self._write_handoff(self.last_settings)
+            except OSError:
+                return json_response(500, {"error": "Could not save the panel for Claude. Try again."})
             self.finished = {
                 "saved": False, "picks": [], "settings": self.last_settings, "next": "claude_search",
                 "keywords": keywords, "hashtags": hashtags, "known": self._known(self.cards),
