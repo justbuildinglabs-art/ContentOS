@@ -862,6 +862,38 @@ class ControlPanelSkillTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, idle)
 
+    @staticmethod
+    def _results() -> List[str]:
+        """The bullets under "Wait for it to finish", as written (not collapsed)."""
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        panel = body.split("### The control panel", 1)[1].split("### Discovery in the chat", 1)[0]
+        step = panel.split("3. **Wait for it to finish.**", 1)[1]
+        return ["- " + bullet for bullet in step.split("\n   - ")[1:]]
+
+    def test_the_result_bullets_put_search_again_and_idle_before_a_plain_close(self) -> None:
+        bullets = self._results()
+        order = [next(i for i, bullet in enumerate(bullets) if bullet.startswith(f"- `{key}`"))
+                 for key in ('"next": "claude_search"', '"reason": "idle"', '"saved": false')]
+        self.assertEqual(order, sorted(order))
+        # The plain "saved": false bullet only covers a result with neither key.
+        plain = _collapse(bullets[order[2]])
+        self.assertIn('`"saved": false` with no `next` and no `reason`', plain)
+        self.assertIn("chat steps", plain)
+
+    def test_an_idle_panel_reopens_in_the_background_with_a_new_link(self) -> None:
+        idle = next(bullet for bullet in self._results() if bullet.startswith('- `"reason": "idle"`'))
+        flat = _collapse(idle)
+        for phrase in ("in the background", "no `--handles-file`", "`UI <url>`", "does not come back by itself",
+                       "wait for this command the same way"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flat)
+        blocks = re.findall(r"```bash\n(.*?)```", idle, flags=re.DOTALL)
+        self.assertEqual(len(blocks), 1)
+        for flag in ("--resume", "--open"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, blocks[0])
+        self.assertNotIn("--handles-file", blocks[0])
+
     def test_every_ui_command_parses(self) -> None:
         body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
         blocks = [block for block in re.findall(r"```bash\n(.*?)```", body, flags=re.DOTALL)

@@ -329,7 +329,6 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --open \
    - `"saved": true` during setup: the picks are in
      `.contentos/discovery-picks.json`. Put them in `competitors` in the
      answers file, after the handles the creator typed.
-   - `"saved": false`: no picks were saved and the watch list did not change. Say so, and offer the chat steps.
    - `"next": "claude_search"`: the creator pressed Search again with
      Claude. Their page is waiting. Search the web again as in step 2 of the
      discovery flow, with the `keywords` and `hashtags` from the `RESULT`
@@ -347,16 +346,29 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --resume \
      one line how many new creators you found. The page comes back by itself.
      Give the creator the link from the `UI <url>` line every time, in case
      they closed the tab. If it shows a different address from before, the
-     old port was taken: give the creator the new link and open it in their
-     browser (for example `python3 -m webbrowser "<url>"`). With no web
+     old port was taken and the waiting page cannot follow: give the
+     creator the new link and open it in their browser (for example
+     `python3 -m webbrowser "<url>"`). With no web
      search tool, say so in one line and resume with no `--handles-file`.
      Then wait for this command the same way.
    - `"reason": "idle"`: the panel closed after an hour with nothing
-     happening. Offer to reopen it with `--resume` (no new search needed). It
-     comes back with the creator's ticks and any scan results, at no cost.
-     Give the creator the link from its `UI <url>` line. When the `RESULT`
-     line has a `warning` and no `handoff_path`, the panel could not be kept,
-     so `--resume` will not work: offer to start a new panel instead.
+     happening. Offer to reopen it. It comes back with the creator's ticks
+     and any scan results, at no cost, and needs no new search. On a yes,
+     start it in the background the same way, with `--resume --open` and no
+     `--handles-file`:
+
+```bash
+python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --resume --open
+```
+
+     The old tab does not come back by itself, so give the creator the link
+     from the `UI <url>` line, as in step 2. Then wait for this command the
+     same way. When the `RESULT` line has a `warning` and no
+     `handoff_path`, the panel could not be kept, so `--resume` will not
+     work: offer to start a new panel instead.
+   - `"saved": false` with no `next` and no `reason`: the creator pressed
+     Close. No picks were saved and the watch list did not change. Say so,
+     and offer the chat steps.
    - There is no `RESULT` line: the panel stopped before the creator saved
      or closed it (or it could not start), so no picks were saved. Say so in
      one line, and offer to open it again or to use the chat steps.
