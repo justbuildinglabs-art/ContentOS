@@ -751,7 +751,8 @@ def serve(
     removed on the way out, whatever happens. Returns the RESULT dict.
     `resume` (from `resume_session`) reopens a handed-off panel: same
     token, the same port when it opens (else a new one), its cards and
-    settings, and the handoff file is removed once the panel is up.
+    settings. Once the panel is up, any handoff file is removed: a
+    resumed panel has loaded it, and a fresh panel supersedes it.
     """
     project = Path(project)
     resume = resume or {}
@@ -786,8 +787,9 @@ def serve(
             mode=SESSION_FILE_MODE,
         )
         print(f"UI {url}", flush=True)
-        if resume:
-            handoff_path(project).unlink(missing_ok=True)
+        # A resumed panel has loaded its handoff, and a fresh one supersedes
+        # any older handoff, so neither leaves one (with its token) behind.
+        handoff_path(project).unlink(missing_ok=True)
         if open_browser:
             opener(url)
         while app.finished is None:

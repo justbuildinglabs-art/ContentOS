@@ -934,6 +934,28 @@ class ResumeTests(NoNetworkTestCase):
         self.assertTrue(seen[0]["url"].endswith(f"#t={TOKEN}"))
         self.assertIn(f"#t={TOKEN}", out.getvalue())
 
+    def test_a_fresh_panel_retires_an_old_handoff_once_it_is_up(self) -> None:
+        present: List[bool] = []
+
+        def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+            server = _closing_factory(project, [], [])(address, handler)
+            server.steps.insert(0, lambda _srv: present.append(ui.handoff_path(project).exists()))
+            return server
+
+        def refuse(_address: Tuple[str, int], _handler: Any) -> Any:
+            raise OSError(48, "Address already in use")
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            _handoff(project)
+            with self.assertRaises(ui.PanelError):
+                ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True, port=PORT,
+                         server_factory=refuse)
+            # A panel that never came up leaves the old one to resume.
+            self.assertTrue(ui.handoff_path(project).exists())
+            ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                     server_factory=factory)
+        self.assertEqual(present, [False])
+
     def test_a_taken_port_falls_back_to_a_new_one(self) -> None:
         tried: List[int] = []
         inner = _closing_factory
