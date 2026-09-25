@@ -806,6 +806,7 @@ class ControlPanelSkillTests(NoNetworkTestCase):
                        "new link", "no web search tool"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, panel)
+        self.assertIn("give the creator the new link and open it", panel)
 
     def test_every_ui_command_parses(self) -> None:
         body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]

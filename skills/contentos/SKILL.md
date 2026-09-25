@@ -338,9 +338,10 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --resume \
      `--hashtags`, and `--seeds`: the panel keeps its own. Tell the creator in
      one line how many new creators you found. The page comes back by itself.
      If the `UI <url>` line shows a different address from before, the old
-     port was taken: give the creator the new link. With no web search tool,
-     say so in one line and resume with no `--handles-file`. Then wait for
-     this command the same way.
+     port was taken: give the creator the new link and open it in their
+     browser (for example `python3 -m webbrowser "<url>"`). With no web
+     search tool, say so in one line and resume with no `--handles-file`.
+     Then wait for this command the same way.
    - `"reason": "idle"`: the panel closed after an hour with nothing
      happening. Offer to reopen it with `--resume` (no new search needed). It
      comes back with the creator's ticks and any scan results, at no cost.
