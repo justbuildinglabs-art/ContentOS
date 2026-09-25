@@ -84,6 +84,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     <h2>Creators</h2>
     <p class="muted">Tick Keep on the ones you want, then Save. Saving is free. Remove any you don't want checked.</p>
     <div id="cards"></div>
+    <p id="cards-note" class="warnline"></p>
     <div class="row"><label for="web-add">Add a handle</label>
       <input type="text" id="web-add" placeholder="@handle"><button id="web-add-btn" type="button">Add</button></div>
     <div class="costbar">
@@ -142,6 +143,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
   var token = (window.location.hash.match(/(?:^#|&)t=([^&]+)/) || [])[1] || "";
   var INSTAGRAM_URL = "https://www.instagram.com/";
   var WAIT_MS = 15 * 60 * 1000;
+  var MAX_CARDS = 120;
   var GAVE_UP = "Still waiting. Reload this page once Claude says the panel is back, or ask Claude for the link.";
   var PORT_TAKEN = "Another program answered at this address. Ask Claude for the new link.";
   var presets = {
@@ -403,7 +405,19 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     if (!cards.length) {
       list.appendChild(el("p", "No creators yet. Add handles you know, or press Search again with Claude.", "muted"));
     }
+    cardsNote();
     updatePicked();
+  }
+
+  // The panel keeps MAX_CARDS: ticked cards first, then the rest in order, removed ones last.
+  function cardsNote() {
+    var over = cards.length - MAX_CARDS;
+    if (over <= 0) { $("cards-note").textContent = ""; return; }
+    var head = "This list has " + cards.length + " creators, and the panel keeps " + MAX_CARDS + ". ";
+    $("cards-note").textContent = kept().length > MAX_CARDS
+      ? head + "Tick " + MAX_CARDS + " or fewer, or some ticks will not be kept."
+      : head + "Your ticked ones stay. " +
+        (over === 1 ? "1 unticked one will not be kept." : over + " unticked ones will not be kept.");
   }
 
   function scheduleEstimate() {

@@ -266,6 +266,22 @@ class CardTests(NoNetworkTestCase):
         cards = ui.normalize_cards([{"handle": f"h{i}"} for i in range(130)])
         self.assertEqual(len(cards), ui.MAX_CARDS)
 
+    def test_past_120_cards_the_ticked_ones_stay(self) -> None:
+        # 110 of Claude's finds, then 20 ticked cards a scan added at the end.
+        raw = ([{"handle": f"c{i}"} for i in range(110)]
+               + [{"handle": f"k{i}", "origin": "instagram", "kept": True} for i in range(20)])
+        cards = ui.normalize_cards(raw)
+        self.assertEqual(len(cards), ui.MAX_CARDS)
+        self.assertEqual(sum(card["kept"] for card in cards), 20)
+        # The cards that stay keep the page's order.
+        self.assertEqual([card["handle"] for card in cards], [f"c{i}" for i in range(100)] + [f"k{i}" for i in range(20)])
+
+    def test_past_120_cards_removed_ones_go_before_the_rest(self) -> None:
+        raw = ([{"handle": "gone0", "removed": True}] + [{"handle": f"c{i}"} for i in range(119)]
+               + [{"handle": "late", "origin": "you", "kept": True}, {"handle": "gone1", "removed": True}])
+        handles = [card["handle"] for card in ui.normalize_cards(raw)]
+        self.assertEqual(handles, [f"c{i}" for i in range(119)] + ["late"])
+
     def test_the_estimate_records_the_page(self) -> None:
         with temp_project() as project:
             app = _app(project)
@@ -1171,6 +1187,21 @@ class PageTests(NoNetworkTestCase):
                        "not checked", "Keep", "Passed", "Missed: "):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
+
+    def test_a_list_past_120_says_which_cards_the_panel_lets_go(self) -> None:
+        text = self._page()
+        self.assertIn(f"var MAX_CARDS = {ui.MAX_CARDS};", text)
+        self.assertIn('id="cards-note"', text)
+        render = text.split("function renderCards()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("cardsNote()", render)
+        note = text.split("function cardsNote()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("MAX_CARDS", note)
+        self.assertIn('$("cards-note").textContent', note)
+        for phrase in ('" creators, and the panel keeps "', '"Your ticked ones stay. "',
+                       '" unticked ones will not be kept."', '"1 unticked one will not be kept."',
+                       '" or fewer, or some ticks will not be kept."'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, note)
 
     def test_a_check_only_estimate_with_nothing_to_check_shows_its_note(self) -> None:
         estimate = self._page().split("function estimate()", 1)[1].split("\n  }\n", 1)[0]

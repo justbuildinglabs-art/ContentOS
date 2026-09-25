@@ -93,8 +93,11 @@ def normalize_cards(raw: Any) -> List[Dict[str, Any]]:
 
     A card whose handle is not an Instagram handle, or repeats an earlier
     card, is left out. An unknown origin reads as "claude". Anything the
-    page adds beyond these fields (such as its scan status) is dropped,
-    and at most MAX_CARDS are kept. A value that is not a list gives [].
+    page adds beyond these fields (such as its scan status) is dropped.
+    At most MAX_CARDS are kept: ticked cards first, then cards that are not
+    removed, then removed ones, so a scan that grew the list past the limit
+    never costs the creator a Keep tick. The cards that stay keep the
+    page's order. A value that is not a list gives [].
     """
     if not isinstance(raw, list):
         return []
@@ -115,9 +118,11 @@ def normalize_cards(raw: Any) -> List[Dict[str, Any]]:
             new=item.get("new") is True,
         ))
         seen.add(finds[0]["handle"])
-        if len(cards) == MAX_CARDS:
-            break
-    return cards
+    if len(cards) <= MAX_CARDS:
+        return cards
+    rank = sorted(range(len(cards)), key=lambda i: (not cards[i]["kept"], cards[i]["removed"], i))
+    chosen = set(rank[:MAX_CARDS])
+    return [card for i, card in enumerate(cards) if i in chosen]
 
 
 def _search_instagram(payload: Dict[str, Any], default: bool) -> bool:
