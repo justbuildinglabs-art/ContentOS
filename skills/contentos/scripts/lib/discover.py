@@ -47,6 +47,8 @@ _HASHTAG_RE = re.compile(r"^\w+$")
 
 # 0.6.0 (design spec, "0.6.0 changes").
 MAX_WEB_HANDLES = 40
+# 0.6.1: a web find's reason and source title are cut to this many characters.
+WEB_TEXT_CHARS = 140
 ACTIVE_DAYS = 30
 REASON_NO_RECENT_REEL = "no reel in 30 days"
 _CAPTION_TAG_RE = re.compile(r"#(\w+)")
@@ -146,7 +148,7 @@ def hashtag_from_input_url(input_url: Any) -> Optional[str]:
     return None
 
 
-def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, str]], List[str]]:
+def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, Any]], List[str]]:
     """Read `--handles-file`: a JSON list of `{handle, source_url}`.
 
     Returns `(entries, warnings)` with each `handle` already through
@@ -166,32 +168,57 @@ def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, str]], List[s
     return normalize_web_entries(doc)
 
 
-def normalize_web_entries(doc: Any) -> Tuple[List[Dict[str, str]], List[str]]:
-    """Clean the web finds: a list of `{handle, source_url}`, or bare handles.
+def _web_text(value: Any) -> Optional[str]:
+    """A find's reason or source title: whitespace folded, cut to 140 characters, None when empty."""
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())[:WEB_TEXT_CHARS]
+    return text or None
 
-    Each handle goes through `setup.normalize_handle`. An entry that fails
-    it (another platform's URL, odd characters) is dropped with a warning,
-    because these come from web pages and one bad line must not stop the
-    run. A value that is not a list is a DiscoverError.
+
+def _followers_seen(value: Any) -> Optional[int]:
+    """A follower count a source states: a whole number 0 or more, else None."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def normalize_web_entries(doc: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Clean the web finds: a list of find objects, or bare handles (0.6.1).
+
+    A find is `{handle, source_url, source_title, reason, followers_seen}`;
+    only `handle` is required. Each handle goes through
+    `setup.normalize_handle`. An entry that fails it (another platform's
+    URL, odd characters) is dropped with a warning, because these come
+    from web pages and one bad line must not stop the run. `reason` and
+    `source_title` are cut to 140 characters; `followers_seen` that is not
+    a whole number 0 or more becomes None. A value that is not a list is a
+    DiscoverError.
     """
     if not isinstance(doc, list):
         raise DiscoverError("web handles must be a JSON list of {handle, source_url}")
-    entries: List[Dict[str, str]] = []
+    entries: List[Dict[str, Any]] = []
     warnings: List[str] = []
     for item in doc:
-        raw = item.get("handle") if isinstance(item, dict) else item
-        source_url = item.get("source_url") if isinstance(item, dict) else None
+        fields = item if isinstance(item, dict) else {}
+        raw = fields.get("handle") if isinstance(item, dict) else item
         try:
             handle = setup.normalize_handle(raw)
         except setup.SetupError as exc:
             warnings.append(f"web handle {raw!r} dropped: {exc}")
             continue
         if handle:
-            entries.append({"handle": handle, "source_url": str(source_url or "")})
+            entries.append({
+                "handle": handle,
+                "source_url": str(fields.get("source_url") or ""),
+                "source_title": _web_text(fields.get("source_title")),
+                "reason": _web_text(fields.get("reason")),
+                "followers_seen": _followers_seen(fields.get("followers_seen")),
+            })
     return entries, warnings
 
 
-def web_handles(entries: List[Dict[str, str]], seeds: List[str]) -> List[str]:
+def web_handles(entries: List[Dict[str, Any]], seeds: List[str]) -> List[str]:
     """The web handles to check: in order, once each, never a seed, at most 40."""
     handles: List[str] = []
     for entry in entries:

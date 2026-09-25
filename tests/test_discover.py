@@ -624,11 +624,40 @@ class SeedAndWebTests(NoNetworkTestCase):
         entries, warnings = discover.normalize_web_entries(
             [{"handle": "@WebWillow", "source_url": "u1"}, "slowsam", {"handle": "https://x.com/y"}]
         )
-        self.assertEqual(entries, [{"handle": "webwillow", "source_url": "u1"},
-                                   {"handle": "slowsam", "source_url": ""}])
+        self.assertEqual(entries, [
+            {"handle": "webwillow", "source_url": "u1", "source_title": None, "reason": None, "followers_seen": None},
+            {"handle": "slowsam", "source_url": "", "source_title": None, "reason": None, "followers_seen": None},
+        ])
         self.assertEqual(len(warnings), 1)
         with self.assertRaises(discover.DiscoverError):
             discover.normalize_web_entries({"handle": "x"})
+
+    def test_web_finds_keep_their_reason_title_and_followers_seen(self) -> None:
+        entries, warnings = discover.normalize_web_entries([
+            {"handle": "@WebWillow", "source_url": "https://a.example/list",
+             "source_title": "  12 habit\n  creators ", "reason": "x" * 200, "followers_seen": 250000},
+            {"handle": "slowsam", "followers_seen": "250K"},
+            {"handle": "focusfern", "followers_seen": -3, "reason": "   "},
+            {"handle": "photophoebe", "followers_seen": True, "source_title": 7},
+        ])
+        self.assertEqual(warnings, [])
+        self.assertEqual(entries[0], {
+            "handle": "webwillow", "source_url": "https://a.example/list",
+            "source_title": "12 habit creators", "reason": "x" * 140, "followers_seen": 250000,
+        })
+        for entry in entries[1:]:
+            with self.subTest(handle=entry["handle"]):
+                self.assertEqual((entry["source_title"], entry["reason"], entry["followers_seen"]),
+                                 (None, None, None))
+
+    def test_the_sample_web_file_carries_the_new_fields(self) -> None:
+        entries, _warnings = discover.load_web_handles(WEB_FILE)
+        first = entries[0]
+        self.assertEqual(first["handle"], "webwillow")
+        self.assertEqual(first["source_title"], "The best habit creators to follow")
+        self.assertEqual(first["reason"], "Listed for short habit-building tutorials")
+        self.assertEqual(first["followers_seen"], 48000)
+        self.assertIsNone(entries[1]["followers_seen"])
 
     def test_web_handles_skip_seeds_dedupe_and_stop_at_40(self) -> None:
         entries = [{"handle": f"h{i}", "source_url": "u"} for i in range(45)]
