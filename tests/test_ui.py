@@ -1162,7 +1162,9 @@ class PageTests(NoNetworkTestCase):
     def test_search_again_waits_for_the_panel_to_come_back(self) -> None:
         text = self._page()
         self.assertIn("Claude is searching in your chat. This page comes back by itself.", text)
-        self.assertIn("Ask Claude for a new link.", text)
+        self.assertIn("Still waiting. Reload this page once Claude says the panel is back, "
+                      "or ask Claude for the link.", text)
+        self.assertNotIn("Ask Claude for a new link.", text)
         wait = text.split("function waitForPanel(since)", 1)[1].split("\n  }\n", 1)[0]
         self.assertIn("3000", wait)
         self.assertIn("state.finished", wait)
@@ -1178,6 +1180,21 @@ class PageTests(NoNetworkTestCase):
                 body = text.split(name, 1)[1].split("\n  }\n", 1)[0]
                 self.assertIn("reloadIfStale(error)", body)
         self.assertIn("window.location.reload()", text.split("function reloadIfStale(error)", 1)[1])
+
+    def test_a_stopped_panel_is_named_not_a_raw_fetch_error(self) -> None:
+        api = self._page().split("function api(method, path, body)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn('"The panel has stopped. Ask Claude to reopen it."', api)
+        # Only a failed fetch maps to it; an answer from the panel keeps its own message.
+        self.assertIn("}, function () {", api)
+
+    def test_an_added_handle_is_cleaned_like_the_server_does(self) -> None:
+        text = self._page()
+        add = text.split("function addHandle()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("handleOf(", add)
+        self.assertIn('$("claude-error").textContent', add)
+        handle_of = text.split("function handleOf(text)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("instagram\\.com", handle_of)
+        self.assertIn("/^[a-z0-9._]{1,30}$/", handle_of)
 
     def test_the_token_comes_only_from_the_fragment(self) -> None:
         text = self._page()
