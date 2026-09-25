@@ -523,6 +523,21 @@ class SearchAgainTests(NoNetworkTestCase):
         self.assertEqual(doc["keywords"], ["morning routine"])
         self.assertEqual([(c["handle"], c["kept"]) for c in doc["cards"]], [("slowsam", True)])
 
+    def test_an_idle_handoff_keeps_the_dials_the_creator_last_set(self) -> None:
+        now = {"t": 0.0}
+        dials = {"discover_min_followers": 25000, "discover_shortlist": 10}
+        with temp_project() as project:
+            app = _app(project, clock=lambda: now["t"])
+            _call(app, "POST", "/api/estimate", {"settings": dials})
+            now["t"] = 4000.0
+            app.stop_if_idle(3600)
+            doc = store.read_json(ui.handoff_path(project))
+        self.assertEqual((doc["settings"]["discover_min_followers"], doc["settings"]["discover_shortlist"]),
+                         (25000, 10))
+        # The RESULT's settings stay the last run's (none here, so the config's), as in 0.6.0.
+        self.assertEqual((app.finished["settings"]["discover_min_followers"],
+                          app.finished["settings"]["discover_shortlist"]), (10000, 20))
+
     def test_save_and_close_remove_a_stale_handoff(self) -> None:
         for route, payload in (("/api/save", {"picks": ["webwillow"]}), ("/api/close", {})):
             with self.subTest(route=route), temp_project() as project:

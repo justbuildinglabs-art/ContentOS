@@ -167,6 +167,8 @@ class App:
         self.error: Optional[str] = None
         self.summary: Optional[Dict[str, Any]] = None
         self.last_settings: Dict[str, Any] = {key: (settings or cfg)[key] for key in DIAL_KEYS}
+        # The dials as the page last sent them; an idle handoff keeps these (0.6.1).
+        self.page_settings: Dict[str, Any] = dict(self.last_settings)
         self.finished: Optional[Dict[str, Any]] = None
         self.last_seen = clock()
         self._lock = threading.Lock()
@@ -322,7 +324,7 @@ class App:
         """Finish the session when no accepted request came for `idle_s` and no search is running."""
         with self._lock:
             if self.finished is None and self.state != "running" and self.clock() - self.last_seen > idle_s:
-                path = self._write_handoff(self.last_settings)
+                path = self._write_handoff(self.page_settings)
                 self.finished = {"saved": False, "picks": [], "settings": self.last_settings, "reason": "idle",
                                  "handoff_path": str(path)}
 
@@ -363,6 +365,7 @@ class App:
             if "cards" in payload:
                 self.cards = normalize_cards(payload["cards"])
             self.search_instagram = search_instagram
+            self.page_settings = {key: cfg[key] for key in DIAL_KEYS}
         return json_response(200, self._cost(cfg, keywords, hashtags, web, search_instagram))
 
     def _run(self, payload: Dict[str, Any]) -> Response:
@@ -398,6 +401,7 @@ class App:
                     "code": codes.EXIT_KEYS,
                 })
             self.last_settings = {key: cfg[key] for key in DIAL_KEYS}
+            self.page_settings = dict(self.last_settings)
             self.search_instagram = search_instagram
             if payload.get("remember") is True and self._set_up():
                 try:
@@ -485,6 +489,7 @@ class App:
             if "cards" in payload:
                 self.cards = normalize_cards(payload["cards"])
             self.last_settings = {key: cfg[key] for key in DIAL_KEYS}
+            self.page_settings = dict(self.last_settings)
             path = self._write_handoff(self.last_settings)
             self.finished = {
                 "saved": False, "picks": [], "settings": self.last_settings, "next": "claude_search",
