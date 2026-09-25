@@ -1237,6 +1237,26 @@ class PageTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, note)
 
+    def test_a_creator_the_scan_never_held_to_the_bar_is_not_checked_not_missed(self) -> None:
+        text = self._page()
+        # The reasons that mean the bar was never applied, in plain words.
+        table = text.split("var NOT_CHECKED = {", 1)[1].split("};", 1)[0]
+        for reason in (discover.REASON_SHORTLIST_FULL, discover.REASON_NOT_CHECKED, discover.REASON_NOT_MEASURED):
+            with self.subTest(reason=reason):
+                self.assertIn(f'"{reason}": ', table)
+        self.assertIn('"over your Creators to check limit"', table)
+        self.assertIn('"ran out of time"', table)
+        results = text.split("function applyResults(doc)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("unchecked: NOT_CHECKED.hasOwnProperty(item.reason)", results)
+        render = text.split("function renderCard(card)", 1)[1].split("\n  }\n", 1)[0]
+        # "Missed" and the missed-the-bar warning are for real misses only.
+        self.assertIn("var missed = card.check && !card.check.passed && !card.check.unchecked;", render)
+        self.assertIn('"Not checked: " + NOT_CHECKED[card.check.reason]', render)
+        self.assertIn('"Missed: " + why', render)
+        # The unchecked-picks note counts them too.
+        picked = text.split("function updatePicked()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("!card.check || card.check.unchecked", picked)
+
     def test_a_check_only_estimate_with_nothing_to_check_shows_its_note(self) -> None:
         estimate = self._page().split("function estimate()", 1)[1].split("\n  }\n", 1)[0]
         self.assertIn("data.note", estimate)

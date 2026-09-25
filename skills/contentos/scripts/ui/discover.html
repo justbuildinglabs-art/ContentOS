@@ -154,6 +154,9 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
   var ORIGINS = { claude: "Found by Claude", you: "Added by you", instagram: "Found on Instagram",
                   similar: "Similar account" };
   var REASONS = { "not_found": "not found", "error": "could not be checked", "private": "private" };
+  // Left out before the bar was applied: the creator was never held to it.
+  var NOT_CHECKED = { "shortlist full": "over your Creators to check limit", "not checked in time": "ran out of time",
+                      "not measured in time": "ran out of time" };
   var dials = {};
   var cards = [];
   var established = 50000;
@@ -331,7 +334,8 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
   }
 
   function renderCard(card) {
-    var missed = card.check && !card.check.passed;
+    var missed = card.check && !card.check.passed && !card.check.unchecked;
+    var unchecked = card.check && card.check.unchecked;
     var item = el("div", null, "creator" + (card.removed ? " removed" : "") + (missed && card.kept ? " warn" : ""));
     var keep = el("label", null, "keep");
     var box = el("input");
@@ -356,6 +360,8 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     } else if (missed) {
       var why = REASONS[card.check.reason] || card.check.reason;
       top.appendChild(el("span", "Missed: " + why, "badge miss"));
+    } else if (unchecked) {
+      top.appendChild(el("span", "Not checked: " + NOT_CHECKED[card.check.reason], "badge"));
     }
     body.appendChild(top);
     if (card.reason) { body.appendChild(el("div", card.reason, "facts")); }
@@ -377,7 +383,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
           row.top_reels[0].caption.slice(0, 90), row.top_reels[0].url));
         body.appendChild(topReel);
       }
-    } else if (missed && card.check.followers !== undefined) {
+    } else if ((missed || unchecked) && card.check.followers !== undefined) {
       body.appendChild(el("div", followerWords(card.check.followers), "facts"));
     }
     if (missed && card.kept) {
@@ -499,7 +505,10 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     });
     doc.dropped.forEach(function (item) {
       var card = byHandle[item.handle];
-      if (card) { card.check = { passed: false, reason: item.reason, followers: item.followers }; }
+      if (card) {
+        card.check = { passed: false, unchecked: NOT_CHECKED.hasOwnProperty(item.reason), reason: item.reason,
+                       followers: item.followers };
+      }
     });
     renderSummary(doc);
     renderCards();
@@ -548,7 +557,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
   function updatePicked() {
     var picks = kept();
     $("picked").textContent = picks.length + " picked. 3 to 8 makes a good watch list.";
-    var unchecked = picks.filter(function (card) { return !card.check; }).length;
+    var unchecked = picks.filter(function (card) { return !card.check || card.check.unchecked; }).length;
     $("unchecked-note").textContent = !unchecked ? ""
       : unchecked === 1 ? " 1 of your picks was not checked with Apify."
       : " " + unchecked + " of your picks were not checked with Apify.";
