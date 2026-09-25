@@ -584,7 +584,7 @@ class DiscoverGateTests(NoNetworkTestCase):
             self.assertFalse(discover.discovery_path(project).exists())
         self.assertEqual(code, codes.EXIT_USAGE)
         self.assertIn(str(bad), err)
-        self.assertIn("must be a JSON list", err)
+        self.assertIn("must be a JSON list of finds ({handle, ...}) or bare handles", err)
 
 
 class KeywordInputUrlTests(NoNetworkTestCase):
@@ -629,8 +629,9 @@ class SeedAndWebTests(NoNetworkTestCase):
             {"handle": "slowsam", "source_url": "", "source_title": None, "reason": None, "followers_seen": None},
         ])
         self.assertEqual(len(warnings), 1)
-        with self.assertRaises(discover.DiscoverError):
+        with self.assertRaises(discover.DiscoverError) as ctx:
             discover.normalize_web_entries({"handle": "x"})
+        self.assertIn("a JSON list of finds ({handle, ...}) or bare handles", str(ctx.exception))
 
     def test_web_finds_keep_their_reason_title_and_followers_seen(self) -> None:
         entries, warnings = discover.normalize_web_entries([

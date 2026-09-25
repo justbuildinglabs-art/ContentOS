@@ -149,7 +149,7 @@ def hashtag_from_input_url(input_url: Any) -> Optional[str]:
 
 
 def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Read `--handles-file`: a JSON list of `{handle, source_url}`.
+    """Read `--handles-file`: a JSON list of finds (`{handle, ...}`) or bare handles.
 
     Returns `(entries, warnings)` with each `handle` already through
     `setup.normalize_handle`. An entry whose handle fails it (another
@@ -164,7 +164,7 @@ def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, Any]], List[s
     except (OSError, ValueError) as exc:
         raise DiscoverError(f"could not read --handles-file {path}: {exc}") from exc
     if not isinstance(doc, list):
-        raise DiscoverError(f"--handles-file {path} must be a JSON list of {{handle, source_url}}")
+        raise DiscoverError(f"--handles-file {path} must be a JSON list of finds ({{handle, ...}}) or bare handles")
     return normalize_web_entries(doc)
 
 
@@ -196,7 +196,7 @@ def normalize_web_entries(doc: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
     DiscoverError.
     """
     if not isinstance(doc, list):
-        raise DiscoverError("web handles must be a JSON list of {handle, source_url}")
+        raise DiscoverError("web handles must be a JSON list of finds ({handle, ...}) or bare handles")
     entries: List[Dict[str, Any]] = []
     warnings: List[str] = []
     for item in doc:
