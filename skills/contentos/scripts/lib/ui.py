@@ -46,6 +46,10 @@ ROUTES = (
 )
 LOG_LINES_KEPT = 200
 FINISHED_ERROR = "This panel is finished. Go back to Claude."
+# The panel's words for a check-only scan with nothing to check (0.6.1).
+CHECK_ONLY_NEEDS_CARDS = (
+    "To check only Claude's finds, add at least one creator first, or tick Also search Instagram for more creators."
+)
 
 
 @dataclass
@@ -262,7 +266,9 @@ class App:
         checked_web = discover.web_handles(web, seeds + format_accounts)
         cost = discover.estimate(cfg, len(keywords), len(hashtags), len(seeds), len(checked_web), search_instagram)
         cap = cfg["apify_max_charge_usd"]
-        return dict(cost, cap_usd=cap, within_cap=cost["total_usd"] <= cap)
+        # The page shows `note` in place of the cost when a check-only scan has nothing to check.
+        note = CHECK_ONLY_NEEDS_CARDS if not search_instagram and not checked_web else None
+        return dict(cost, cap_usd=cap, within_cap=cost["total_usd"] <= cap, note=note)
 
     def _log(self, message: str) -> None:
         with self._lock:
@@ -373,7 +379,7 @@ class App:
             seeds, format_accounts, _warnings = discover.never_recommended(cfg, self.seeds)
             checked_web = discover.web_handles(web, seeds + format_accounts)
             if not search_instagram and not checked_web:
-                return json_response(400, {"error": discover.CHECK_ONLY_NEEDS_HANDLES, "code": codes.EXIT_USAGE})
+                return json_response(400, {"error": CHECK_ONLY_NEEDS_CARDS, "code": codes.EXIT_USAGE})
             if not (keywords or hashtags or checked_web or seeds):
                 return json_response(400, {
                     "error": "Add a keyword phrase, a hashtag, or a handle first.", "code": codes.EXIT_USAGE,

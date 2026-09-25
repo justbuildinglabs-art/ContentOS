@@ -389,11 +389,16 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
 
   function estimate() {
     api("POST", "/api/estimate", inputs()).then(function (data) {
+      $("run-error").textContent = "";
+      if (data.note) {
+        $("cost").textContent = "";
+        $("cost-note").textContent = data.note;
+        return;
+      }
       $("cost").textContent = "$" + data.total_usd.toFixed(2);
       $("cost-note").textContent = data.within_cap
         ? "of your $" + data.cap_usd.toFixed(2) + " cap"
         : "Over your $" + data.cap_usd.toFixed(2) + " cap. Check fewer creators or drop the hashtags.";
-      $("run-error").textContent = "";
     }).catch(function (error) { $("run-error").textContent = error.message; });
   }
 

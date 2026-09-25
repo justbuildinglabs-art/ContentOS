@@ -218,6 +218,15 @@ class StateAndEstimateTests(NoNetworkTestCase):
             data = _call(_app(project), "POST", "/api/estimate", {"search_instagram": False})[1]
         expected = discover.estimate(dict(store.DEFAULT_CONFIG), 1, 2, 0, 5, search_instagram=False)
         self.assertEqual(data["total_usd"], expected["total_usd"])
+        self.assertIsNone(data["note"])
+
+    def test_a_check_only_estimate_with_no_creators_says_what_to_do(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            check_only = _call(app, "POST", "/api/estimate", {"search_instagram": False, "web": []})[1]
+            full = _call(app, "POST", "/api/estimate", {"search_instagram": True, "web": []})[1]
+        self.assertEqual(check_only["note"], ui.CHECK_ONLY_NEEDS_CARDS)
+        self.assertIsNone(full["note"])
 
 
 class CardTests(NoNetworkTestCase):
@@ -303,7 +312,9 @@ class RunTests(NoNetworkTestCase):
         with temp_project() as project:
             status, data = _call(_app(project), "POST", "/api/run", {"search_instagram": False, "web": []})
         self.assertEqual(status, 400)
-        self.assertEqual(data["error"], discover.CHECK_ONLY_NEEDS_HANDLES)
+        self.assertEqual(data["error"], ui.CHECK_ONLY_NEEDS_CARDS)
+        self.assertEqual(ui.CHECK_ONLY_NEEDS_CARDS, "To check only Claude's finds, add at least one creator "
+                                                    "first, or tick Also search Instagram for more creators.")
 
     def test_remember_writes_the_dials_once_set_up(self) -> None:
         with temp_project() as project:
@@ -979,6 +990,10 @@ class PageTests(NoNetworkTestCase):
                        "not checked", "Keep", "Passed", "Missed: "):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
+
+    def test_a_check_only_estimate_with_nothing_to_check_shows_its_note(self) -> None:
+        estimate = self._page().split("function estimate()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("data.note", estimate)
 
     def test_save_works_before_any_scan_and_names_unchecked_picks(self) -> None:
         text = self._page()
