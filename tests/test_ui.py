@@ -506,6 +506,7 @@ class SearchAgainTests(NoNetworkTestCase):
                          [("webwillow", True, False), ("focusfern", False, True)])
         self.assertEqual(doc["settings"]["discover_shortlist"], 12)
         self.assertEqual((doc["search_instagram"], doc["has_results"]), (False, False))
+        self.assertIs(doc["mock"], True)
         finished = app.finished
         self.assertEqual(finished["next"], "claude_search")
         self.assertEqual(finished["handoff_path"], str(path))
@@ -1028,6 +1029,28 @@ class UiCommandTests(NoNetworkTestCase):
                 code, _out, err = _main(["ui", "--project", str(project), "--resume", flag, "x"])
             self.assertEqual(code, codes.EXIT_USAGE)
             self.assertIn("--resume", err)
+
+    def test_resume_keeps_the_first_panels_mock_setting(self) -> None:
+        captured: Dict[str, Any] = {}
+
+        def fake_serve(project: Path, cfg: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+            captured.update(kwargs)
+            return {"saved": False, "picks": [], "settings": {}, "discovery_path": "x"}
+
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=fake_serve):
+            _handoff(project, mock=True)
+            code, _out, _err = _main(["ui", "--project", str(project), "--resume"])
+        self.assertEqual(code, codes.EXIT_OK)
+        self.assertIs(captured["mock"], True)
+
+    def test_resume_refuses_mock_on_a_real_panel(self) -> None:
+        refuse = AssertionError("ui.serve must not run")
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=refuse):
+            _handoff(project, mock=False)
+            code, out, err = _main(["ui", "--project", str(project), "--resume", "--mock"])
+        self.assertEqual(code, codes.EXIT_USAGE)
+        self.assertIn("leave off --mock", err)
+        self.assertNotIn("RESULT", out)
 
     def test_resume_adds_the_new_finds_and_serves(self) -> None:
         captured: Dict[str, Any] = {}

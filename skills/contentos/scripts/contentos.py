@@ -293,6 +293,7 @@ def _ui_handler(args: argparse.Namespace) -> int:
         print("--resume reopens the last panel with its own search terms and handles, "
               "so leave off --keywords, --hashtags, and --seeds", file=sys.stderr)
         return codes.EXIT_USAGE
+    mock = bool(args.mock)
     options: Dict[str, Any] = dict(
         keywords=discover.normalize_keywords(_split_list(args.keywords)),
         hashtags=discover.normalize_hashtags(_split_list(args.hashtags)),
@@ -306,13 +307,19 @@ def _ui_handler(args: argparse.Namespace) -> int:
         except ui.HandoffError as exc:
             print(str(exc), file=sys.stderr)
             return codes.EXIT_USAGE
+        if isinstance(handoff.get("mock"), bool):
+            # The handoff says whether the first panel ran on sample data (0.6.1).
+            if args.mock and not handoff["mock"]:
+                print("This panel ran on real data, so leave off --mock to reopen it", file=sys.stderr)
+                return codes.EXIT_USAGE
+            mock = handoff["mock"]
         session = ui.resume_session(project_dir, cfg, handoff, web_entries)
         for note in session["notes"]:
             print(note, file=sys.stderr)
         options = dict(keywords=session["keywords"], hashtags=session["hashtags"], web_entries=[],
                        seeds=session["seeds"], port=args.port or session["port"], resume=session)
     try:
-        result = ui.serve(project_dir, cfg, mock=args.mock, open_browser=args.open,
+        result = ui.serve(project_dir, cfg, mock=mock, open_browser=args.open,
                           idle_minutes=args.idle_minutes, **options)
     except ui.PanelError as exc:
         print(str(exc), file=sys.stderr)

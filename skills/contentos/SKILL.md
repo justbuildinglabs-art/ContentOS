@@ -334,7 +334,7 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --resume \
   --handles-file "$PWD/.contentos/discovery-web.json"
 ```
 
-     Add `--mock` when the first panel had it. Leave off `--keywords`,
+     The panel remembers `--mock` itself. Leave off `--keywords`,
      `--hashtags`, and `--seeds`: the panel keeps its own. Tell the creator in
      one line how many new creators you found. The page comes back by itself.
      If the `UI <url>` line shows a different address from before, the old

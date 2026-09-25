@@ -808,6 +808,11 @@ class ControlPanelSkillTests(NoNetworkTestCase):
                 self.assertIn(phrase, panel)
         self.assertIn("give the creator the new link and open it", panel)
 
+    def test_resume_keeps_mock_by_itself(self) -> None:
+        panel = self._panel()
+        self.assertIn("The panel remembers `--mock` itself", panel)
+        self.assertNotIn("Add `--mock` when the first panel had it", panel)
+
     def test_an_idle_panel_that_could_not_be_kept_starts_fresh(self) -> None:
         panel = self._panel()
         idle = panel.split('`"reason": "idle"`', 1)[1]

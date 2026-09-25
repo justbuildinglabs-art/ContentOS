@@ -333,6 +333,8 @@ class App:
             "settings": settings,
             "search_instagram": self.search_instagram,
             "has_results": self.had_results,
+            # `ui --resume` keeps sample data or real data as the first panel had it.
+            "mock": self.mock,
         }, mode=SESSION_FILE_MODE)
         return path
 
