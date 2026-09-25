@@ -987,8 +987,32 @@ class ResumeTests(NoNetworkTestCase):
             handoff = _handoff(project)
             cfg = store.load_discovery_config(project)
             session = ui.resume_session(project, cfg, handoff, [])
-            ui.serve(project, cfg, [], [], [], [], mock=True, port=PORT, resume=session, server_factory=factory)
+            with redirect_stdout(StringIO()) as out:
+                ui.serve(project, cfg, [], [], [], [], mock=True, port=PORT, resume=session,
+                         server_factory=factory)
         self.assertEqual(tried, [PORT, 0])
+        # The old page kept calling the old port, so whoever took it may have the old token.
+        # A panel on a new port gets a new token; the new UI link carries it.
+        token = out.getvalue().split("#t=", 1)[1].split()[0]
+        self.assertNotEqual(token, TOKEN)
+        self.assertTrue(ui.TOKEN_RE.fullmatch(token))
+
+    def test_a_port_other_than_the_handoffs_gets_a_new_token(self) -> None:
+        seen: List[Dict[str, Any]] = []
+        with temp_project() as project, redirect_stdout(StringIO()):
+            handoff = _handoff(project)
+            cfg = store.load_discovery_config(project)
+            session = ui.resume_session(project, cfg, handoff, [])
+            # `ui --resume --port 6123`: the old page is not on that port, so it keeps no token.
+            ui.serve(project, cfg, [], [], [], [], mock=True, port=PORT + 1, resume=session,
+                     server_factory=_closing_factory(project, [], seen))
+            self.assertFalse(seen[0]["url"].endswith(f"#t={TOKEN}"))
+            # A handoff with no usable port binds whatever the OS picks, so it gets a new token too.
+            seen.clear()
+            session = ui.resume_session(project, cfg, _handoff(project, port="x"), [])
+            ui.serve(project, cfg, [], [], [], [], mock=True, port=session["port"], resume=session,
+                     server_factory=_closing_factory(project, [], seen))
+            self.assertFalse(seen[0]["url"].endswith(f"#t={TOKEN}"))
 
 
 def _main(argv: Sequence[str]) -> Tuple[int, str, str]:
@@ -1170,6 +1194,17 @@ class PageTests(NoNetworkTestCase):
         self.assertIn("state.finished", wait)
         self.assertIn("window.location.reload()", wait)
         self.assertIn("WAIT_MS = 15 * 60 * 1000", text)
+
+    def test_the_waiting_page_reloads_only_onto_a_new_panel(self) -> None:
+        text = self._page()
+        wait = text.split("function waitForPanel(since)", 1)[1].split("\n  }\n", 1)[0]
+        # The old panel (same generation) keeps it waiting; only a new panel reloads it.
+        self.assertIn("state.generation === generation", wait)
+        # An answer that is not a panel's means another program has the address: stop calling it.
+        self.assertIn('typeof state.generation !== "string"', wait)
+        self.assertIn("PORT_TAKEN", wait)
+        self.assertIn('"Another program answered at this address. Ask Claude for the new link."', text)
+        self.assertLess(wait.index("PORT_TAKEN"), wait.index("waitForPanel(since)"))
 
     def test_a_page_from_an_older_panel_reloads(self) -> None:
         text = self._page()

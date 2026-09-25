@@ -749,24 +749,30 @@ def serve(
     link. Raises PanelError when the port will not open. SIGTERM and
     SIGHUP end it with SystemExit(128 + the signal). The session file is
     removed on the way out, whatever happens. Returns the RESULT dict.
-    `resume` (from `resume_session`) reopens a handed-off panel: same
-    token, the same port when it opens (else a new one), its cards and
-    settings. Once the panel is up, any handoff file is removed: a
+    `resume` (from `resume_session`) reopens a handed-off panel on the
+    same port when it opens, with the same token, else on a new port with
+    a new token; with its cards and settings. Once the panel is up, any handoff file is removed: a
     resumed panel has loaded it, and a fresh panel supersedes it.
     """
     project = Path(project)
     resume = resume or {}
-    token = resume.get("token") or secrets.token_urlsafe(32)
+    # The waiting page keeps the old token and calls the handoff's port.
+    # Only a panel on that very port may take the token over; anywhere else
+    # (a taken port, `--port`, or no usable port) gets a new one, since
+    # whatever holds the old port may have seen the old token (0.6.1).
+    same_port = bool(resume.get("token")) and port != 0 and port == resume.get("port")
     try:
         server = server_factory(("127.0.0.1", port), _Handler)
     except (OSError, OverflowError) as exc:
         if not resume or port == 0:
             raise PanelError(f"Could not open the panel on port {port}: {exc}") from exc
         # The page's old port is taken: open a new one, and the skill hands over the new link.
+        same_port = False
         try:
             server = server_factory(("127.0.0.1", 0), _Handler)
         except (OSError, OverflowError) as retry:
             raise PanelError(f"Could not open the panel on port 0: {retry}") from retry
+    token = resume["token"] if same_port else secrets.token_urlsafe(32)
     actual_port = server.server_address[1]
     app = App(
         project, cfg, token, actual_port, keywords, hashtags, web_entries, seeds, mock=mock, clock=clock,
