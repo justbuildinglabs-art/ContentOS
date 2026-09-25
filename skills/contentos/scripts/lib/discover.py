@@ -47,6 +47,8 @@ _HASHTAG_RE = re.compile(r"^\w+$")
 
 # 0.6.0 (design spec, "0.6.0 changes").
 MAX_WEB_HANDLES = 40
+# 0.6.1: a web find's reason and source title are cut to this many characters.
+WEB_TEXT_CHARS = 140
 ACTIVE_DAYS = 30
 REASON_NO_RECENT_REEL = "no reel in 30 days"
 _CAPTION_TAG_RE = re.compile(r"#(\w+)")
@@ -146,8 +148,8 @@ def hashtag_from_input_url(input_url: Any) -> Optional[str]:
     return None
 
 
-def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, str]], List[str]]:
-    """Read `--handles-file`: a JSON list of `{handle, source_url}`.
+def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Read `--handles-file`: a JSON list of finds (`{handle, ...}`) or bare handles.
 
     Returns `(entries, warnings)` with each `handle` already through
     `setup.normalize_handle`. An entry whose handle fails it (another
@@ -162,36 +164,61 @@ def load_web_handles(path: Optional[Path]) -> Tuple[List[Dict[str, str]], List[s
     except (OSError, ValueError) as exc:
         raise DiscoverError(f"could not read --handles-file {path}: {exc}") from exc
     if not isinstance(doc, list):
-        raise DiscoverError(f"--handles-file {path} must be a JSON list of {{handle, source_url}}")
+        raise DiscoverError(f"--handles-file {path} must be a JSON list of finds ({{handle, ...}}) or bare handles")
     return normalize_web_entries(doc)
 
 
-def normalize_web_entries(doc: Any) -> Tuple[List[Dict[str, str]], List[str]]:
-    """Clean the web finds: a list of `{handle, source_url}`, or bare handles.
+def _web_text(value: Any) -> Optional[str]:
+    """A find's reason or source title: whitespace folded, cut to 140 characters, None when empty."""
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())[:WEB_TEXT_CHARS]
+    return text or None
 
-    Each handle goes through `setup.normalize_handle`. An entry that fails
-    it (another platform's URL, odd characters) is dropped with a warning,
-    because these come from web pages and one bad line must not stop the
-    run. A value that is not a list is a DiscoverError.
+
+def _followers_seen(value: Any) -> Optional[int]:
+    """A follower count a source states: a whole number 0 or more, else None."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def normalize_web_entries(doc: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Clean the web finds: a list of find objects, or bare handles (0.6.1).
+
+    A find is `{handle, source_url, source_title, reason, followers_seen}`;
+    only `handle` is required. Each handle goes through
+    `setup.normalize_handle`. An entry that fails it (another platform's
+    URL, odd characters) is dropped with a warning, because these come
+    from web pages and one bad line must not stop the run. `reason` and
+    `source_title` are cut to 140 characters; `followers_seen` that is not
+    a whole number 0 or more becomes None. A value that is not a list is a
+    DiscoverError.
     """
     if not isinstance(doc, list):
-        raise DiscoverError("web handles must be a JSON list of {handle, source_url}")
-    entries: List[Dict[str, str]] = []
+        raise DiscoverError("web handles must be a JSON list of finds ({handle, ...}) or bare handles")
+    entries: List[Dict[str, Any]] = []
     warnings: List[str] = []
     for item in doc:
-        raw = item.get("handle") if isinstance(item, dict) else item
-        source_url = item.get("source_url") if isinstance(item, dict) else None
+        fields = item if isinstance(item, dict) else {}
+        raw = fields.get("handle") if isinstance(item, dict) else item
         try:
             handle = setup.normalize_handle(raw)
         except setup.SetupError as exc:
             warnings.append(f"web handle {raw!r} dropped: {exc}")
             continue
         if handle:
-            entries.append({"handle": handle, "source_url": str(source_url or "")})
+            entries.append({
+                "handle": handle,
+                "source_url": str(fields.get("source_url") or ""),
+                "source_title": _web_text(fields.get("source_title")),
+                "reason": _web_text(fields.get("reason")),
+                "followers_seen": _followers_seen(fields.get("followers_seen")),
+            })
     return entries, warnings
 
 
-def web_handles(entries: List[Dict[str, str]], seeds: List[str]) -> List[str]:
+def web_handles(entries: List[Dict[str, Any]], seeds: List[str]) -> List[str]:
     """The web handles to check: in order, once each, never a seed, at most 40."""
     handles: List[str] = []
     for entry in entries:
@@ -627,8 +654,23 @@ def find_breakouts(
     return [entry for _ratio, entry in found[:MAX_BREAKOUTS]]
 
 
-def estimate(cfg: Dict[str, Any], n_keywords: int, n_hashtags: int, n_seeds: int, n_web: int) -> Dict[str, float]:
-    """The cost of one discovery at these settings; the CLI and the panel both use it."""
+CHECK_ONLY_NEEDS_HANDLES = "Check-only needs at least one handle from Claude's search or typed in."
+
+
+def estimate(
+    cfg: Dict[str, Any], n_keywords: int, n_hashtags: int, n_seeds: int, n_web: int,
+    search_instagram: bool = True,
+) -> Dict[str, float]:
+    """The cost of one discovery at these settings; the CLI and the panel both use it.
+
+    A check-only scan (design spec, "0.6.1 changes") checks the web finds
+    and measures up to `discover_shortlist` of them, and nothing else.
+    """
+    if not search_instagram:
+        return apify.estimate_discovery(
+            keyword_reels=0, hashtag_reels=0, details=n_web,
+            profile_reels=min(cfg["discover_shortlist"], n_web) * REELS_PER_ACCOUNT,
+        )
     return apify.estimate_discovery(
         keyword_reels=n_keywords * KEYWORD_REELS_PER_TERM,
         hashtag_reels=n_hashtags * cfg["discover_reels_per_hashtag"],
@@ -650,6 +692,8 @@ def render_table(doc: Dict[str, Any]) -> str:
         f"{cadence_words(settings['post_every_days'])}, 1 in 4 reels at "
         f"{_count(settings['min_views'])}+ views."
     ]
+    if doc.get("search_instagram") is False:
+        lines.append("Checked Claude's finds only.")
     tiers = (
         (TIER_ESTABLISHED, f"Established ({_count(settings['established_at'])}+ followers):"),
         (TIER_RISING, f"Rising ({_count(settings['min_followers'])} to "
@@ -699,6 +743,7 @@ def result_line(doc: Dict[str, Any], project: Path) -> Dict[str, Any]:
         "breakouts": len(doc["breakouts"]),
         "cost_estimate_usd": doc["cost_estimate_usd"],
         "partial": doc["partial"],
+        "search_instagram": doc.get("search_instagram", True) is not False,
         "warnings": doc["warnings"],
     }
 
@@ -840,11 +885,14 @@ def _candidate(
     metrics: Dict[str, Any],
     sources: Dict[str, List[str]],
     cfg: Dict[str, Any],
+    web_info: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
+    find = web_info.get(handle, {})
     candidate = {
         "handle": handle, "url": row["url"], "full_name": row["full_name"],
         "followers": row["followers"], "verified": row["verified"], "category": row["category"],
         "bio": row["bio"], "tier": tier_of(row["followers"], cfg), "sources": list(sources.get(handle, [])),
+        "reason": find.get("reason"), "source_title": find.get("source_title"),
     }
     candidate.update(metrics)
     return candidate
@@ -859,6 +907,7 @@ def run_discover(
     seeds: Optional[List[str]] = None,
     handles_file: Optional[Path] = None,
     web_entries: Optional[List[Any]] = None,
+    search_instagram: bool = True,
     mock: bool = False,
     yes: bool = False,
     estimate_only: bool = False,
@@ -881,6 +930,10 @@ def run_discover(
     for time makes the document `partial`: accounts it never reached are
     "not checked in time", and creators it could not fully measure are "not
     measured in time", never missing or failing.
+
+    `search_instagram=False` is the check-only scan: the web finds only, no
+    Instagram search, no similar accounts, and the watch list is not looked
+    up.
     """
     if log is None:
         log = _default_log
@@ -900,12 +953,14 @@ def run_discover(
         raise DiscoverError(
             "discover needs something to search: --keywords, --hashtags, a --handles-file, or a watch list"
         )
+    if not search_instagram and not web:
+        raise DiscoverError(CHECK_ONLY_NEEDS_HANDLES)
 
-    cost = estimate(cfg, len(terms), len(tags), len(seed_handles), len(web))
+    cost = estimate(cfg, len(terms), len(tags), len(seed_handles), len(web), search_instagram)
     cap = cfg["apify_max_charge_usd"]
     payload = dict(
         cost, keywords=terms, hashtags=tags, seeds=len(seed_handles), web_handles=len(web),
-        cap_usd=cap, within_cap=cost["total_usd"] <= cap,
+        cap_usd=cap, within_cap=cost["total_usd"] <= cap, search_instagram=search_instagram,
     )
     research.check_gates(payload, mock, yes, estimate_only, keys)
 
@@ -920,6 +975,7 @@ def run_discover(
     for entry in entries:
         if entry["handle"] in web:
             _add_source(sources, entry["handle"], f"web:{entry['source_url']}")
+    web_info = {entry["handle"]: entry for entry in entries}
     dropped: List[Dict[str, Any]] = []
     survivors: Dict[str, Dict[str, Any]] = {}
 
@@ -943,21 +999,25 @@ def run_discover(
             survivors[handle] = rows[handle]
             pointers.append(rows[handle])
 
-    step_a = seed_handles + web
+    # Check-only never looks the watch list up: seeds only feed the similar-accounts step.
+    step_a = seed_handles + web if search_instagram else list(web)
     chosen: List[str] = []
     # `partial`: any step cut short or skipped; `reels_cut`: step C was.
     partial = reels_cut = False
     reels_by_owner: Dict[str, List[Dict[str, Any]]] = {}
     try:
-        log("Step 1 of 3: searching Instagram and checking accounts.")
+        if search_instagram:
+            log("Step 1 of 3: searching Instagram and checking accounts.")
+        else:
+            log("Step 1 of 3: checking Claude's finds.")
         started = []
-        if terms:
+        if search_instagram and terms:
             started.append(("keyword", runs.start(
                 apify.build_keyword_reels_input(terms, KEYWORD_REELS_PER_TERM),
                 len(terms) * KEYWORD_REELS_PER_TERM, STEP_KEYWORD,
                 runs_path=apify.KEYWORD_ACTOR_RUNS_PATH,
             )))
-        if tags:
+        if search_instagram and tags:
             started.append(("hashtag", runs.start(
                 apify.build_hashtag_reels_input(tags, cfg["discover_reels_per_hashtag"], cfg["lookback_days"]),
                 len(tags) * cfg["discover_reels_per_hashtag"], STEP_HASHTAG,
@@ -972,25 +1032,27 @@ def run_discover(
         details_items, details_cut = fetched.get("details", not_run)
         pass_one(step_a, details_items, pointers, details_cut)
 
-        authors = search_authors(fetched.get("keyword", not_run)[0] + fetched.get("hashtag", not_run)[0])
-        found = top_authors(authors, cfg["discover_candidates"], set(step_a) | set(format_handles))
-        for handle in step_a + found:
-            for source in authors.get(handle, {}).get("sources", []):
-                _add_source(sources, handle, source)
-        pointed = expansion_pointers(pointers, set(step_a) | set(found) | set(format_handles))
-        expanded = rank_expansion(pointed, EXPAND_LIMIT)
-        for handle in expanded:
-            for pointer in sorted(pointed[handle]):
-                _add_source(sources, handle, f"related:{pointer}")
-
-        step_b = found + expanded
-        if step_b:
-            log(f"Step 2 of 3: checking {_plural(len(step_b), 'more account')}.")
-            items_b, cut_b = runs.finish(runs.start(apify.build_details_input(step_b), len(step_b), STEP_DETAILS))
-            partial = partial or cut_b
-            pass_one(step_b, items_b, [], cut_b)
+        if search_instagram:
+            authors = search_authors(fetched.get("keyword", not_run)[0] + fetched.get("hashtag", not_run)[0])
+            found = top_authors(authors, cfg["discover_candidates"], set(step_a) | set(format_handles))
+            for handle in step_a + found:
+                for source in authors.get(handle, {}).get("sources", []):
+                    _add_source(sources, handle, source)
+            pointed = expansion_pointers(pointers, set(step_a) | set(found) | set(format_handles))
+            expanded = rank_expansion(pointed, EXPAND_LIMIT)
+            for handle in expanded:
+                for pointer in sorted(pointed[handle]):
+                    _add_source(sources, handle, f"related:{pointer}")
+            step_b = found + expanded
+            if step_b:
+                log(f"Step 2 of 3: checking {_plural(len(step_b), 'more account')}.")
+                items_b, cut_b = runs.finish(runs.start(apify.build_details_input(step_b), len(step_b), STEP_DETAILS))
+                partial = partial or cut_b
+                pass_one(step_b, items_b, [], cut_b)
+            else:
+                log("Step 2 of 3: no more accounts to check.")
         else:
-            log("Step 2 of 3: no more accounts to check.")
+            log("Step 2 of 3: skipped, checking Claude's finds only.")
 
         pool = [
             {"handle": handle, "followers": row["followers"], "niche_hit": latest_niche_hit(row, is_niche),
@@ -1031,7 +1093,7 @@ def run_discover(
                 reason = REASON_NOT_MEASURED
             dropped.append(_dropped(handle, reason, row))
             continue
-        candidates.append(_candidate(handle, row, metrics, sources, cfg))
+        candidates.append(_candidate(handle, row, metrics, sources, cfg, web_info))
     candidates = order_candidates(candidates)
 
     doc = {
@@ -1040,6 +1102,7 @@ def run_discover(
         "mode": "mock" if mock else "live",
         "niche": {"keywords": terms, "hashtags": tags},
         "seeds": seed_handles,
+        "search_instagram": search_instagram,
         "settings": {
             "min_followers": cfg["discover_min_followers"],
             "min_views": cfg["discover_min_views"],

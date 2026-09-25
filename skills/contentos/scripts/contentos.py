@@ -26,7 +26,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from lib import (
     agents, apify, codes, direct, discover, env, frames, history, report, report_html, research,
@@ -230,6 +230,8 @@ def _discover_handler(args: argparse.Namespace) -> int:
     estimate goes to stdout as indented JSON whenever an error carries
     one, and the message to stderr. On success it prints the table, then
     the `RESULT {...}` line.
+
+    `--check-only` checks the web finds only (design spec, "0.6.1 changes").
     """
     project_dir = args.project.resolve()
     try:
@@ -243,6 +245,7 @@ def _discover_handler(args: argparse.Namespace) -> int:
             keywords=_split_list(args.keywords),
             seeds=_split_list(args.seeds),
             handles_file=args.handles_file,
+            search_instagram=not args.check_only,
             mock=args.mock,
             yes=args.yes,
             estimate_only=args.estimate_only,
@@ -271,6 +274,8 @@ def _ui_handler(args: argparse.Namespace) -> int:
     `--idle-minutes` of 0 or less, a bad config or handles file, and a
     port that will not open are usage errors (exit 2), with no traceback.
     SIGTERM or SIGHUP ends it with no RESULT line.
+    `--resume` reopens the panel Search again or an idle timeout handed
+    off, adding `--handles-file`'s finds as new cards.
     """
     if not args.idle_minutes > 0:
         print("--idle-minutes must be more than 0", file=sys.stderr)
@@ -284,19 +289,38 @@ def _ui_handler(args: argparse.Namespace) -> int:
         return codes.EXIT_USAGE
     for warning in warnings:
         print(warning, file=sys.stderr)
+    if args.resume and (args.keywords or args.hashtags or args.seeds):
+        print("--resume reopens the last panel with its own search terms and handles, "
+              "so leave off --keywords, --hashtags, and --seeds", file=sys.stderr)
+        return codes.EXIT_USAGE
+    mock = bool(args.mock)
+    options: Dict[str, Any] = dict(
+        keywords=discover.normalize_keywords(_split_list(args.keywords)),
+        hashtags=discover.normalize_hashtags(_split_list(args.hashtags)),
+        web_entries=web_entries,
+        seeds=[part.strip() for part in _split_list(args.seeds) if part.strip()],
+        port=args.port,
+    )
+    if args.resume:
+        try:
+            handoff = ui.load_handoff(project_dir)
+        except ui.HandoffError as exc:
+            print(str(exc), file=sys.stderr)
+            return codes.EXIT_USAGE
+        if isinstance(handoff.get("mock"), bool):
+            # The handoff says whether the first panel ran on sample data (0.6.1).
+            if args.mock and not handoff["mock"]:
+                print("This panel ran on real data, so leave off --mock to reopen it", file=sys.stderr)
+                return codes.EXIT_USAGE
+            mock = handoff["mock"]
+        session = ui.resume_session(project_dir, cfg, handoff, web_entries)
+        for note in session["notes"]:
+            print(note, file=sys.stderr)
+        options = dict(keywords=session["keywords"], hashtags=session["hashtags"], web_entries=[],
+                       seeds=session["seeds"], port=args.port or session["port"], resume=session)
     try:
-        result = ui.serve(
-            project_dir,
-            cfg,
-            keywords=discover.normalize_keywords(_split_list(args.keywords)),
-            hashtags=discover.normalize_hashtags(_split_list(args.hashtags)),
-            web_entries=web_entries,
-            seeds=[part.strip() for part in _split_list(args.seeds) if part.strip()],
-            mock=args.mock,
-            port=args.port,
-            open_browser=args.open,
-            idle_minutes=args.idle_minutes,
-        )
+        result = ui.serve(project_dir, cfg, mock=mock, open_browser=args.open,
+                          idle_minutes=args.idle_minutes, **options)
     except ui.PanelError as exc:
         print(str(exc), file=sys.stderr)
         return codes.EXIT_USAGE
@@ -711,6 +735,7 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--hashtags", default=None)
             sub.add_argument("--seeds", default=None)
             sub.add_argument("--handles-file", type=Path, default=None)
+            sub.add_argument("--check-only", action="store_true")
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")
         if name == "ui":
@@ -721,6 +746,7 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--port", type=int, default=0)
             sub.add_argument("--open", action="store_true")
             sub.add_argument("--idle-minutes", type=float, default=60.0)
+            sub.add_argument("--resume", action="store_true")
         if name == "research":
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")

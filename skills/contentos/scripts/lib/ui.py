@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import signal
 import threading
@@ -25,6 +26,10 @@ from lib import codes, discover, env, research, setup, store
 
 PAGE_PATH = Path(__file__).resolve().parent.parent / "ui" / "discover.html"
 PICKS_FILE_NAME = "discovery-picks.json"
+HANDOFF_FILE_NAME = "ui-handoff.json"
+HANDOFF_VERSION = 1
+# A token the panel made (`secrets.token_urlsafe(32)`) fits this; anything else in a handoff is refused.
+TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{32,128}")
 TOKEN_HEADER = "x-contentos-token"
 DIAL_KEYS = (
     "discover_min_followers",
@@ -39,10 +44,18 @@ ROUTES = (
     "/api/status",
     "/api/discovery",
     "/api/save",
+    "/api/search-again",
     "/api/close",
 )
 LOG_LINES_KEPT = 200
 FINISHED_ERROR = "This panel is finished. Go back to Claude."
+STALE_ERROR = "This page is from before Claude's last search, so it reloads now."
+# A resumed panel whose last results file cannot be read opens without it (0.6.1).
+RESULTS_UNREADABLE = "The last scan's results could not be read, so they are not shown. Run the scan again to see them."
+# The panel's words for a check-only scan with nothing to check (0.6.1).
+CHECK_ONLY_NEEDS_CARDS = (
+    "To check only Claude's finds, add at least one creator first, or tick Also search Instagram for more creators."
+)
 
 
 @dataclass
@@ -67,6 +80,76 @@ def _strings(value: Any) -> List[str]:
     return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
 
 
+# 0.6.1: where a card came from, and how many the panel holds.
+CARD_ORIGINS = ("claude", "you", "instagram", "similar")
+MAX_CARDS = 120
+
+
+def cards_from_finds(entries: List[Dict[str, Any]], new: bool = False) -> List[Dict[str, Any]]:
+    """Claude's web finds as unticked cards (design spec, "0.6.1 changes")."""
+    return [dict(entry, origin="claude", kept=False, removed=False, new=new) for entry in entries]
+
+
+def normalize_cards(raw: Any) -> List[Dict[str, Any]]:
+    """Clean the cards the page sends: the find fields plus origin, kept, removed, and new.
+
+    A card whose handle is not an Instagram handle, or repeats an earlier
+    card, is left out. An unknown origin reads as "claude". Anything the
+    page adds beyond these fields (such as its scan status) is dropped.
+    At most MAX_CARDS are kept: ticked cards first, then cards that are not
+    removed, then removed ones, so a scan that grew the list past the limit
+    never costs the creator a Keep tick. The cards that stay keep the
+    page's order. A value that is not a list gives [].
+    """
+    if not isinstance(raw, list):
+        return []
+    cards: List[Dict[str, Any]] = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        finds, _warnings = discover.normalize_web_entries([item])
+        if not finds or finds[0]["handle"] in seen:
+            continue
+        origin = item.get("origin")
+        cards.append(dict(
+            finds[0],
+            origin=origin if origin in CARD_ORIGINS else "claude",
+            kept=item.get("kept") is True,
+            removed=item.get("removed") is True,
+            new=item.get("new") is True,
+        ))
+        seen.add(finds[0]["handle"])
+    if len(cards) <= MAX_CARDS:
+        return cards
+    rank = sorted(range(len(cards)), key=lambda i: (not cards[i]["kept"], cards[i]["removed"], i))
+    chosen = set(rank[:MAX_CARDS])
+    return [card for i, card in enumerate(cards) if i in chosen]
+
+
+def _results_summary(path: Path, project: Path) -> Optional[Dict[str, Any]]:
+    """The status summary of a saved `discovery.json`, or None when it cannot be read.
+
+    A hand-edited or half-written file must not stop a resumed panel from
+    opening, so anything that is not the shape the page reads gives None.
+    """
+    try:
+        doc = store.read_json(path)
+        summary = discover.result_line(doc, project)
+        rows = [doc["candidates"], doc["dropped"], doc["breakouts"]]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not all(isinstance(part, list) and all(isinstance(row, dict) for row in part) for part in rows):
+        return None
+    return summary
+
+
+def _search_instagram(payload: Dict[str, Any], default: bool) -> bool:
+    """The page's "Also search Instagram" checkbox; only an explicit false turns it off."""
+    value = payload.get("search_instagram", default)
+    return value is not False
+
+
 class App:
     """The panel's API for one `ui` session."""
 
@@ -85,6 +168,11 @@ class App:
         resolve_keys: Callable[[Path], env.Keys] = env.resolve_keys,
         clock: Callable[[], float] = time.monotonic,
         run_discover: Callable[..., Dict[str, Any]] = discover.run_discover,
+        cards: Optional[List[Dict[str, Any]]] = None,
+        settings: Optional[Dict[str, Any]] = None,
+        search_instagram: bool = True,
+        done: bool = False,
+        notes: Optional[List[str]] = None,
     ) -> None:
         self.project = Path(project)
         self.cfg = cfg
@@ -99,14 +187,47 @@ class App:
         self.resolve_keys = resolve_keys
         self.clock = clock
         self.run_discover = run_discover
+        self.notes = list(notes or [])
+        if cards is not None:
+            self.cards = normalize_cards(cards)
+        else:
+            # A first open skips finds the creator already named, as a resumed panel does (0.6.1).
+            known = self._known([])
+            skipped: List[str] = []
+            for entry in web_entries:
+                if entry["handle"] in known and entry["handle"] not in skipped:
+                    skipped.append(entry["handle"])
+            self.cards = normalize_cards(cards_from_finds(
+                [entry for entry in web_entries if entry["handle"] not in known]))
+            if skipped:
+                self.notes.append("Claude's finds skip accounts you already named: "
+                                  + " ".join(f"@{handle}" for handle in skipped) + ".")
+        self.search_instagram = search_instagram
         self.state = "idle"
         self.log: List[str] = []
         self.error: Optional[str] = None
         self.summary: Optional[Dict[str, Any]] = None
-        self.last_settings: Dict[str, Any] = {key: cfg[key] for key in DIAL_KEYS}
+        self.last_settings: Dict[str, Any] = {key: (settings or cfg)[key] for key in DIAL_KEYS}
+        # The dials as the page last sent them; an idle handoff keeps these (0.6.1).
+        self.page_settings: Dict[str, Any] = dict(self.last_settings)
         self.finished: Optional[Dict[str, Any]] = None
+        # True once a scan finished in this session, even if a later one failed (the handoff's has_results).
+        self.had_results = False
+        # Each panel process has its own generation. A page loaded from an
+        # earlier one (a second tab left open across Search again) sends
+        # the old value and is told to reload, so it cannot overwrite the
+        # resumed panel's cards (0.6.1).
+        self.generation = secrets.token_hex(8)
         self.last_seen = clock()
         self._lock = threading.Lock()
+        path = discover.discovery_path(self.project)
+        if done and path.exists():
+            # A resumed panel whose scan already ran shows its results again (0.6.1).
+            summary = _results_summary(path, self.project)
+            if summary is None:
+                self.notes.append(RESULTS_UNREADABLE)
+            else:
+                self.state, self.summary, self.had_results = "done", summary, True
 
     def handle(self, method: str, path: str, headers: Dict[str, str], body: bytes) -> Response:
         """Answer one request. Guards first: Host, then route, then token, then JSON.
@@ -148,6 +269,7 @@ class App:
             ("GET", "/api/status"): self._status,
             ("GET", "/api/discovery"): self._discovery,
             ("POST", "/api/save"): self._save,
+            ("POST", "/api/search-again"): self._search_again,
             ("POST", "/api/close"): self._close,
         }
         handler = handlers.get((method, route))
@@ -177,23 +299,29 @@ class App:
         store.check_discovery_config(cfg)
         return cfg
 
-    def _inputs(self, payload: Dict[str, Any]) -> Tuple[List[str], List[str], List[Dict[str, str]]]:
+    def _inputs(
+        self, payload: Dict[str, Any]
+    ) -> Tuple[List[str], List[str], List[Dict[str, Any]], bool]:
         keywords = discover.normalize_keywords(_strings(payload.get("keywords", self.keywords)))
         hashtags = discover.normalize_hashtags(_strings(payload.get("hashtags", self.hashtags)))
+        default_web = [card for card in self.cards if not card["removed"]]
         try:
-            web, _warnings = discover.normalize_web_entries(payload.get("web", self.web_entries))
+            web, _warnings = discover.normalize_web_entries(payload.get("web", default_web))
         except discover.DiscoverError:
             web = []
-        return keywords, hashtags, web
+        return keywords, hashtags, web, _search_instagram(payload, self.search_instagram)
 
     def _cost(
-        self, cfg: Dict[str, Any], keywords: List[str], hashtags: List[str], web: List[Dict[str, str]]
+        self, cfg: Dict[str, Any], keywords: List[str], hashtags: List[str], web: List[Dict[str, str]],
+        search_instagram: bool,
     ) -> Dict[str, Any]:
         seeds, format_accounts, _warnings = discover.never_recommended(cfg, self.seeds)
         checked_web = discover.web_handles(web, seeds + format_accounts)
-        cost = discover.estimate(cfg, len(keywords), len(hashtags), len(seeds), len(checked_web))
+        cost = discover.estimate(cfg, len(keywords), len(hashtags), len(seeds), len(checked_web), search_instagram)
         cap = cfg["apify_max_charge_usd"]
-        return dict(cost, cap_usd=cap, within_cap=cost["total_usd"] <= cap)
+        # The page shows `note` in place of the cost when a check-only scan has nothing to check.
+        note = CHECK_ONLY_NEEDS_CARDS if not search_instagram and not checked_web else None
+        return dict(cost, cap_usd=cap, within_cap=cost["total_usd"] <= cap, note=note)
 
     def _log(self, message: str) -> None:
         with self._lock:
@@ -205,7 +333,7 @@ class App:
             self.state, self.error = "error", message
 
     def _refusal(self) -> Optional[Response]:
-        """The 409 for Save or Close when the panel is finished or a search is running.
+        """The 409 for Save, Close, or Search again when the panel is finished or a search is running.
 
         Callers hold `self._lock`, so the check and the change that follows
         it are one step.
@@ -213,14 +341,57 @@ class App:
         if self.finished is not None:
             return json_response(409, {"error": FINISHED_ERROR})
         if self.state == "running":
-            return json_response(409, {"error": "A search is running. Wait for it to finish, then save or close."})
+            return json_response(409, {"error": "A search is running. Wait for it to finish first."})
         return None
+
+    def _stale(self, payload: Dict[str, Any]) -> Optional[Response]:
+        """The 409 for a page loaded from an earlier panel; a payload with no generation is not checked."""
+        sent = payload.get("generation")
+        if sent is not None and sent != self.generation:
+            return json_response(409, {"error": STALE_ERROR, "stale": True})
+        return None
+
+    def _known(self, cards: List[Dict[str, Any]]) -> List[str]:
+        """Every handle the next Claude search must skip: the cards (removed too), seeds, and format accounts."""
+        seeds, format_accounts, _warnings = discover.never_recommended(self.cfg, self.seeds)
+        known: List[str] = []
+        for handle in [card["handle"] for card in cards] + seeds + format_accounts:
+            if handle not in known:
+                known.append(handle)
+        return known
+
+    def _write_handoff(self, settings: Dict[str, Any]) -> Path:
+        """Write `ui-handoff.json` from the panel's current state. Callers hold `self._lock`."""
+        path = handoff_path(self.project)
+        store.write_json_atomic(path, {
+            "version": HANDOFF_VERSION,
+            "token": self.token,
+            "port": self.port,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "keywords": self.keywords,
+            "hashtags": self.hashtags,
+            "seeds": self.seeds,
+            "cards": self.cards,
+            "settings": settings,
+            "search_instagram": self.search_instagram,
+            "has_results": self.had_results,
+            # `ui --resume` keeps sample data or real data as the first panel had it.
+            "mock": self.mock,
+        }, mode=SESSION_FILE_MODE)
+        return path
 
     def stop_if_idle(self, idle_s: float) -> None:
         """Finish the session when no accepted request came for `idle_s` and no search is running."""
         with self._lock:
             if self.finished is None and self.state != "running" and self.clock() - self.last_seen > idle_s:
-                self.finished = {"saved": False, "picks": [], "settings": self.last_settings, "reason": "idle"}
+                finished: Dict[str, Any] = {"saved": False, "picks": [], "settings": self.last_settings,
+                                            "reason": "idle"}
+                try:
+                    finished["handoff_path"] = str(self._write_handoff(self.page_settings))
+                except OSError as exc:
+                    # The panel still ends with its RESULT; it just cannot be reopened.
+                    finished["warning"] = f"The panel could not be saved to reopen later: {exc}"
+                self.finished = finished
 
     # -- routes --------------------------------------------------------------
 
@@ -235,17 +406,39 @@ class App:
             "settings": dict(self.last_settings),
             "keywords": self.keywords,
             "hashtags": self.hashtags,
-            "web": self.web_entries,
+            "cards": self.cards,
+            "search_instagram": self.search_instagram,
+            "notes": self.notes,
+            "finished": self.finished is not None,
             "watch_list": list(self.cfg.get("competitors") or []),
             "state": self.state,
+            "generation": self.generation,
         })
 
     def _estimate(self, payload: Dict[str, Any]) -> Response:
+        stale = self._stale(payload)
+        if stale is not None:
+            return stale
         try:
             cfg = self._config_with(payload)
         except store.ConfigError as exc:
             return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
-        return json_response(200, self._cost(cfg, *self._inputs(payload)))
+        keywords, hashtags, web, search_instagram = self._inputs(payload)
+        with self._lock:
+            # The page calls this on every change, so an idle timeout's
+            # handoff holds what the creator last saw (0.6.1). A finished
+            # panel keeps what it handed off.
+            if self.finished is not None:
+                return json_response(200, self._cost(cfg, keywords, hashtags, web, search_instagram))
+            if "keywords" in payload:
+                self.keywords = keywords
+            if "hashtags" in payload:
+                self.hashtags = hashtags
+            if "cards" in payload:
+                self.cards = normalize_cards(payload["cards"])
+            self.search_instagram = search_instagram
+            self.page_settings = {key: cfg[key] for key in DIAL_KEYS}
+        return json_response(200, self._cost(cfg, keywords, hashtags, web, search_instagram))
 
     def _run(self, payload: Dict[str, Any]) -> Response:
         with self._lock:
@@ -257,14 +450,16 @@ class App:
                 cfg = self._config_with(payload)
             except store.ConfigError as exc:
                 return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
-            keywords, hashtags, web = self._inputs(payload)
+            keywords, hashtags, web, search_instagram = self._inputs(payload)
             seeds, format_accounts, _warnings = discover.never_recommended(cfg, self.seeds)
             checked_web = discover.web_handles(web, seeds + format_accounts)
+            if not search_instagram and not checked_web:
+                return json_response(400, {"error": CHECK_ONLY_NEEDS_CARDS, "code": codes.EXIT_USAGE})
             if not (keywords or hashtags or checked_web or seeds):
                 return json_response(400, {
                     "error": "Add a keyword phrase, a hashtag, or a handle first.", "code": codes.EXIT_USAGE,
                 })
-            cost = self._cost(cfg, keywords, hashtags, web)
+            cost = self._cost(cfg, keywords, hashtags, web, search_instagram)
             if not cost["within_cap"]:
                 return json_response(400, {
                     "error": f"This would cost about ${cost['total_usd']:.2f}, over your "
@@ -278,23 +473,25 @@ class App:
                     "code": codes.EXIT_KEYS,
                 })
             self.last_settings = {key: cfg[key] for key in DIAL_KEYS}
+            self.page_settings = dict(self.last_settings)
+            self.search_instagram = search_instagram
             if payload.get("remember") is True and self._set_up():
                 try:
                     store.update_config_keys(self.project, self.last_settings)
                 except store.ConfigError as exc:
                     return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
             self.state, self.log, self.error, self.summary = "running", [], None, None
-        self.runner(lambda: self._work(cfg, keys, keywords, hashtags, web))
+        self.runner(lambda: self._work(cfg, keys, keywords, hashtags, web, search_instagram))
         return json_response(202, {"state": "running"})
 
     def _work(
         self, cfg: Dict[str, Any], keys: env.Keys, keywords: List[str], hashtags: List[str],
-        web: List[Dict[str, str]],
+        web: List[Dict[str, str]], search_instagram: bool,
     ) -> None:
         try:
             doc = self.run_discover(
                 self.project, cfg, keys, hashtags=hashtags, keywords=keywords, seeds=self.seeds,
-                web_entries=web, mock=self.mock, yes=True, log=self._log,
+                web_entries=web, mock=self.mock, yes=True, log=self._log, search_instagram=search_instagram,
             )
         except (research.ResearchError, discover.DiscoverError) as exc:
             self._fail(str(exc))
@@ -305,6 +502,7 @@ class App:
         with self._lock:
             self.state = "done"
             self.summary = discover.result_line(doc, self.project)
+            self.had_results = True
 
     def _status(self, _payload: Dict[str, Any]) -> Response:
         with self._lock:
@@ -332,6 +530,7 @@ class App:
                 return json_response(400, {"error": str(exc)})
             if not picks:
                 return json_response(400, {"error": "Tick at least one creator, or press Close."})
+            handoff_path(self.project).unlink(missing_ok=True)
             if self._set_up():
                 try:
                     # The watch list as it is now, not as it was when the panel opened.
@@ -348,11 +547,39 @@ class App:
             self.finished = dict(answer, settings=self.last_settings)
             return json_response(200, answer)
 
+    def _search_again(self, payload: Dict[str, Any]) -> Response:
+        """Hand the turn back to Claude for another web search (design spec, "0.6.1 changes")."""
+        with self._lock:
+            refused = self._refusal() or self._stale(payload)
+            if refused is not None:
+                return refused
+            try:
+                cfg = self._config_with(payload)
+            except store.ConfigError as exc:
+                return json_response(400, {"error": str(exc), "code": codes.EXIT_USAGE})
+            keywords, hashtags, _web, search_instagram = self._inputs(payload)
+            self.keywords, self.hashtags, self.search_instagram = keywords, hashtags, search_instagram
+            if "cards" in payload:
+                self.cards = normalize_cards(payload["cards"])
+            self.last_settings = {key: cfg[key] for key in DIAL_KEYS}
+            self.page_settings = dict(self.last_settings)
+            try:
+                path = self._write_handoff(self.last_settings)
+            except OSError:
+                return json_response(500, {"error": "Could not save the panel for Claude. Try again."})
+            self.finished = {
+                "saved": False, "picks": [], "settings": self.last_settings, "next": "claude_search",
+                "keywords": keywords, "hashtags": hashtags, "known": self._known(self.cards),
+                "handoff_path": str(path),
+            }
+            return json_response(200, {"next": "claude_search"})
+
     def _close(self, _payload: Dict[str, Any]) -> Response:
         with self._lock:
             refused = self._refusal()
             if refused is not None:
                 return refused
+            handoff_path(self.project).unlink(missing_ok=True)
             self.finished = {"saved": False, "picks": [], "settings": self.last_settings}
             return json_response(200, {"saved": False})
 
@@ -372,6 +599,87 @@ _CSP = (
 def session_path(project: Path) -> Path:
     """`<project>/.contentos/ui-session.json`: where the skill finds the panel's link."""
     return store.contentos_dir(project) / SESSION_FILE_NAME
+
+
+def handoff_path(project: Path) -> Path:
+    """`<project>/.contentos/ui-handoff.json`: the panel's state while Claude searches again (0.6.1)."""
+    return store.contentos_dir(project) / HANDOFF_FILE_NAME
+
+
+class HandoffError(Exception):
+    """There is no panel to reopen, or its handoff cannot be read (exit 2)."""
+
+
+def load_handoff(project: Path) -> Dict[str, Any]:
+    """Read `ui-handoff.json` for `ui --resume` (design spec, "0.6.1 changes")."""
+    path = handoff_path(project)
+    if not path.exists():
+        raise HandoffError("Nothing to resume: there is no panel to reopen. Start a new one without --resume.")
+    try:
+        doc = store.read_json(path)
+    except (OSError, ValueError) as exc:
+        raise HandoffError(f"Could not read {path}: {exc}") from exc
+    if (not isinstance(doc, dict) or doc.get("version") != HANDOFF_VERSION
+            or not isinstance(doc.get("token"), str) or not TOKEN_RE.fullmatch(doc["token"])):
+        raise HandoffError(f"{path} is not a panel this version can reopen. Start a new one without --resume.")
+    return doc
+
+
+def merge_finds(
+    cards: List[Dict[str, Any]], entries: List[Dict[str, Any]], known: List[str]
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Add a new Claude search's finds to the cards: earlier cards lose `new`, new ones get it.
+
+    A find already on a card (removed ones too) or in `known` is skipped.
+    The panel holds MAX_CARDS; finds past that are left out with a warning.
+    """
+    merged = [dict(card, new=False) for card in cards]
+    have = {card["handle"] for card in merged} | set(known)
+    left_out = 0
+    for entry in entries:
+        if entry["handle"] in have:
+            continue
+        if len(merged) >= MAX_CARDS:
+            left_out += 1
+            continue
+        merged.extend(cards_from_finds([entry], new=True))
+        have.add(entry["handle"])
+    warnings = [f"The panel holds {MAX_CARDS} creators, so {left_out} new finds were left out."] if left_out else []
+    return merged, warnings
+
+
+def resume_session(
+    project: Path, cfg: Dict[str, Any], handoff: Dict[str, Any], new_entries: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Everything `serve` needs to reopen the handed-off panel, with the new finds added.
+
+    Settings that no longer validate fall back to the config's, and a port
+    that is not a real port becomes 0 (the OS picks one).
+    """
+    seeds = _strings(handoff.get("seeds"))
+    watch, format_accounts, _warnings = discover.never_recommended(cfg, seeds)
+    cards, notes = merge_finds(normalize_cards(handoff.get("cards")), new_entries, watch + format_accounts)
+    raw_settings = handoff.get("settings") if isinstance(handoff.get("settings"), dict) else {}
+    settings = {key: raw_settings.get(key, cfg[key]) for key in DIAL_KEYS}
+    try:
+        store.check_discovery_config(dict(cfg, **settings))
+    except store.ConfigError:
+        settings = {key: cfg[key] for key in DIAL_KEYS}
+    port = handoff.get("port")
+    if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+        port = 0
+    return {
+        "token": handoff["token"],
+        "port": port,
+        "keywords": discover.normalize_keywords(_strings(handoff.get("keywords"))),
+        "hashtags": discover.normalize_hashtags(_strings(handoff.get("hashtags"))),
+        "seeds": seeds,
+        "cards": cards,
+        "settings": settings,
+        "search_instagram": handoff.get("search_instagram") is not False,
+        "done": handoff.get("has_results") is True and discover.discovery_path(project).exists(),
+        "notes": notes,
+    }
 
 
 class PanelError(Exception):
@@ -470,6 +778,7 @@ def serve(
     server_factory: Callable[..., Any] = PanelServer,
     clock: Callable[[], float] = time.monotonic,
     opener: Callable[[str], Any] = webbrowser.open,
+    resume: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Serve the panel until the creator saves or closes it, or it sits idle.
 
@@ -479,15 +788,37 @@ def serve(
     link. Raises PanelError when the port will not open. SIGTERM and
     SIGHUP end it with SystemExit(128 + the signal). The session file is
     removed on the way out, whatever happens. Returns the RESULT dict.
+    `resume` (from `resume_session`) reopens a handed-off panel on the
+    same port when it opens, with the same token, else on a new port with
+    a new token; with its cards and settings. Once the panel is up, any handoff file is removed: a
+    resumed panel has loaded it, and a fresh panel supersedes it.
     """
     project = Path(project)
-    token = secrets.token_urlsafe(32)
+    resume = resume or {}
+    # The waiting page keeps the old token and calls the handoff's port.
+    # Only a panel on that very port may take the token over; anywhere else
+    # (a taken port, `--port`, or no usable port) gets a new one, since
+    # whatever holds the old port may have seen the old token (0.6.1).
+    same_port = bool(resume.get("token")) and port != 0 and port == resume.get("port")
     try:
         server = server_factory(("127.0.0.1", port), _Handler)
     except (OSError, OverflowError) as exc:
-        raise PanelError(f"Could not open the panel on port {port}: {exc}") from exc
+        if not resume or port == 0:
+            raise PanelError(f"Could not open the panel on port {port}: {exc}") from exc
+        # The page's old port is taken: open a new one, and the skill hands over the new link.
+        same_port = False
+        try:
+            server = server_factory(("127.0.0.1", 0), _Handler)
+        except (OSError, OverflowError) as retry:
+            raise PanelError(f"Could not open the panel on port 0: {retry}") from retry
+    token = resume["token"] if same_port else secrets.token_urlsafe(32)
     actual_port = server.server_address[1]
-    app = App(project, cfg, token, actual_port, keywords, hashtags, web_entries, seeds, mock=mock, clock=clock)
+    app = App(
+        project, cfg, token, actual_port, keywords, hashtags, web_entries, seeds, mock=mock, clock=clock,
+        cards=resume.get("cards"), settings=resume.get("settings"),
+        search_instagram=resume.get("search_instagram", True), done=resume.get("done", False),
+        notes=resume.get("notes"),
+    )
     server.app = app
     server.timeout = 1.0
     url = f"http://127.0.0.1:{actual_port}/#t={token}"
@@ -501,6 +832,9 @@ def serve(
             mode=SESSION_FILE_MODE,
         )
         print(f"UI {url}", flush=True)
+        # A resumed panel has loaded its handoff, and a fresh one supersedes
+        # any older handoff, so neither leaves one (with its token) behind.
+        handoff_path(project).unlink(missing_ok=True)
         if open_browser:
             opener(url)
         while app.finished is None:

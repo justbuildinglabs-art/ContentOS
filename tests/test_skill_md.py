@@ -47,7 +47,7 @@ ARGUMENT_HINT = (
     "qa [B01] | status | diagnose [--mock]"
 )
 ALLOWED_TOOLS = (
-    "Bash, Read, Write, Glob, AskUserQuestion, WebSearch, "
+    "Bash, Read, Write, Glob, AskUserQuestion, WebSearch, WebFetch, "
     "Agent(contentos:content-director, contentos:script-writer, contentos:qa-reviewer)"
 )
 
@@ -699,6 +699,18 @@ class ApifyKeyStepsTests(NoNetworkTestCase):
         # Exit 4 sends the creator to the same steps.
         self.assertIn("the key steps from Step 1", prose)
 
+    def test_discovery_and_setup_carry_on_with_no_key(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        preflight = body.split("## Step 1: pre-flight", 1)[1].split("\n## ", 1)[0]
+        bullet = _collapse(preflight.split("- **`apify` is false.**", 1)[1].split("\n  1. ", 1)[0])
+        # The stop covers the paid pipeline; Claude's search, the panel, and Save need no key.
+        self.assertIn("Stop unless they asked for `--mock`", bullet)
+        for phrase in ("`/contentos discover` and `/contentos setup` do not stop",
+                       "Claude's web search, the panel, and Save need no key",
+                       "only when the creator wants the Apify scan"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, bullet)
+
 
 class DiscoveryFlowTests(NoNetworkTestCase):
     @staticmethod
@@ -743,6 +755,50 @@ class DiscoveryFlowTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, flow)
 
+    def test_the_claude_search_is_deeper_and_free(self) -> None:
+        flow = _collapse(self._flow())
+        for phrase in (
+            "`reason`", "`source_title`", "`followers_seen`", "creators like @", "open the 2 or 3",
+            "costs no Apify credit", "no Apify key", "Never add a handle from memory",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flow)
+
+    def test_the_claude_search_never_suggests_accounts_already_named(self) -> None:
+        flow = _collapse(self._flow())
+        self.assertIn("leave the watch list, the handles the creator typed, their own handle, and the format "
+                      "accounts out of the finds", flow)
+        # Said before the finds are written, so it shapes the file.
+        self.assertLess(flow.index("out of the finds"), flow.index("Write the finds to"))
+
+    def test_the_chat_can_stop_after_the_claude_search(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        chat = _collapse(body.split("### Discovery in the chat", 1)[1].split("\n## ", 1)[0])
+        for phrase in ("with no Apify", "--check-only", "not checked"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, chat)
+
+
+    def test_the_chat_asks_one_question_and_both_scans_confirm_first(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        chat = body.split("### Discovery in the chat", 1)[1].split("\n## ", 1)[0]
+        flat = _collapse(chat)
+        for phrase in ("one question with three answers", "Save now", "Check Claude's finds only", "Full scan",
+                       "Both scans", "Show `total_usd`", "AskUserQuestion",
+                       "run the same command with `--yes` in place of `--estimate-only`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flat)
+        blocks = re.findall(r"```bash\n(.*?)```", chat, flags=re.DOTALL)
+        scans = [block for block in blocks if 'contentos.py" discover' in block]
+        self.assertEqual(len(scans), 2)
+        self.assertIn("--check-only", scans[0])
+        self.assertNotIn("--check-only", scans[1])
+        for block in scans:
+            with self.subTest(block=block):
+                self.assertIn("--estimate-only", block)
+        # The confirm step comes after both commands, so it covers either one.
+        self.assertGreater(flat.index("in place of `--estimate-only`"), _collapse(chat).index(_collapse(scans[1])))
+
 
 class CreatorRenameTests(NoNetworkTestCase):
     def test_skill_and_readme_have_no_product_leftovers(self) -> None:
@@ -784,6 +840,71 @@ class ControlPanelSkillTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, panel)
 
+    def test_search_again_is_a_loop_back_to_the_panel(self) -> None:
+        panel = self._panel()
+        for phrase in ('"next": "claude_search"', "`known`", "--resume", "the same way, in the background",
+                       "new link", "no web search tool"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, panel)
+        self.assertIn("give the creator the new link and open it", panel)
+        # The tab may have been closed, so the link goes to the creator on every resume.
+        self.assertIn("Give the creator the link from the `UI <url>` line every time", panel)
+
+    def test_resume_keeps_mock_by_itself(self) -> None:
+        panel = self._panel()
+        self.assertIn("The panel remembers `--mock` itself", panel)
+        self.assertNotIn("Add `--mock` when the first panel had it", panel)
+
+    def test_an_idle_panel_that_could_not_be_kept_starts_fresh(self) -> None:
+        panel = self._panel()
+        idle = panel.split('`"reason": "idle"`', 1)[1]
+        for phrase in ("`warning`", "no `handoff_path`", "start a new panel"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, idle)
+
+    @staticmethod
+    def _results() -> List[str]:
+        """The bullets under "Wait for it to finish", as written (not collapsed)."""
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        panel = body.split("### The control panel", 1)[1].split("### Discovery in the chat", 1)[0]
+        step = panel.split("3. **Wait for it to finish.**", 1)[1]
+        return ["- " + bullet for bullet in step.split("\n   - ")[1:]]
+
+    def test_the_result_bullets_put_search_again_and_idle_before_a_plain_close(self) -> None:
+        bullets = self._results()
+        order = [next(i for i, bullet in enumerate(bullets) if bullet.startswith(f"- `{key}`"))
+                 for key in ('"next": "claude_search"', '"reason": "idle"', '"saved": false')]
+        self.assertEqual(order, sorted(order))
+        # The plain "saved": false bullet only covers a result with neither key.
+        plain = _collapse(bullets[order[2]])
+        self.assertIn('`"saved": false` with no `next` and no `reason`', plain)
+        self.assertIn("chat steps", plain)
+
+    def test_an_idle_panel_reopens_in_the_background_with_a_new_link(self) -> None:
+        idle = next(bullet for bullet in self._results() if bullet.startswith('- `"reason": "idle"`'))
+        flat = _collapse(idle)
+        for phrase in ("in the background", "no `--handles-file`", "`UI <url>`", "does not come back by itself",
+                       "wait for this command the same way"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flat)
+        blocks = re.findall(r"```bash\n(.*?)```", idle, flags=re.DOTALL)
+        self.assertEqual(len(blocks), 1)
+        for flag in ("--resume", "--open"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, blocks[0])
+        self.assertNotIn("--handles-file", blocks[0])
+
+    def test_every_ui_command_parses(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        blocks = [block for block in re.findall(r"```bash\n(.*?)```", body, flags=re.DOTALL)
+                  if 'contentos.py" ui' in block]
+        self.assertGreaterEqual(len(blocks), 2)
+        parser = contentos.build_parser()
+        for block in blocks:
+            argv = shlex.split(block.replace("\\\n", " "))
+            with self.subTest(block=block):
+                parser.parse_args(argv[argv.index("ui"):])
+
 
 class DiscoveryReleaseNoteTests(NoNetworkTestCase):
     @staticmethod
@@ -817,6 +938,22 @@ class DiscoveryReleaseNoteTests(NoNetworkTestCase):
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, changelog)
+
+
+class ClaudeSearchReleaseNoteTests(NoNetworkTestCase):
+    @staticmethod
+    def _changelog_061() -> str:
+        text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        return _collapse(text.split("## [0.6.1]", 1)[1].split("\n## [", 1)[0])
+
+    def test_readme_and_changelog_explain_the_two_searches(self) -> None:
+        readme = _collapse(README.read_text(encoding="utf-8"))
+        for name, prose in (("README", readme), ("CHANGELOG", self._changelog_061())):
+            for phrase in ("Search again with Claude", "optional", "Apify scan", "free"):
+                with self.subTest(file=name, phrase=phrase):
+                    self.assertIn(phrase, prose)
+        self.assertIn("--check-only", self._changelog_061())
+        self.assertIn("--resume", self._changelog_061())
 
 
 if __name__ == "__main__":

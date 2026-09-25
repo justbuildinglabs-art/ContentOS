@@ -1,7 +1,11 @@
 [
-  {"handle": "@WebWillow", "source_url": "https://example.invalid/best-habit-creators"},
-  {"handle": "https://www.instagram.com/madeupmaya/", "source_url": "https://example.invalid/best-habit-creators"},
-  {"handle": "focusfern", "source_url": "https://example.invalid/top-10"},
+  {"handle": "@WebWillow", "source_url": "https://example.invalid/best-habit-creators",
+   "source_title": "The best habit creators to follow", "reason": "Listed for short habit-building tutorials",
+   "followers_seen": 48000},
+  {"handle": "https://www.instagram.com/madeupmaya/", "source_url": "https://example.invalid/best-habit-creators",
+   "source_title": "The best habit creators to follow", "reason": "Named for morning routine reels"},
+  {"handle": "focusfern", "source_url": "https://example.invalid/top-10",
+   "source_title": "Top 10 focus creators", "reason": "Deep work tips for students", "followers_seen": 9000},
   {"handle": "https://www.tiktok.com/@nope", "source_url": "https://example.invalid/top-10"},
   {"handle": "slowsam", "source_url": "https://example.invalid/best-habit-creators"},
   {"handle": "@PhotoPhoebe", "source_url": "https://example.invalid/top-10"}

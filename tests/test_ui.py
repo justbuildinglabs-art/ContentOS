@@ -87,6 +87,21 @@ class GuardTests(NoNetworkTestCase):
             self.assertEqual(_call(app, "GET", "/api/state", headers=wrong)[0], 403)
             self.assertEqual(_call(app, "GET", "/api/state")[0], 200)
 
+    def test_search_again_needs_a_local_host_and_the_token(self) -> None:
+        now = {"t": 0.0}
+        with temp_project() as project:
+            app = _app(project, clock=lambda: now["t"])
+            now["t"] = 10.0
+            json_type = {"content-type": "application/json"}
+            for headers in ({"host": f"127.0.0.1:{PORT}", **json_type},
+                            {"host": f"127.0.0.1:{PORT}", "x-contentos-token": "wrong", **json_type},
+                            {"host": "evil.example:80", "x-contentos-token": TOKEN, **json_type}):
+                with self.subTest(headers=headers):
+                    self.assertEqual(_call(app, "POST", "/api/search-again", {}, headers=headers)[0], 403)
+            self.assertFalse(ui.handoff_path(project).exists())
+        self.assertIsNone(app.finished)
+        self.assertEqual(app.last_seen, 0.0)
+
     def test_posts_must_be_json_objects(self) -> None:
         with temp_project() as project:
             app = _app(project)
@@ -159,9 +174,23 @@ class StateAndEstimateTests(NoNetworkTestCase):
         self.assertEqual(data["settings"], {"discover_min_followers": 10000, "discover_min_views": 5000,
                                             "discover_post_every_days": 14, "discover_shortlist": 20})
         self.assertEqual(data["watch_list"], [])
-        self.assertEqual([entry["handle"] for entry in data["web"]],
+        self.assertEqual([card["handle"] for card in data["cards"]],
                          ["webwillow", "madeupmaya", "focusfern", "slowsam", "photophoebe"])
+        self.assertEqual(data["cards"][0], {
+            "handle": "webwillow", "source_url": "https://example.invalid/best-habit-creators",
+            "source_title": "The best habit creators to follow", "reason": "Listed for short habit-building tutorials",
+            "followers_seen": 48000, "origin": "claude", "kept": False, "removed": False, "new": False,
+        })
+        self.assertEqual((data["search_instagram"], data["notes"], data["finished"]), (True, [], False))
+        self.assertNotIn("web", data)
         self.assertEqual((data["cap_usd"], data["established_at"], data["state"]), (3.0, 50000, "idle"))
+
+    def test_the_first_cards_skip_the_watch_list_typed_handles_and_format_accounts(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["webwillow"], "format_accounts": ["focusfern"]})
+            data = _call(_app(project, seeds=["@SlowSam"]), "GET", "/api/state")[1]
+        self.assertEqual([card["handle"] for card in data["cards"]], ["madeupmaya", "photophoebe"])
+        self.assertEqual(data["notes"], ["Claude's finds skip accounts you already named: @webwillow @focusfern @slowsam."])
 
     def test_no_key_outside_mock(self) -> None:
         with temp_project() as project:
@@ -206,6 +235,102 @@ class StateAndEstimateTests(NoNetworkTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["total_usd"], ctx.exception.payload["total_usd"])
 
+    def test_check_only_estimate(self) -> None:
+        with temp_project() as project:
+            data = _call(_app(project), "POST", "/api/estimate", {"search_instagram": False})[1]
+        expected = discover.estimate(dict(store.DEFAULT_CONFIG), 1, 2, 0, 5, search_instagram=False)
+        self.assertEqual(data["total_usd"], expected["total_usd"])
+        self.assertIsNone(data["note"])
+
+    def test_a_check_only_estimate_with_no_creators_says_what_to_do(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            check_only = _call(app, "POST", "/api/estimate", {"search_instagram": False, "web": []})[1]
+            full = _call(app, "POST", "/api/estimate", {"search_instagram": True, "web": []})[1]
+        self.assertEqual(check_only["note"], ui.CHECK_ONLY_NEEDS_CARDS)
+        self.assertIsNone(full["note"])
+
+
+class CardTests(NoNetworkTestCase):
+    def test_normalize_cards_keeps_known_fields_and_drops_the_rest(self) -> None:
+        cards = ui.normalize_cards([
+            {"handle": "@PlanWithPia", "reason": "r", "origin": "you", "kept": True, "removed": "yes",
+             "new": True, "check": {"passed": True}, "extra": 1},
+            {"handle": "planwithpia", "origin": "claude"},
+            {"handle": "https://www.tiktok.com/@nope"},
+            {"handle": "coachcora", "origin": "martian"},
+            "not a card",
+        ])
+        self.assertEqual(cards, [
+            {"handle": "planwithpia", "source_url": "", "source_title": None, "reason": "r",
+             "followers_seen": None, "origin": "you", "kept": True, "removed": False, "new": True},
+            {"handle": "coachcora", "source_url": "", "source_title": None, "reason": None,
+             "followers_seen": None, "origin": "claude", "kept": False, "removed": False, "new": False},
+        ])
+        self.assertEqual(ui.normalize_cards({"handle": "x"}), [])
+
+    def test_normalize_cards_holds_at_most_120(self) -> None:
+        cards = ui.normalize_cards([{"handle": f"h{i}"} for i in range(130)])
+        self.assertEqual(len(cards), ui.MAX_CARDS)
+
+    def test_past_120_cards_the_ticked_ones_stay(self) -> None:
+        # 110 of Claude's finds, then 20 ticked cards a scan added at the end.
+        raw = ([{"handle": f"c{i}"} for i in range(110)]
+               + [{"handle": f"k{i}", "origin": "instagram", "kept": True} for i in range(20)])
+        cards = ui.normalize_cards(raw)
+        self.assertEqual(len(cards), ui.MAX_CARDS)
+        self.assertEqual(sum(card["kept"] for card in cards), 20)
+        # The cards that stay keep the page's order.
+        self.assertEqual([card["handle"] for card in cards], [f"c{i}" for i in range(100)] + [f"k{i}" for i in range(20)])
+
+    def test_past_120_cards_removed_ones_go_before_the_rest(self) -> None:
+        raw = ([{"handle": "gone0", "removed": True}] + [{"handle": f"c{i}"} for i in range(119)]
+               + [{"handle": "late", "origin": "you", "kept": True}, {"handle": "gone1", "removed": True}])
+        handles = [card["handle"] for card in ui.normalize_cards(raw)]
+        self.assertEqual(handles, [f"c{i}" for i in range(119)] + ["late"])
+
+    def test_the_estimate_records_the_page(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            _call(app, "POST", "/api/estimate", {
+                "keywords": ["habit stacking"], "hashtags": ["#Tiny"], "search_instagram": False,
+                "cards": [{"handle": "slowsam", "kept": True}],
+            })
+            data = _call(app, "GET", "/api/state")[1]
+        self.assertEqual((data["keywords"], data["hashtags"], data["search_instagram"]),
+                         (["habit stacking"], ["tiny"], False))
+        self.assertEqual([(card["handle"], card["kept"]) for card in data["cards"]], [("slowsam", True)])
+
+
+    def test_a_finished_panel_no_longer_records_the_page(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            _call(app, "POST", "/api/close", {})
+            status, _data = _call(app, "POST", "/api/estimate", {"keywords": ["late"], "cards": [],
+                                                                "settings": {"discover_shortlist": 5}})
+        self.assertEqual(status, 200)
+        self.assertEqual(app.keywords, ["habit coach"])
+        self.assertEqual(len(app.cards), 5)
+        self.assertEqual(app.page_settings["discover_shortlist"], 20)
+
+    def test_a_page_from_an_older_panel_cannot_overwrite_the_cards(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            generation = _call(app, "GET", "/api/state")[1]["generation"]
+            self.assertIsInstance(generation, str)
+            self.assertNotEqual(generation, _call(_app(project), "GET", "/api/state")[1]["generation"])
+            stale = {"generation": "older", "cards": [{"handle": "slowsam"}], "keywords": ["old"]}
+            for route in ("/api/estimate", "/api/search-again"):
+                with self.subTest(route=route):
+                    status, data = _call(app, "POST", route, stale)
+                    self.assertEqual(status, 409)
+                    self.assertIs(data["stale"], True)
+            self.assertEqual((len(app.cards), app.keywords, app.finished), (5, ["habit coach"], None))
+            self.assertFalse(ui.handoff_path(project).exists())
+            current = {"generation": generation, "cards": [{"handle": "slowsam"}]}
+            self.assertEqual(_call(app, "POST", "/api/estimate", current)[0], 200)
+        self.assertEqual([card["handle"] for card in app.cards], ["slowsam"])
+
 
 class RunTests(NoNetworkTestCase):
     def test_a_mock_run_finishes_and_serves_the_results(self) -> None:
@@ -244,6 +369,21 @@ class RunTests(NoNetworkTestCase):
             status, data = _call(_app(project), "POST", "/api/run", {"keywords": [], "hashtags": [], "web": []})
         self.assertEqual((status, data["code"]), (400, codes.EXIT_USAGE))
 
+    def test_a_check_only_run(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            self.assertEqual(_call(app, "POST", "/api/run", {"search_instagram": False})[0], 202)
+            doc = _call(app, "GET", "/api/discovery")[1]
+        self.assertIs(doc["search_instagram"], False)
+
+    def test_check_only_needs_a_handle(self) -> None:
+        with temp_project() as project:
+            status, data = _call(_app(project), "POST", "/api/run", {"search_instagram": False, "web": []})
+        self.assertEqual(status, 400)
+        self.assertEqual(data["error"], ui.CHECK_ONLY_NEEDS_CARDS)
+        self.assertEqual(ui.CHECK_ONLY_NEEDS_CARDS, "To check only Claude's finds, add at least one creator "
+                                                    "first, or tick Also search Instagram for more creators.")
+
     def test_remember_writes_the_dials_once_set_up(self) -> None:
         with temp_project() as project:
             _set_up_project(project, {"competitors": ["habitlab"]})
@@ -273,7 +413,7 @@ class RunTests(NoNetworkTestCase):
         self.assertEqual((status["state"], status["error"]), ("error", "apify said no"))
 
     def test_save_and_close_wait_for_a_running_search(self) -> None:
-        running = "A search is running. Wait for it to finish, then save or close."
+        running = "A search is running. Wait for it to finish first."
         with temp_project() as project:
             app = _app(project, runner=lambda job: None)
             self.assertEqual(_call(app, "POST", "/api/run", {})[0], 202)
@@ -380,6 +520,168 @@ class SaveAndCloseTests(NoNetworkTestCase):
         self.assertEqual(app.finished["picks"], [])
 
 
+class SearchAgainTests(NoNetworkTestCase):
+    PAGE = {
+        "keywords": ["habit stacking"], "hashtags": ["tiny"], "search_instagram": False,
+        "settings": {"discover_shortlist": 12},
+        "cards": [{"handle": "webwillow", "kept": True},
+                  {"handle": "focusfern", "removed": True}],
+    }
+
+    def test_search_again_writes_the_handoff_and_finishes(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["habitlab"], "format_accounts": ["formatfred"]})
+            app = _app(project, seeds=["typedtia"])
+            status, data = _call(app, "POST", "/api/search-again", self.PAGE)
+            path = ui.handoff_path(project)
+            doc = store.read_json(path)
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+        self.assertEqual((status, data), (200, {"next": "claude_search"}))
+        self.assertEqual(mode, 0o600)
+        self.assertEqual((doc["version"], doc["token"], doc["port"]), (1, TOKEN, PORT))
+        self.assertEqual((doc["keywords"], doc["hashtags"], doc["seeds"]), (["habit stacking"], ["tiny"], ["typedtia"]))
+        self.assertEqual([(c["handle"], c["kept"], c["removed"]) for c in doc["cards"]],
+                         [("webwillow", True, False), ("focusfern", False, True)])
+        self.assertEqual(doc["settings"]["discover_shortlist"], 12)
+        self.assertEqual((doc["search_instagram"], doc["has_results"]), (False, False))
+        self.assertIs(doc["mock"], True)
+        finished = app.finished
+        self.assertEqual(finished["next"], "claude_search")
+        self.assertEqual(finished["handoff_path"], str(path))
+        # Removed cards, the watch list, typed seeds, and format accounts are all known.
+        self.assertEqual(finished["known"], ["webwillow", "focusfern", "habitlab", "typedtia", "formatfred"])
+        self.assertEqual((finished["saved"], finished["picks"]), (False, []))
+
+    def test_has_results_after_a_finished_scan(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            _call(app, "POST", "/api/run", {})
+            _call(app, "POST", "/api/search-again", {})
+            self.assertIs(store.read_json(ui.handoff_path(project))["has_results"], True)
+
+    def test_has_results_after_a_scan_then_a_failed_scan(self) -> None:
+        calls: List[int] = []
+
+        def succeed_then_fail(project: Path, cfg: Dict[str, Any], keys: Any, **kwargs: Any) -> Dict[str, Any]:
+            calls.append(1)
+            if len(calls) > 1:
+                raise discover.DiscoverError("Apify timed out")
+            return discover.run_discover(project, cfg, keys, **kwargs)
+
+        with temp_project() as project:
+            app = _app(project, run_discover=succeed_then_fail)
+            _call(app, "POST", "/api/run", {})
+            _call(app, "POST", "/api/run", {})
+            self.assertEqual(app.state, "error")
+            _call(app, "POST", "/api/search-again", {})
+            # discovery.json still holds the first scan, so the resumed panel shows it.
+            self.assertIs(store.read_json(ui.handoff_path(project))["has_results"], True)
+
+    def test_a_resumed_panel_with_results_hands_them_on(self) -> None:
+        with temp_project() as project:
+            _call(_app(project), "POST", "/api/run", {})
+            app = _app(project, done=True, run_discover=mock.Mock(side_effect=discover.DiscoverError("boom")))
+            _call(app, "POST", "/api/run", {})
+            _call(app, "POST", "/api/search-again", {})
+            self.assertIs(store.read_json(ui.handoff_path(project))["has_results"], True)
+
+    def test_search_again_waits_for_a_scan_and_refuses_a_finished_panel(self) -> None:
+        with temp_project() as project:
+            app = _app(project, runner=lambda job: None)
+            _call(app, "POST", "/api/run", {})
+            self.assertEqual(_call(app, "POST", "/api/search-again", {})[0], 409)
+            self.assertFalse(ui.handoff_path(project).exists())
+        with temp_project() as project:
+            app = _app(project)
+            _call(app, "POST", "/api/close", {})
+            self.assertEqual(_call(app, "POST", "/api/search-again", {})[1]["error"], ui.FINISHED_ERROR)
+
+    def test_a_bad_setting_is_refused_and_nothing_is_written(self) -> None:
+        with temp_project() as project:
+            app = _app(project)
+            status, _data = _call(app, "POST", "/api/search-again", {"settings": {"discover_shortlist": 0}})
+            self.assertEqual(status, 400)
+            self.assertFalse(ui.handoff_path(project).exists())
+            self.assertIsNone(app.finished)
+
+    def test_an_idle_timeout_writes_the_handoff_from_the_last_estimate(self) -> None:
+        now = {"t": 0.0}
+        with temp_project() as project:
+            app = _app(project, clock=lambda: now["t"])
+            _call(app, "POST", "/api/estimate", {"keywords": ["morning routine"],
+                                                 "cards": [{"handle": "slowsam", "kept": True}]})
+            now["t"] = 4000.0
+            app.stop_if_idle(3600)
+            doc = store.read_json(ui.handoff_path(project))
+        self.assertEqual((app.finished["reason"], app.finished["handoff_path"]),
+                         ("idle", str(ui.handoff_path(project))))
+        self.assertEqual(doc["keywords"], ["morning routine"])
+        self.assertEqual([(c["handle"], c["kept"]) for c in doc["cards"]], [("slowsam", True)])
+
+    def test_an_idle_handoff_keeps_the_dials_the_creator_last_set(self) -> None:
+        now = {"t": 0.0}
+        dials = {"discover_min_followers": 25000, "discover_shortlist": 10}
+        with temp_project() as project:
+            app = _app(project, clock=lambda: now["t"])
+            _call(app, "POST", "/api/estimate", {"settings": dials})
+            now["t"] = 4000.0
+            app.stop_if_idle(3600)
+            doc = store.read_json(ui.handoff_path(project))
+        self.assertEqual((doc["settings"]["discover_min_followers"], doc["settings"]["discover_shortlist"]),
+                         (25000, 10))
+        # The RESULT's settings stay the last run's (none here, so the config's), as in 0.6.0.
+        self.assertEqual((app.finished["settings"]["discover_min_followers"],
+                          app.finished["settings"]["discover_shortlist"]), (10000, 20))
+
+    def test_a_failed_handoff_write_still_ends_an_idle_panel(self) -> None:
+        now = {"t": 0.0}
+        full = OSError(28, "No space left on device")
+        with temp_project() as project, mock.patch.object(ui.App, "_write_handoff", side_effect=full):
+            app = _app(project, clock=lambda: now["t"])
+            now["t"] = 4000.0
+            app.stop_if_idle(3600)
+        self.assertEqual((app.finished["saved"], app.finished["reason"]), (False, "idle"))
+        self.assertNotIn("handoff_path", app.finished)
+        self.assertIn("could not be saved to reopen", app.finished["warning"])
+        self.assertIn("No space left on device", app.finished["warning"])
+
+    def test_a_failed_handoff_write_leaves_search_again_open(self) -> None:
+        full = OSError(28, "No space left on device")
+        with temp_project() as project, mock.patch.object(ui.App, "_write_handoff", side_effect=full):
+            app = _app(project)
+            status, data = _call(app, "POST", "/api/search-again", {})
+        self.assertEqual((status, data), (500, {"error": "Could not save the panel for Claude. Try again."}))
+        self.assertIsNone(app.finished)
+
+    def test_save_and_close_remove_a_stale_handoff(self) -> None:
+        for route, payload in (("/api/save", {"picks": ["webwillow"]}), ("/api/close", {})):
+            with self.subTest(route=route), temp_project() as project:
+                ui.handoff_path(project).parent.mkdir(parents=True, exist_ok=True)
+                ui.handoff_path(project).write_text("{}", encoding="utf-8")
+                self.assertEqual(_call(_app(project), "POST", route, payload)[0], 200)
+                self.assertFalse(ui.handoff_path(project).exists())
+
+    def test_serve_ends_with_the_search_again_result(self) -> None:
+        def search_again(srv: _FakeServer) -> None:
+            session = store.read_json(ui.session_path(project))
+            token = session["url"].split("#t=", 1)[1]
+            srv.app.handle("POST", "/api/search-again", {"host": f"127.0.0.1:{PORT}", "x-contentos-token": token,
+                                                         "content-type": "application/json"}, b"{}")
+
+        def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+            server = _FakeServer(address, handler)
+            server.steps = [search_again]
+            return server
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            result = ui.serve(project, store.load_discovery_config(project), ["habit coach"], [], [], [],
+                              mock=True, server_factory=factory)
+            self.assertTrue(ui.handoff_path(project).exists())
+            self.assertFalse(ui.session_path(project).exists())
+        self.assertEqual((result["next"], result["keywords"]), ("claude_search", ["habit coach"]))
+        self.assertTrue(result["discovery_path"].endswith("discovery.json"))
+
+
 class _FakeServer:
     """Stands in for ThreadingHTTPServer: no socket, scripted requests."""
 
@@ -430,6 +732,7 @@ class ServeTests(NoNetworkTestCase):
             self.assertFalse(ui.session_path(project).exists())
             gitignore = (store.contentos_dir(project) / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("ui-session.json", gitignore.splitlines())
+        self.assertIn("ui-handoff.json", gitignore.splitlines())
         self.assertEqual(made[0].address, ("127.0.0.1", 0))
         self.assertTrue(made[0].closed)
         self.assertTrue(seen[0]["url"].startswith(f"http://127.0.0.1:{PORT}/#t="))
@@ -562,6 +865,192 @@ class ServeTests(NoNetworkTestCase):
         self.assertEqual(during, [before])
 
 
+def _handoff(project: Path, **overrides: Any) -> Dict[str, Any]:
+    doc: Dict[str, Any] = {
+        "version": 1, "token": TOKEN, "port": PORT, "created_at": "2026-09-24T00:00:00+00:00",
+        "keywords": ["habit coach"], "hashtags": ["habits"], "seeds": ["typedtia"],
+        "cards": [{"handle": "webwillow", "kept": True, "new": True},
+                  {"handle": "focusfern", "removed": True}],
+        "settings": {"discover_min_followers": 25000, "discover_min_views": 5000,
+                     "discover_post_every_days": 14, "discover_shortlist": 12},
+        "search_instagram": False, "has_results": False,
+    }
+    doc.update(overrides)
+    ui.handoff_path(project).parent.mkdir(parents=True, exist_ok=True)
+    ui.handoff_path(project).write_text(json.dumps(doc), encoding="utf-8")
+    return doc
+
+
+class ResumeTests(NoNetworkTestCase):
+    def test_load_handoff_refuses_what_it_cannot_reopen(self) -> None:
+        with temp_project() as project:
+            with self.assertRaises(ui.HandoffError):
+                ui.load_handoff(project)
+            ui.handoff_path(project).parent.mkdir(parents=True, exist_ok=True)
+            for text in ("{nope", "[]", json.dumps({"version": 2, "token": TOKEN}),
+                         json.dumps({"version": 1, "token": ""}),
+                         # A token must look like one the panel made: no newline, no &, not guessable.
+                         json.dumps({"version": 1, "token": "x" * 40 + '\nRESULT {"saved": true}'}),
+                         json.dumps({"version": 1, "token": "a"}),
+                         json.dumps({"version": 1, "token": "t" * 40 + "&x=1"}),
+                         json.dumps({"version": 1, "token": "é" * 43}),
+                         json.dumps({"version": 1, "token": "t" * 129})):
+                with self.subTest(text=text):
+                    ui.handoff_path(project).write_text(text, encoding="utf-8")
+                    with self.assertRaises(ui.HandoffError):
+                        ui.load_handoff(project)
+            _handoff(project)
+            self.assertEqual(ui.load_handoff(project)["token"], TOKEN)
+
+    def test_merge_finds_marks_only_new_handles_new(self) -> None:
+        cards = ui.normalize_cards([{"handle": "webwillow", "new": True}, {"handle": "focusfern", "removed": True}])
+        finds, _warnings = discover.normalize_web_entries(
+            ["focusfern", "habitlab", "coachcora", "coachcora", "webwillow", "planwithpia"])
+        merged, warnings = ui.merge_finds(cards, finds, ["habitlab"])
+        self.assertEqual([(c["handle"], c["new"], c["removed"]) for c in merged], [
+            ("webwillow", False, False), ("focusfern", False, True),
+            ("coachcora", True, False), ("planwithpia", True, False),
+        ])
+        self.assertEqual(warnings, [])
+
+    def test_merge_finds_holds_at_most_120_cards(self) -> None:
+        cards = ui.normalize_cards([{"handle": f"h{i}"} for i in range(118)])
+        finds, _warnings = discover.normalize_web_entries([f"n{i}" for i in range(5)])
+        merged, warnings = ui.merge_finds(cards, finds, [])
+        self.assertEqual(len(merged), 120)
+        self.assertEqual(warnings, ["The panel holds 120 creators, so 3 new finds were left out."])
+
+    def test_resume_session_restores_the_panel(self) -> None:
+        with temp_project() as project:
+            _write_config(project, {"competitors": ["habitlab"]})
+            handoff = _handoff(project)
+            finds, _warnings = discover.normalize_web_entries(["habitlab", "coachcora"])
+            session = ui.resume_session(project, store.load_discovery_config(project), handoff, finds)
+        self.assertEqual((session["token"], session["port"]), (TOKEN, PORT))
+        self.assertEqual((session["keywords"], session["hashtags"], session["seeds"]),
+                         (["habit coach"], ["habits"], ["typedtia"]))
+        self.assertEqual([c["handle"] for c in session["cards"]], ["webwillow", "focusfern", "coachcora"])
+        self.assertEqual(session["settings"]["discover_min_followers"], 25000)
+        self.assertEqual((session["search_instagram"], session["done"], session["notes"]), (False, False, []))
+
+    def test_bad_settings_or_port_fall_back_to_defaults(self) -> None:
+        with temp_project() as project:
+            handoff = _handoff(project, settings={"discover_shortlist": 0}, port="x")
+            session = ui.resume_session(project, store.load_discovery_config(project), handoff, [])
+        self.assertEqual(session["settings"]["discover_shortlist"], 20)
+        self.assertEqual(session["port"], 0)
+
+    def test_done_only_when_the_results_file_exists(self) -> None:
+        with temp_project() as project:
+            handoff = _handoff(project, has_results=True)
+            cfg = store.load_discovery_config(project)
+            self.assertFalse(ui.resume_session(project, cfg, handoff, [])["done"])
+            app = _app(project)
+            _call(app, "POST", "/api/run", {})
+            self.assertTrue(ui.resume_session(project, cfg, handoff, [])["done"])
+
+    def test_a_resumed_panel_shows_the_last_results_with_no_new_spend(self) -> None:
+        with temp_project() as project:
+            _call(_app(project), "POST", "/api/run", {})
+            app = _app(project, done=True)
+            status = _call(app, "GET", "/api/status")[1]
+            doc_status, doc = _call(app, "GET", "/api/discovery")
+        self.assertEqual((status["state"], status["summary"]["candidates"]), ("done", 3))
+        self.assertEqual((doc_status, doc["version"]), (200, 2))
+
+    def test_a_results_file_that_cannot_be_read_opens_the_panel_without_it(self) -> None:
+        for text in ('{"candidates": 5}', '{"cand', "{}", "[]", '"text"',
+                     '{"candidates": ["x"], "dropped": [], "breakouts": []}'):
+            with self.subTest(text=text), temp_project() as project:
+                path = discover.discovery_path(project)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+                app = _app(project, done=True)
+                self.assertEqual((app.state, app.summary, app.had_results), ("idle", None, False))
+                self.assertEqual(app.notes, [ui.RESULTS_UNREADABLE])
+                self.assertEqual(_call(app, "GET", "/api/discovery")[0], 409)
+        self.assertIn("could not be read", ui.RESULTS_UNREADABLE)
+
+    def test_serve_reuses_the_token_and_port_and_removes_the_handoff(self) -> None:
+        made: List[_FakeServer] = []
+        seen: List[Dict[str, Any]] = []
+        with temp_project() as project, redirect_stdout(StringIO()) as out:
+            handoff = _handoff(project)
+            cfg = store.load_discovery_config(project)
+            session = ui.resume_session(project, cfg, handoff, [])
+            ui.serve(project, cfg, session["keywords"], session["hashtags"], [], session["seeds"], mock=True,
+                     port=session["port"], resume=session, server_factory=_closing_factory(project, made, seen))
+            self.assertFalse(ui.handoff_path(project).exists())
+        self.assertEqual(made[0].address, ("127.0.0.1", PORT))
+        self.assertTrue(seen[0]["url"].endswith(f"#t={TOKEN}"))
+        self.assertIn(f"#t={TOKEN}", out.getvalue())
+
+    def test_a_fresh_panel_retires_an_old_handoff_once_it_is_up(self) -> None:
+        present: List[bool] = []
+
+        def factory(address: Tuple[str, int], handler: Any) -> _FakeServer:
+            server = _closing_factory(project, [], [])(address, handler)
+            server.steps.insert(0, lambda _srv: present.append(ui.handoff_path(project).exists()))
+            return server
+
+        def refuse(_address: Tuple[str, int], _handler: Any) -> Any:
+            raise OSError(48, "Address already in use")
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            _handoff(project)
+            with self.assertRaises(ui.PanelError):
+                ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True, port=PORT,
+                         server_factory=refuse)
+            # A panel that never came up leaves the old one to resume.
+            self.assertTrue(ui.handoff_path(project).exists())
+            ui.serve(project, store.load_discovery_config(project), [], [], [], [], mock=True,
+                     server_factory=factory)
+        self.assertEqual(present, [False])
+
+    def test_a_taken_port_falls_back_to_a_new_one(self) -> None:
+        tried: List[int] = []
+        inner = _closing_factory
+
+        with temp_project() as project, redirect_stdout(StringIO()):
+            closing = inner(project, [], [])
+
+            def factory(address: Tuple[str, int], handler: Any) -> Any:
+                tried.append(address[1])
+                if address[1] == PORT:
+                    raise OSError(48, "Address already in use")
+                return closing(address, handler)
+
+            handoff = _handoff(project)
+            cfg = store.load_discovery_config(project)
+            session = ui.resume_session(project, cfg, handoff, [])
+            with redirect_stdout(StringIO()) as out:
+                ui.serve(project, cfg, [], [], [], [], mock=True, port=PORT, resume=session,
+                         server_factory=factory)
+        self.assertEqual(tried, [PORT, 0])
+        # The old page kept calling the old port, so whoever took it may have the old token.
+        # A panel on a new port gets a new token; the new UI link carries it.
+        token = out.getvalue().split("#t=", 1)[1].split()[0]
+        self.assertNotEqual(token, TOKEN)
+        self.assertTrue(ui.TOKEN_RE.fullmatch(token))
+
+    def test_a_port_other_than_the_handoffs_gets_a_new_token(self) -> None:
+        seen: List[Dict[str, Any]] = []
+        with temp_project() as project, redirect_stdout(StringIO()):
+            handoff = _handoff(project)
+            cfg = store.load_discovery_config(project)
+            session = ui.resume_session(project, cfg, handoff, [])
+            # `ui --resume --port 6123`: the old page is not on that port, so it keeps no token.
+            ui.serve(project, cfg, [], [], [], [], mock=True, port=PORT + 1, resume=session,
+                     server_factory=_closing_factory(project, [], seen))
+            self.assertFalse(seen[0]["url"].endswith(f"#t={TOKEN}"))
+            # A handoff with no usable port binds whatever the OS picks, so it gets a new token too.
+            seen.clear()
+            session = ui.resume_session(project, cfg, _handoff(project, port="x"), [])
+            ui.serve(project, cfg, [], [], [], [], mock=True, port=session["port"], resume=session,
+                     server_factory=_closing_factory(project, [], seen))
+            self.assertFalse(seen[0]["url"].endswith(f"#t={TOKEN}"))
+
+
 def _main(argv: Sequence[str]) -> Tuple[int, str, str]:
     out, err = StringIO(), StringIO()
     with redirect_stdout(out), redirect_stderr(err):
@@ -626,6 +1115,77 @@ class UiCommandTests(NoNetworkTestCase):
             self.assertEqual(err.strip(), f"Could not open the panel on port {port}: {failure}")
             self.assertNotIn("RESULT", out)
 
+    def test_resume_with_nothing_to_resume_exits_2(self) -> None:
+        refuse = AssertionError("ui.serve must not run")
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=refuse):
+            code, out, err = _main(["ui", "--project", str(project), "--resume"])
+        self.assertEqual(code, codes.EXIT_USAGE)
+        self.assertIn("Nothing to resume", err)
+        self.assertNotIn("RESULT", out)
+
+    def test_resume_refuses_new_search_terms(self) -> None:
+        refuse = AssertionError("ui.serve must not run")
+        for flag in ("--keywords", "--hashtags", "--seeds"):
+            with self.subTest(flag=flag), temp_project() as project, \
+                    mock.patch.object(ui, "serve", side_effect=refuse):
+                _handoff(project)
+                code, _out, err = _main(["ui", "--project", str(project), "--resume", flag, "x"])
+            self.assertEqual(code, codes.EXIT_USAGE)
+            self.assertIn("--resume", err)
+
+    def test_resume_keeps_the_first_panels_mock_setting(self) -> None:
+        captured: Dict[str, Any] = {}
+
+        def fake_serve(project: Path, cfg: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+            captured.update(kwargs)
+            return {"saved": False, "picks": [], "settings": {}, "discovery_path": "x"}
+
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=fake_serve):
+            _handoff(project, mock=True)
+            code, _out, _err = _main(["ui", "--project", str(project), "--resume"])
+        self.assertEqual(code, codes.EXIT_OK)
+        self.assertIs(captured["mock"], True)
+
+    def test_resume_refuses_mock_on_a_real_panel(self) -> None:
+        refuse = AssertionError("ui.serve must not run")
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=refuse):
+            _handoff(project, mock=False)
+            code, out, err = _main(["ui", "--project", str(project), "--resume", "--mock"])
+        self.assertEqual(code, codes.EXIT_USAGE)
+        self.assertIn("leave off --mock", err)
+        self.assertNotIn("RESULT", out)
+
+    def test_resume_with_a_results_file_that_cannot_be_read_still_opens(self) -> None:
+        with temp_project() as project:
+            _handoff(project, has_results=True, mock=True)
+            path = discover.discovery_path(project)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"candidates": 5}', encoding="utf-8")
+            factory = _closing_factory(project, [], [])
+            with mock.patch.object(ui, "serve", functools.partial(ui.serve, server_factory=factory)):
+                code, out, _err = _main(["ui", "--project", str(project), "--resume"])
+            self.assertFalse(ui.handoff_path(project).exists())
+        self.assertEqual(code, codes.EXIT_OK)
+        self.assertTrue(out.startswith("UI http://127.0.0.1:"))
+        self.assertEqual(json.loads(out.strip().splitlines()[-1][len("RESULT "):])["saved"], False)
+
+    def test_resume_adds_the_new_finds_and_serves(self) -> None:
+        captured: Dict[str, Any] = {}
+
+        def fake_serve(project: Path, cfg: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+            captured.update(kwargs)
+            return {"saved": False, "picks": [], "settings": {}, "discovery_path": "x"}
+
+        with temp_project() as project, mock.patch.object(ui, "serve", side_effect=fake_serve):
+            _handoff(project)
+            code, _out, _err = _main(["ui", "--project", str(project), "--mock", "--resume",
+                                      "--handles-file", str(WEB_FILE)])
+        self.assertEqual(code, codes.EXIT_OK)
+        cards = captured["resume"]["cards"]
+        self.assertEqual([(c["handle"], c["new"]) for c in cards][:3],
+                         [("webwillow", False), ("focusfern", False), ("madeupmaya", True)])
+        self.assertEqual((captured["port"], captured["keywords"]), (PORT, ["habit coach"]))
+
 
 class PageTests(NoNetworkTestCase):
     def _page(self) -> str:
@@ -633,24 +1193,136 @@ class PageTests(NoNetworkTestCase):
 
     def test_the_page_loads_nothing_from_outside_and_never_writes_raw_html(self) -> None:
         text = self._page()
+        # The one address the page names is Instagram's, for profile links.
+        self.assertEqual(text.count('var INSTAGRAM_URL = "https://www.instagram.com/";'), 1)
+        rest = text.replace('var INSTAGRAM_URL = "https://www.instagram.com/";', "")
         for banned in ("http://", "https://", "innerHTML", "outerHTML", "insertAdjacentHTML",
                        "document.write", "<script src", "@import", "—"):
             with self.subTest(banned=banned):
-                self.assertNotIn(banned, text)
+                self.assertNotIn(banned, rest)
 
     def test_the_page_calls_every_route_and_sends_the_token(self) -> None:
         text = self._page()
-        self.assertEqual(set(re.findall(r'"(/api/[a-z]+)"', text)), set(ui.ROUTES))
+        self.assertEqual(set(re.findall(r'"(/api/[a-z-]+)"', text)), set(ui.ROUTES))
         self.assertIn("X-ContentOS-Token", text)
         self.assertIn("prefers-color-scheme: dark", text)
-        for element_id in ("dial-followers", "dial-views", "dial-every", "dial-shortlist", "run-btn",
-                           "save-btn", "close-btn", "established", "rising", "web-list", "remember",
-                           "partial", "warnings"):
+        for element_id in ("keywords", "hashtags", "cards", "web-add", "web-add-btn", "claude-btn", "claude-error",
+                           "watch-list", "dial-followers", "dial-views", "dial-every", "dial-shortlist", "remember",
+                           "search-instagram", "cost", "run-btn", "run-error", "log", "results", "summary",
+                           "partial", "warnings", "picked", "unchecked-note", "close-btn", "save-btn",
+                           "save-error", "done-note", "waiting"):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', text)
 
-    def test_the_page_promises_nothing_0_6_0_does_not_do(self) -> None:
-        self.assertNotIn("Claude reads these for trends", self._page())
+    def test_the_buttons_and_labels_say_what_they_do(self) -> None:
+        text = self._page()
+        for phrase in ("Run the Apify scan", "Search again with Claude", "Also search Instagram for more creators",
+                       "Found by Claude", "Added by you", "Found on Instagram", "Similar to @", "New",
+                       "not checked", "Keep", "Passed", "Missed: "):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_a_list_past_120_says_which_cards_the_panel_lets_go(self) -> None:
+        text = self._page()
+        self.assertIn(f"var MAX_CARDS = {ui.MAX_CARDS};", text)
+        self.assertIn('id="cards-note"', text)
+        render = text.split("function renderCards()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("cardsNote()", render)
+        note = text.split("function cardsNote()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("MAX_CARDS", note)
+        self.assertIn('$("cards-note").textContent', note)
+        for phrase in ('" creators, and the panel keeps "', '"Your ticked ones stay. "',
+                       '" unticked ones will not be kept."', '"1 unticked one will not be kept."',
+                       '" or fewer, or some ticks will not be kept."'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, note)
+
+    def test_a_creator_the_scan_never_held_to_the_bar_is_not_checked_not_missed(self) -> None:
+        text = self._page()
+        # The reasons that mean the bar was never applied, in plain words.
+        table = text.split("var NOT_CHECKED = {", 1)[1].split("};", 1)[0]
+        for reason in (discover.REASON_SHORTLIST_FULL, discover.REASON_NOT_CHECKED, discover.REASON_NOT_MEASURED):
+            with self.subTest(reason=reason):
+                self.assertIn(f'"{reason}": ', table)
+        self.assertIn('"over your Creators to check limit"', table)
+        self.assertIn('"ran out of time"', table)
+        results = text.split("function applyResults(doc)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("unchecked: NOT_CHECKED.hasOwnProperty(item.reason)", results)
+        render = text.split("function renderCard(card)", 1)[1].split("\n  }\n", 1)[0]
+        # "Missed" and the missed-the-bar warning are for real misses only.
+        self.assertIn("var missed = card.check && !card.check.passed && !card.check.unchecked;", render)
+        self.assertIn('"Not checked: " + NOT_CHECKED[card.check.reason]', render)
+        self.assertIn('"Missed: " + why', render)
+        # The unchecked-picks note counts them too.
+        picked = text.split("function updatePicked()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("!card.check || card.check.unchecked", picked)
+
+    def test_a_check_only_estimate_with_nothing_to_check_shows_its_note(self) -> None:
+        estimate = self._page().split("function estimate()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("data.note", estimate)
+
+    def test_save_works_before_any_scan_and_names_unchecked_picks(self) -> None:
+        text = self._page()
+        self.assertIn(" of your picks were not checked with Apify.", text)
+        self.assertIn(" of your picks was not checked with Apify.", text)
+        start = text.split("function start(state)", 1)[1]
+        self.assertNotIn('$("save-btn").disabled = true', start)
+
+    def test_search_again_waits_for_the_panel_to_come_back(self) -> None:
+        text = self._page()
+        self.assertIn("Claude is searching in your chat. This page comes back by itself.", text)
+        self.assertIn("Still waiting. Reload this page once Claude says the panel is back, "
+                      "or ask Claude for the link.", text)
+        self.assertNotIn("Ask Claude for a new link.", text)
+        wait = text.split("function waitForPanel(since)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("3000", wait)
+        self.assertIn("state.finished", wait)
+        self.assertIn("window.location.reload()", wait)
+        self.assertIn("WAIT_MS = 15 * 60 * 1000", text)
+
+    def test_the_waiting_page_reloads_only_onto_a_new_panel(self) -> None:
+        text = self._page()
+        wait = text.split("function waitForPanel(since)", 1)[1].split("\n  }\n", 1)[0]
+        # The old panel (same generation) keeps it waiting; only a new panel reloads it.
+        self.assertIn("state.generation === generation", wait)
+        # An answer that is not a panel's means another program has the address: stop calling it.
+        self.assertIn('typeof state.generation !== "string"', wait)
+        self.assertIn("PORT_TAKEN", wait)
+        self.assertIn('"Another program answered at this address. Ask Claude for the new link."', text)
+        self.assertLess(wait.index("PORT_TAKEN"), wait.index("waitForPanel(since)"))
+
+    def test_a_page_from_an_older_panel_reloads(self) -> None:
+        text = self._page()
+        self.assertIn("generation: generation", text.split("function inputs()", 1)[1].split("\n  }\n", 1)[0])
+        self.assertIn("generation = state.generation", text.split("function start(state)", 1)[1])
+        for name in ("function estimate()", "function searchAgain()"):
+            with self.subTest(name=name):
+                body = text.split(name, 1)[1].split("\n  }\n", 1)[0]
+                self.assertIn("reloadIfStale(error)", body)
+        self.assertIn("window.location.reload()", text.split("function reloadIfStale(error)", 1)[1])
+
+    def test_a_stopped_panel_is_named_not_a_raw_fetch_error(self) -> None:
+        api = self._page().split("function api(method, path, body)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn('"The panel has stopped. Ask Claude to reopen it."', api)
+        # Only a failed fetch maps to it; an answer from the panel keeps its own message.
+        self.assertIn("}, function () {", api)
+
+    def test_an_added_handle_is_cleaned_like_the_server_does(self) -> None:
+        text = self._page()
+        add = text.split("function addHandle()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("handleOf(", add)
+        self.assertIn('$("claude-error").textContent', add)
+        handle_of = text.split("function handleOf(text)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("instagram\\.com", handle_of)
+        self.assertIn("/^[a-z0-9._]{1,30}$/", handle_of)
+
+    def test_a_stated_follower_count_gives_way_to_a_measured_one(self) -> None:
+        text = self._page()
+        measured = text.split("function measured(card)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("card.check.row", measured)
+        self.assertIn("card.check.followers", measured)
+        render = text.split("function renderCard(card)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("card.followers_seen !== undefined && !measured(card)", render)
 
     def test_the_token_comes_only_from_the_fragment(self) -> None:
         text = self._page()
@@ -663,10 +1335,10 @@ class PageTests(NoNetworkTestCase):
         self.assertIn('state.state !== "idle"', start)
         self.assertIn("poll();", start)
 
-    def test_save_and_close_wait_while_a_run_is_going(self) -> None:
+    def test_every_button_waits_while_a_scan_runs(self) -> None:
         text = self._page()
         busy = text.split("function setRunning(running)", 1)[1].split("}", 1)[0]
-        for button in ("run-btn", "save-btn", "close-btn"):
+        for button in ("run-btn", "save-btn", "close-btn", "claude-btn"):
             with self.subTest(button=button):
                 self.assertIn(f'$("{button}").disabled = running;', busy)
         self.assertIn("setRunning(true)", text.split("function run()", 1)[1])
@@ -686,10 +1358,11 @@ class PageTests(NoNetworkTestCase):
         self.assertNotIn('row.last_post_days + " days ago"', text)
 
     def test_the_save_note_covers_saving_before_setup(self) -> None:
-        # Before setup, Save writes discovery-picks.json rather than the
-        # watch list, so the note has to say so instead of claiming a
-        # watch list update that did not happen.
         self.assertIn("for your setup", self._page())
+
+    def test_source_links_are_only_http_or_https(self) -> None:
+        text = self._page()
+        self.assertIn("/^https?:\\/\\//i.test(", text)
 
 
 if __name__ == "__main__":

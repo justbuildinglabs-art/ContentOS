@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-09-24
+
+### Changed
+
+- Discovery starts with Claude's own web search, and it is free. Claude
+  reads "best creators" articles, looks for accounts like the ones you
+  already watch, and checks Instagram profile pages. The control panel opens
+  with what it found as creator cards: why each one fits, where it was
+  found, and any follower count the source states (marked as not checked).
+  Tick Keep and Save, with no Apify credit and no Apify key needed.
+- The Apify scan is now optional. It still checks the real numbers and, by
+  default, searches Instagram for more creators (about $1.10). Untick "Also
+  search Instagram for more creators" to check only Claude's finds, which
+  costs less. In chat this is `discover --check-only`.
+- New button: Search again with Claude. Change the phrases, press it, and
+  Claude searches again in your chat, skipping everyone already listed. The
+  panel comes back on its own with the new creators marked New.
+- A panel that closed after an hour idle can be reopened with its ticks and
+  scan results, at no cost (`ui --resume`).
+
 ## [0.6.0] - 2026-09-23
 
 ### Changed
