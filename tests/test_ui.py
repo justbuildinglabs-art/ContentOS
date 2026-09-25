@@ -951,24 +951,51 @@ class PageTests(NoNetworkTestCase):
 
     def test_the_page_loads_nothing_from_outside_and_never_writes_raw_html(self) -> None:
         text = self._page()
+        # The one address the page names is Instagram's, for profile links.
+        self.assertEqual(text.count('var INSTAGRAM_URL = "https://www.instagram.com/";'), 1)
+        rest = text.replace('var INSTAGRAM_URL = "https://www.instagram.com/";', "")
         for banned in ("http://", "https://", "innerHTML", "outerHTML", "insertAdjacentHTML",
                        "document.write", "<script src", "@import", "—"):
             with self.subTest(banned=banned):
-                self.assertNotIn(banned, text)
+                self.assertNotIn(banned, rest)
 
     def test_the_page_calls_every_route_and_sends_the_token(self) -> None:
         text = self._page()
-        self.assertEqual(set(re.findall(r'"(/api/[a-z]+)"', text)), set(ui.ROUTES))
+        self.assertEqual(set(re.findall(r'"(/api/[a-z-]+)"', text)), set(ui.ROUTES))
         self.assertIn("X-ContentOS-Token", text)
         self.assertIn("prefers-color-scheme: dark", text)
-        for element_id in ("dial-followers", "dial-views", "dial-every", "dial-shortlist", "run-btn",
-                           "save-btn", "close-btn", "established", "rising", "web-list", "remember",
-                           "partial", "warnings"):
+        for element_id in ("keywords", "hashtags", "cards", "web-add", "web-add-btn", "claude-btn", "claude-error",
+                           "watch-list", "dial-followers", "dial-views", "dial-every", "dial-shortlist", "remember",
+                           "search-instagram", "cost", "run-btn", "run-error", "log", "results", "summary",
+                           "partial", "warnings", "picked", "unchecked-note", "close-btn", "save-btn",
+                           "save-error", "done-note", "waiting"):
             with self.subTest(element_id=element_id):
                 self.assertIn(f'id="{element_id}"', text)
 
-    def test_the_page_promises_nothing_0_6_0_does_not_do(self) -> None:
-        self.assertNotIn("Claude reads these for trends", self._page())
+    def test_the_buttons_and_labels_say_what_they_do(self) -> None:
+        text = self._page()
+        for phrase in ("Run the Apify scan", "Search again with Claude", "Also search Instagram for more creators",
+                       "Found by Claude", "Added by you", "Found on Instagram", "Similar to @", "New",
+                       "not checked", "Keep", "Passed", "Missed: "):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_save_works_before_any_scan_and_names_unchecked_picks(self) -> None:
+        text = self._page()
+        self.assertIn(" of your picks were not checked with Apify.", text)
+        self.assertIn(" of your picks was not checked with Apify.", text)
+        start = text.split("function start(state)", 1)[1]
+        self.assertNotIn('$("save-btn").disabled = true', start)
+
+    def test_search_again_waits_for_the_panel_to_come_back(self) -> None:
+        text = self._page()
+        self.assertIn("Claude is searching in your chat. This page comes back by itself.", text)
+        self.assertIn("Ask Claude for a new link.", text)
+        wait = text.split("function waitForPanel(since)", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("3000", wait)
+        self.assertIn("state.finished", wait)
+        self.assertIn("window.location.reload()", wait)
+        self.assertIn("WAIT_MS = 15 * 60 * 1000", text)
 
     def test_the_token_comes_only_from_the_fragment(self) -> None:
         text = self._page()
@@ -981,10 +1008,10 @@ class PageTests(NoNetworkTestCase):
         self.assertIn('state.state !== "idle"', start)
         self.assertIn("poll();", start)
 
-    def test_save_and_close_wait_while_a_run_is_going(self) -> None:
+    def test_every_button_waits_while_a_scan_runs(self) -> None:
         text = self._page()
         busy = text.split("function setRunning(running)", 1)[1].split("}", 1)[0]
-        for button in ("run-btn", "save-btn", "close-btn"):
+        for button in ("run-btn", "save-btn", "close-btn", "claude-btn"):
             with self.subTest(button=button):
                 self.assertIn(f'$("{button}").disabled = running;', busy)
         self.assertIn("setRunning(true)", text.split("function run()", 1)[1])
@@ -1004,10 +1031,11 @@ class PageTests(NoNetworkTestCase):
         self.assertNotIn('row.last_post_days + " days ago"', text)
 
     def test_the_save_note_covers_saving_before_setup(self) -> None:
-        # Before setup, Save writes discovery-picks.json rather than the
-        # watch list, so the note has to say so instead of claiming a
-        # watch list update that did not happen.
         self.assertIn("for your setup", self._page())
+
+    def test_source_links_are_only_http_or_https(self) -> None:
+        text = self._page()
+        self.assertIn("/^https?:\\/\\//i.test(", text)
 
 
 if __name__ == "__main__":

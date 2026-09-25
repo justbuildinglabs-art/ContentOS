@@ -51,6 +51,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 .warnline { font-size: 13px; color: var(--warn-text); }
 a { color: var(--accent); }
 footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+.creator.removed { opacity: 0.55; }
+.creator .top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.badge { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; color: var(--muted); }
+.badge.new { border-color: var(--accent); color: var(--accent); }
+.badge.pass { border-color: var(--accent); color: var(--accent); }
+.badge.miss { border-color: var(--warn-text); color: var(--warn-text); }
+.linkish { border: none; background: none; color: var(--accent); padding: 0 4px; font-size: 13px; }
+.keep { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); }
+.creator { grid-template-columns: 40px minmax(0, 1fr) auto; }
 </style>
 </head>
 <body>
@@ -60,6 +69,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     <span class="pill">Runs on this computer only</span>
   </header>
   <p id="banner" class="muted"></p>
+  <p id="waiting" class="warnline" hidden></p>
 
   <section class="card">
     <h2>What to search</h2>
@@ -67,11 +77,20 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
       <input type="text" id="keywords" placeholder="ai automation, n8n workflows"></div>
     <div class="row"><label for="hashtags">Hashtags, optional</label>
       <input type="text" id="hashtags" placeholder="#n8n #aiautomation"></div>
-    <p class="muted">Found by Claude's web search. Untick any you don't want checked.</p>
-    <div id="web-list" class="chips"></div>
+    <p id="watch-list" class="muted"></p>
+  </section>
+
+  <section class="card">
+    <h2>Creators</h2>
+    <p class="muted">Tick Keep on the ones you want, then Save. Saving is free. Remove any you don't want checked.</p>
+    <div id="cards"></div>
     <div class="row"><label for="web-add">Add a handle</label>
       <input type="text" id="web-add" placeholder="@handle"><button id="web-add-btn" type="button">Add</button></div>
-    <p id="watch-list" class="muted"></p>
+    <div class="costbar">
+      <span class="muted">Free. Claude searches the web again with the phrases above and skips everyone listed here.</span>
+      <button id="claude-btn" type="button">Search again with Claude</button>
+    </div>
+    <p id="claude-error" class="error"></p>
   </section>
 
   <section class="card">
@@ -87,12 +106,15 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     <label class="muted"><input type="checkbox" id="remember"> Remember these settings for next time</label>
   </section>
 
-  <section class="card costbar">
-    <div>
-      <div class="muted">Estimated cost</div>
-      <div><span id="cost" class="cost">Checking</span> <span id="cost-note" class="muted"></span></div>
+  <section class="card">
+    <div class="costbar">
+      <div>
+        <div class="muted">Apify scan, optional. Checks the real numbers.</div>
+        <div><span id="cost" class="cost">Checking</span> <span id="cost-note" class="muted"></span></div>
+      </div>
+      <button id="run-btn" class="primary" type="button">Run the Apify scan</button>
     </div>
-    <button id="run-btn" class="primary" type="button">Run discovery</button>
+    <label class="muted"><input type="checkbox" id="search-instagram" checked> Also search Instagram for more creators</label>
   </section>
   <p id="run-error" class="error"></p>
   <div id="log" class="log"></div>
@@ -101,14 +123,13 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     <p id="summary"></p>
     <p id="partial" class="warnline" hidden></p>
     <div id="warnings"></div>
-    <div id="established"></div>
-    <div id="rising"></div>
     <details><summary id="left-out-summary"></summary><div id="left-out"></div></details>
     <details><summary id="breakouts-summary"></summary><div id="breakouts"></div></details>
   </section>
 
   <footer>
-    <span id="picked" class="muted">Tick 3 to 8 creators, then Save.</span>
+    <span><span id="picked" class="muted">Tick 3 to 8 creators, then Save.</span>
+      <span id="unchecked-note" class="warnline"></span></span>
     <span><button id="close-btn" type="button">Close</button>
       <button id="save-btn" class="primary" type="button">Save to watch list</button></span>
   </footer>
@@ -119,15 +140,20 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
 (function () {
   "use strict";
   var token = (window.location.hash.match(/(?:^#|&)t=([^&]+)/) || [])[1] || "";
+  var INSTAGRAM_URL = "https://www.instagram.com/";
+  var WAIT_MS = 15 * 60 * 1000;
   var presets = {
     followers: [1000, 5000, 10000, 25000, 50000, 100000],
     views: [1000, 2500, 5000, 10000, 25000, 50000],
     every: [7, 14, 21, 28]
   };
-  var dials = {};
-  var web = [];
-  var timer = null;
+  var ORIGINS = { claude: "Found by Claude", you: "Added by you", instagram: "Found on Instagram",
+                  similar: "Similar account" };
   var REASONS = { "not_found": "not found", "error": "could not be checked", "private": "private" };
+  var dials = {};
+  var cards = [];
+  var established = 50000;
+  var timer = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -152,13 +178,23 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     return node;
   }
 
-  function link(text, url) {
+  function outLink(text, url) {
     var node = el("a", text);
-    node.href = /^https:\/\/(www\.)?instagram\.com\//.test(String(url)) ? url : "#";
+    node.href = url;
     node.target = "_blank";
     node.rel = "noopener noreferrer";
     return node;
   }
+
+  function link(text, url) {
+    return outLink(text, String(url).indexOf(INSTAGRAM_URL) === 0 ? url : "#");
+  }
+
+  function profileLink(handle) { return link("@" + handle, INSTAGRAM_URL + handle + "/"); }
+
+  function isWeb(url) { return /^https?:\/\//i.test(String(url || "")); }
+
+  function host(url) { return String(url).replace(/^https?:\/\//i, "").split("/")[0]; }
 
   function count(value) { return Number(value).toLocaleString("en-US"); }
 
@@ -212,6 +248,29 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     return text.split(/[\s,]+/).map(function (part) { return part.replace(/^#/, "").trim(); }).filter(Boolean);
   }
 
+  function findOf(card) {
+    return { handle: card.handle, source_url: card.source_url, source_title: card.source_title,
+             reason: card.reason, followers_seen: card.followers_seen };
+  }
+
+  function cardOut(card) {
+    var out = findOf(card);
+    out.origin = card.origin;
+    out.kept = card.kept;
+    out.removed = card.removed;
+    out["new"] = card["new"];
+    return out;
+  }
+
+  // The scan checks Claude's finds and hand-added handles that are not removed, kept ones first.
+  function scanCards() {
+    var mine = cards.filter(function (card) {
+      return !card.removed && (card.origin === "claude" || card.origin === "you");
+    });
+    return mine.filter(function (card) { return card.kept; })
+      .concat(mine.filter(function (card) { return !card.kept; }));
+  }
+
   function inputs() {
     return {
       settings: {
@@ -222,26 +281,105 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
       },
       keywords: splitComma($("keywords").value),
       hashtags: splitTags($("hashtags").value),
-      web: web.filter(function (entry) { return entry.kept; }).map(function (entry) {
-        return { handle: entry.handle, source_url: entry.source_url };
-      })
+      web: scanCards().map(findOf),
+      cards: cards.map(cardOut),
+      search_instagram: $("search-instagram").checked
     };
   }
 
-  function renderWeb() {
-    var list = $("web-list");
-    list.textContent = "";
-    web.forEach(function (entry) {
-      var chip = el("label", null, "chip");
-      var box = el("input");
-      box.type = "checkbox";
-      box.checked = entry.kept;
-      box.addEventListener("change", function () { entry.kept = box.checked; scheduleEstimate(); });
-      chip.appendChild(box);
-      chip.appendChild(el("span", "@" + entry.handle));
-      list.appendChild(chip);
+  function originWords(card) {
+    if (card.origin === "similar" && card.check && card.check.row) {
+      var pointer = card.check.row.sources.filter(function (s) { return s.indexOf("related:") === 0; })[0];
+      if (pointer) { return "Similar to @" + pointer.slice("related:".length); }
+    }
+    return ORIGINS[card.origin] || ORIGINS.claude;
+  }
+
+  function sourceName(card) { return card.source_title || host(card.source_url); }
+
+  function checkedLine(row) {
+    return followerWords(row.followers) + " · 1 in 4 reels reach " + short(row.top_quarter_plays) +
+      " views, typical " + short(row.median_plays) + " · " + row.posts_per_week + " reels a week · " +
+      lastReel(row.last_post_days) + " · " + row.niche_hits + " of " + row.reels_measured +
+      " recent reels match your search terms";
+  }
+
+  function renderCard(card) {
+    var missed = card.check && !card.check.passed;
+    var item = el("div", null, "creator" + (card.removed ? " removed" : "") + (missed && card.kept ? " warn" : ""));
+    var keep = el("label", null, "keep");
+    var box = el("input");
+    box.type = "checkbox";
+    box.checked = card.kept;
+    box.disabled = card.removed;
+    box.addEventListener("change", function () { card.kept = box.checked; renderCards(); scheduleEstimate(); });
+    keep.appendChild(box);
+    keep.appendChild(el("span", "Keep"));
+    item.appendChild(keep);
+
+    var body = el("div");
+    var top = el("div", null, "top");
+    var name = profileLink(card.handle);
+    name.className = "name";
+    top.appendChild(name);
+    top.appendChild(el("span", originWords(card), "badge"));
+    if (card["new"]) { top.appendChild(el("span", "New", "badge new")); }
+    if (card.check && card.check.passed) {
+      top.appendChild(el("span", "Passed, " + (card.check.row.tier === "established" ? "Established" : "Rising"),
+        "badge pass"));
+    } else if (missed) {
+      var why = REASONS[card.check.reason] || card.check.reason;
+      top.appendChild(el("span", "Missed: " + why, "badge miss"));
+    }
+    body.appendChild(top);
+    if (card.reason) { body.appendChild(el("div", card.reason, "facts")); }
+    if (isWeb(card.source_url)) {
+      var source = el("div", "Source: ", "facts");
+      source.appendChild(outLink(sourceName(card), card.source_url));
+      body.appendChild(source);
+    }
+    if (card.followers_seen !== null && card.followers_seen !== undefined && !(card.check && card.check.row)) {
+      body.appendChild(el("div", "About " + short(card.followers_seen) + " followers, per " +
+        (isWeb(card.source_url) ? sourceName(card) : "the source") + ", not checked", "facts"));
+    }
+    if (card.check && card.check.row) {
+      var row = card.check.row;
+      body.appendChild(el("div", checkedLine(row), "facts"));
+      if (row.top_reels.length) {
+        var topReel = el("div", null, "facts");
+        topReel.appendChild(link("Top reel: " + count(row.top_reels[0].plays) + " views. " +
+          row.top_reels[0].caption.slice(0, 90), row.top_reels[0].url));
+        body.appendChild(topReel);
+      }
+    } else if (missed && card.check.followers !== undefined) {
+      body.appendChild(el("div", followerWords(card.check.followers), "facts"));
+    }
+    if (missed && card.kept) {
+      body.appendChild(el("div", "This one missed the bar. You can still keep it.", "warnline"));
+    }
+    item.appendChild(body);
+
+    var remove = el("button", card.removed ? "Undo" : "×", "linkish");
+    remove.type = "button";
+    remove.setAttribute("aria-label", (card.removed ? "Put back @" : "Remove @") + card.handle);
+    remove.addEventListener("click", function () {
+      card.removed = !card.removed;
+      if (card.removed) { card.kept = false; }
+      renderCards();
+      scheduleEstimate();
     });
-    if (!web.length) { list.appendChild(el("span", "No web finds yet. Add handles you know below.", "muted")); }
+    item.appendChild(remove);
+    return item;
+  }
+
+  function renderCards() {
+    var list = $("cards");
+    list.textContent = "";
+    cards.forEach(function (card) { list.appendChild(renderCard(card)); });
+    if (!cards.length) {
+      list.appendChild(el("p", "No creators yet. Add handles you know, or press Search again with Claude.", "muted"));
+    }
+    updatePicked();
   }
 
   function scheduleEstimate() {
@@ -263,6 +401,7 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     $("run-btn").disabled = running;
     $("save-btn").disabled = running;
     $("close-btn").disabled = running;
+    $("claude-btn").disabled = running;
   }
 
   function run() {
@@ -285,61 +424,49 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
       if (data.state === "running") { window.setTimeout(poll, 1500); return null; }
       setRunning(false);
       if (data.state === "error") { $("run-error").textContent = data.error; return null; }
-      return api("GET", "/api/discovery").then(renderResults);
+      return api("GET", "/api/discovery").then(applyResults);
     }).catch(function (error) {
       setRunning(false);
       $("run-error").textContent = error.message;
     });
   }
 
-  function renderCreator(row, nicheTerms) {
-    var offNiche = nicheTerms > 0 && row.niche_hits === 0;
-    var item = el("div", null, offNiche ? "creator warn" : "creator");
-    var box = el("input");
-    box.type = "checkbox";
-    box.className = "pick";
-    box.value = row.handle;
-    box.addEventListener("change", updatePicked);
-    item.appendChild(box);
-    var body = el("div");
-    var name = link("@" + row.handle, row.url);
-    name.className = "name";
-    body.appendChild(name);
-    body.appendChild(el("div", followerWords(row.followers) + " · 1 in 4 reels reach " +
-      short(row.top_quarter_plays) + " views, typical " + short(row.median_plays) + " · " +
-      row.posts_per_week + " reels a week · " + lastReel(row.last_post_days), "facts"));
-    body.appendChild(el("div", offNiche
-      ? "None of " + row.reels_measured + " recent reels match your search terms"
-      : row.niche_hits + " of " + row.reels_measured + " recent reels match your search terms",
-      offNiche ? "warnline" : "facts"));
-    var about = [row.category, (row.bio || "").slice(0, 140)].filter(Boolean).join(" · ");
-    if (about) { body.appendChild(el("div", about, "facts")); }
-    if (row.top_reels.length) {
-      var top = row.top_reels[0];
-      var line = el("div", null, "facts");
-      line.appendChild(link("Top reel: " + count(top.plays) + " views. " + top.caption.slice(0, 90), top.url));
-      body.appendChild(line);
+  function originOf(sources) {
+    if (sources.some(function (s) { return s.indexOf("keyword:") === 0 || s.indexOf("hashtag:") === 0; })) {
+      return "instagram";
     }
-    item.appendChild(body);
-    return item;
+    if (sources.some(function (s) { return s.indexOf("related:") === 0; })) { return "similar"; }
+    return "claude";
   }
 
-  function renderTier(tier, title, doc) {
-    var box = $(tier);
-    box.textContent = "";
-    var rows = doc.candidates.filter(function (row) { return row.tier === tier; });
-    if (!rows.length) { return; }
-    box.appendChild(el("h2", title));
-    var nicheTerms = doc.niche.keywords.length + doc.niche.hashtags.length;
-    rows.forEach(function (row) { box.appendChild(renderCreator(row, nicheTerms)); });
+  function applyResults(doc) {
+    var byHandle = {};
+    cards.forEach(function (card) { card.check = null; byHandle[card.handle] = card; });
+    doc.candidates.forEach(function (row) {
+      var card = byHandle[row.handle];
+      if (!card) {
+        card = { handle: row.handle, source_url: "", source_title: null, reason: null, followers_seen: null,
+                 origin: originOf(row.sources), kept: false, removed: false, "new": false, check: null };
+        cards.push(card);
+        byHandle[row.handle] = card;
+      }
+      card.check = { passed: true, row: row };
+    });
+    doc.dropped.forEach(function (item) {
+      var card = byHandle[item.handle];
+      if (card) { card.check = { passed: false, reason: item.reason, followers: item.followers }; }
+    });
+    renderSummary(doc);
+    renderCards();
   }
 
-  function renderResults(doc) {
+  function renderSummary(doc) {
     var s = doc.settings;
     $("results").hidden = false;
     $("summary").textContent = doc.candidates.length + " cleared the bar and " + doc.dropped.length +
       " were left out. Held to " + count(s.min_followers) + "+ followers, a reel at least " +
-      everyWords(s.post_every_days) + ", and 1 in 4 reels at " + count(s.min_views) + "+ views.";
+      everyWords(s.post_every_days) + ", and 1 in 4 reels at " + count(s.min_views) + "+ views." +
+      (doc.search_instagram === false ? " Checked Claude's finds only." : "");
     var partial = $("partial");
     partial.hidden = !doc.partial;
     partial.textContent = doc.partial
@@ -348,8 +475,6 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     var notes = $("warnings");
     notes.textContent = "";
     (doc.warnings || []).forEach(function (warning) { notes.appendChild(el("div", warning, "muted")); });
-    renderTier("established", "Established, " + count(s.established_at) + "+ followers", doc);
-    renderTier("rising", "Rising, " + count(s.min_followers) + " to " + count(s.established_at) + " followers", doc);
     var counts = {};
     doc.dropped.forEach(function (item) { counts[item.reason] = (counts[item.reason] || 0) + 1; });
     $("left-out-summary").textContent = "Left out " + doc.dropped.length + ": " +
@@ -367,28 +492,36 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     list.textContent = "";
     doc.breakouts.forEach(function (reel) {
       var line = el("div", null, "muted");
-      line.appendChild(link("@" + reel.owner + ", " + reel.ratio + "x their usual, " + count(reel.plays) + " views", reel.url));
+      line.appendChild(link("@" + reel.owner + ", " + reel.ratio + "x their usual, " + count(reel.plays) + " views",
+        reel.url));
       list.appendChild(line);
     });
-    updatePicked();
   }
 
-  function picks() {
-    return Array.prototype.map.call(document.querySelectorAll("input.pick:checked"), function (box) { return box.value; });
-  }
+  function kept() { return cards.filter(function (card) { return card.kept && !card.removed; }); }
 
   function updatePicked() {
-    $("picked").textContent = picks().length + " picked. 3 to 8 makes a good watch list.";
+    var picks = kept();
+    $("picked").textContent = picks.length + " picked. 3 to 8 makes a good watch list.";
+    var unchecked = picks.filter(function (card) { return !card.check; }).length;
+    $("unchecked-note").textContent = !unchecked ? ""
+      : unchecked === 1 ? " 1 of your picks was not checked with Apify."
+      : " " + unchecked + " of your picks were not checked with Apify.";
+  }
+
+  function freeze() {
+    Array.prototype.forEach.call(document.querySelectorAll("input, button"), function (node) { node.disabled = true; });
   }
 
   function finish(message) {
-    Array.prototype.forEach.call(document.querySelectorAll("input, button"), function (node) { node.disabled = true; });
+    freeze();
     $("done-note").textContent = message;
   }
 
   function save() {
     $("save-error").textContent = "";
-    api("POST", "/api/save", { picks: picks() }).then(function (data) {
+    var picks = kept().map(function (card) { return card.handle; });
+    api("POST", "/api/save", { picks: picks }).then(function (data) {
       var target = data.picks_path ? "for your setup" : "to your watch list";
       finish("Saved " + data.picks.length + " " + target + ". You can close this tab and go back to Claude.");
     }).catch(function (error) { $("save-error").textContent = error.message; });
@@ -400,30 +533,64 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     }).catch(function (error) { $("save-error").textContent = error.message; });
   }
 
+  // The panel ends while Claude searches, then comes back on the same address.
+  function waitForPanel(since) {
+    window.setTimeout(function () {
+      api("GET", "/api/state").then(function (state) {
+        if (state.finished) {
+          if (Date.now() - since > WAIT_MS) { $("waiting").textContent = "Ask Claude for a new link."; return; }
+          waitForPanel(since);
+          return;
+        }
+        window.location.reload();
+      }).catch(function () {
+        if (Date.now() - since > WAIT_MS) { $("waiting").textContent = "Ask Claude for a new link."; return; }
+        waitForPanel(since);
+      });
+    }, 3000);
+  }
+
+  function searchAgain() {
+    $("claude-error").textContent = "";
+    api("POST", "/api/search-again", inputs()).then(function () {
+      freeze();
+      $("waiting").hidden = false;
+      $("waiting").textContent = "Claude is searching in your chat. This page comes back by itself.";
+      waitForPanel(Date.now());
+    }).catch(function (error) { $("claude-error").textContent = error.message; });
+  }
+
   function addHandle() {
     var value = $("web-add").value.trim().replace(/^@/, "").toLowerCase();
     if (!value) { return; }
-    if (!web.some(function (entry) { return entry.handle === value; })) {
-      web.push({ handle: value, source_url: "added by you", kept: true });
+    if (!cards.some(function (card) { return card.handle === value; })) {
+      cards.push({ handle: value, source_url: "", source_title: null, reason: null, followers_seen: null,
+                   origin: "you", kept: true, removed: false, "new": false, check: null });
     }
     $("web-add").value = "";
-    renderWeb();
+    renderCards();
     scheduleEstimate();
   }
 
   function start(state) {
     var notes = [];
     if (state.mock) { notes.push("Sample data: nothing is spent and no key is needed."); }
-    if (!state.has_key) { notes.push("No Apify key found yet. Ask Claude to walk you through adding it."); }
+    if (!state.has_key) { notes.push("No Apify key found yet. You can still save. Ask Claude to add one for the scan."); }
     if (!state.set_up) { notes.push("Your project is not set up yet, so your picks go into setup."); }
-    $("banner").textContent = notes.join(" ");
+    $("banner").textContent = notes.concat(state.notes || []).join(" ");
+    established = state.established_at;
     $("keywords").value = state.keywords.join(", ");
     $("hashtags").value = state.hashtags.map(function (tag) { return "#" + tag; }).join(" ");
-    web = state.web.map(function (entry) { return { handle: entry.handle, source_url: entry.source_url, kept: true }; });
-    renderWeb();
+    cards = state.cards.map(function (card) {
+      var copy = cardOut(card);
+      copy.check = null;
+      return copy;
+    });
+    renderCards();
     $("watch-list").textContent = state.watch_list.length
       ? "Already watching, not suggested again: " + state.watch_list.map(function (h) { return "@" + h; }).join(" ")
       : "";
+    $("search-instagram").checked = state.search_instagram !== false;
     setDial("followers", state.settings.discover_min_followers);
     setDial("views", state.settings.discover_min_views);
     setDial("every", state.settings.discover_post_every_days);
@@ -441,8 +608,10 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
     });
     $("keywords").addEventListener("input", scheduleEstimate);
     $("hashtags").addEventListener("input", scheduleEstimate);
+    $("search-instagram").addEventListener("change", scheduleEstimate);
     $("web-add-btn").addEventListener("click", addHandle);
     $("web-add").addEventListener("keydown", function (event) { if (event.key === "Enter") { addHandle(); } });
+    $("claude-btn").addEventListener("click", searchAgain);
     $("run-btn").addEventListener("click", run);
     $("save-btn").addEventListener("click", save);
     $("close-btn").addEventListener("click", closePanel);
