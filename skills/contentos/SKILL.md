@@ -337,16 +337,18 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --resume \
      The panel remembers `--mock` itself. Leave off `--keywords`,
      `--hashtags`, and `--seeds`: the panel keeps its own. Tell the creator in
      one line how many new creators you found. The page comes back by itself.
-     If the `UI <url>` line shows a different address from before, the old
-     port was taken: give the creator the new link and open it in their
+     Give the creator the link from the `UI <url>` line every time, in case
+     they closed the tab. If it shows a different address from before, the
+     old port was taken: give the creator the new link and open it in their
      browser (for example `python3 -m webbrowser "<url>"`). With no web
      search tool, say so in one line and resume with no `--handles-file`.
      Then wait for this command the same way.
    - `"reason": "idle"`: the panel closed after an hour with nothing
      happening. Offer to reopen it with `--resume` (no new search needed). It
      comes back with the creator's ticks and any scan results, at no cost.
-     When the line has a `warning` and no `handoff_path`, the panel could not
-     be kept, so `--resume` will not work: offer to start a new panel instead.
+     Give the creator the link from its `UI <url>` line. When the `RESULT`
+     line has a `warning` and no `handoff_path`, the panel could not be kept,
+     so `--resume` will not work: offer to start a new panel instead.
    - There is no `RESULT` line: the panel stopped before the creator saved
      or closed it (or it could not start), so no picks were saved. Say so in
      one line, and offer to open it again or to use the chat steps.
@@ -355,11 +357,15 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" ui --project "$PWD" --resume \
 
 1. **Offer Claude's finds first.** Show the finds from
    `.contentos/discovery-web.json`: the handle, the `reason`, the source, and
-   `followers_seen` as "about N followers per <source>, not checked". The
-   creator can pick from this list and save it with no Apify, through step 5.
-   Then ask whether they want the Apify scan to check the numbers. It is
-   optional. `--check-only` checks only these finds and skips the Instagram
-   search:
+   `followers_seen` as "about N followers per <source>, not checked". Then ask
+   one question with three answers, with AskUserQuestion:
+   - Save now, with no Apify: the creator picks from this list. Go to step 5.
+   - Check Claude's finds only: the Apify scan checks the real numbers of
+     these finds and skips the Instagram search. It costs less. Use the
+     check-only command in step 2.
+   - Full scan: the Apify scan checks these finds and also searches Instagram
+     for more creators. Use the full-scan command in step 2.
+2. **Estimate, then confirm.** Check Claude's finds only:
 
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" discover --project "$PWD" \
@@ -367,9 +373,9 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" discover --project "$PWD" \
   --handles-file "$PWD/.contentos/discovery-web.json" --check-only --estimate-only
 ```
 
-2. **Estimate, then confirm.** The project's current watch list is added as
-   seeds automatically. Add `--seeds` only for handles the creator typed in
-   this conversation.
+   Full scan. The project's current watch list is added as seeds
+   automatically. Add `--seeds` only for handles the creator typed in this
+   conversation.
 
 ```bash
 python3 "$CONTENTOS_ROOT/scripts/contentos.py" discover --project "$PWD" \
@@ -378,11 +384,12 @@ python3 "$CONTENTOS_ROOT/scripts/contentos.py" discover --project "$PWD" \
   --handles-file "$PWD/.contentos/discovery-web.json" --estimate-only
 ```
 
-   Leave off any flag you have nothing for. It exits 3 and prints the
-   estimate. Show `total_usd` and ask with AskUserQuestion before spending.
-   On a yes, run the same command with `--yes` in place of `--estimate-only`.
-   Exit 6 means the estimate is over `apify_max_charge_usd`: drop the
-   hashtags, or lower `discover_shortlist` in `.contentos/config.json`.
+   Both scans work the same way. Leave off any flag you have nothing for.
+   The command exits 3 and prints the estimate. Show `total_usd` and ask with
+   AskUserQuestion before spending. On a yes, run the same command with
+   `--yes` in place of `--estimate-only`. Exit 6 means the estimate is over
+   `apify_max_charge_usd`: drop the hashtags, or lower `discover_shortlist`
+   in `.contentos/config.json`.
 3. **Vet the list.** Read `.contentos/discovery.json`. Every row in
    `candidates` already cleared the bar on real numbers, so your job is niche
    fit. Leave out a row when its `bio` and most of its `top_reels` captions

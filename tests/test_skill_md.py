@@ -760,6 +760,27 @@ class DiscoveryFlowTests(NoNetworkTestCase):
                 self.assertIn(phrase, chat)
 
 
+    def test_the_chat_asks_one_question_and_both_scans_confirm_first(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        chat = body.split("### Discovery in the chat", 1)[1].split("\n## ", 1)[0]
+        flat = _collapse(chat)
+        for phrase in ("one question with three answers", "Save now", "Check Claude's finds only", "Full scan",
+                       "Both scans", "Show `total_usd`", "AskUserQuestion",
+                       "run the same command with `--yes` in place of `--estimate-only`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flat)
+        blocks = re.findall(r"```bash\n(.*?)```", chat, flags=re.DOTALL)
+        scans = [block for block in blocks if 'contentos.py" discover' in block]
+        self.assertEqual(len(scans), 2)
+        self.assertIn("--check-only", scans[0])
+        self.assertNotIn("--check-only", scans[1])
+        for block in scans:
+            with self.subTest(block=block):
+                self.assertIn("--estimate-only", block)
+        # The confirm step comes after both commands, so it covers either one.
+        self.assertGreater(flat.index("in place of `--estimate-only`"), _collapse(chat).index(_collapse(scans[1])))
+
+
 class CreatorRenameTests(NoNetworkTestCase):
     def test_skill_and_readme_have_no_product_leftovers(self) -> None:
         for path in (SKILL_MD, README):
@@ -807,6 +828,8 @@ class ControlPanelSkillTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, panel)
         self.assertIn("give the creator the new link and open it", panel)
+        # The tab may have been closed, so the link goes to the creator on every resume.
+        self.assertIn("Give the creator the link from the `UI <url>` line every time", panel)
 
     def test_resume_keeps_mock_by_itself(self) -> None:
         panel = self._panel()
