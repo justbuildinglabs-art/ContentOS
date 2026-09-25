@@ -47,7 +47,7 @@ ARGUMENT_HINT = (
     "qa [B01] | status | diagnose [--mock]"
 )
 ALLOWED_TOOLS = (
-    "Bash, Read, Write, Glob, AskUserQuestion, WebSearch, "
+    "Bash, Read, Write, Glob, AskUserQuestion, WebSearch, WebFetch, "
     "Agent(contentos:content-director, contentos:script-writer, contentos:qa-reviewer)"
 )
 
@@ -743,6 +743,22 @@ class DiscoveryFlowTests(NoNetworkTestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, flow)
 
+    def test_the_claude_search_is_deeper_and_free(self) -> None:
+        flow = _collapse(self._flow())
+        for phrase in (
+            "`reason`", "`source_title`", "`followers_seen`", "creators like @", "open the 2 or 3",
+            "costs no Apify credit", "no Apify key", "Never add a handle from memory",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flow)
+
+    def test_the_chat_can_stop_after_the_claude_search(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        chat = _collapse(body.split("### Discovery in the chat", 1)[1].split("\n## ", 1)[0])
+        for phrase in ("with no Apify", "--check-only", "not checked"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, chat)
+
 
 class CreatorRenameTests(NoNetworkTestCase):
     def test_skill_and_readme_have_no_product_leftovers(self) -> None:
@@ -783,6 +799,24 @@ class ControlPanelSkillTests(NoNetworkTestCase):
         for phrase in ("no `RESULT` line", "stopped before", "open it again", "chat steps"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, panel)
+
+    def test_search_again_is_a_loop_back_to_the_panel(self) -> None:
+        panel = self._panel()
+        for phrase in ('"next": "claude_search"', "`known`", "--resume", "the same way, in the background",
+                       "new link", "no web search tool"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, panel)
+
+    def test_every_ui_command_parses(self) -> None:
+        body = _split_frontmatter(SKILL_MD.read_text(encoding="utf-8"))[1]
+        blocks = [block for block in re.findall(r"```bash\n(.*?)```", body, flags=re.DOTALL)
+                  if 'contentos.py" ui' in block]
+        self.assertGreaterEqual(len(blocks), 2)
+        parser = contentos.build_parser()
+        for block in blocks:
+            argv = shlex.split(block.replace("\\\n", " "))
+            with self.subTest(block=block):
+                parser.parse_args(argv[argv.index("ui"):])
 
 
 class DiscoveryReleaseNoteTests(NoNetworkTestCase):
