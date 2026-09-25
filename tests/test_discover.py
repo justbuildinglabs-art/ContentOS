@@ -1064,8 +1064,84 @@ class EstimateAndTableTests(NoNetworkTestCase):
         self.assertEqual(discover.result_line(self._doc(), Path("/p")), {
             "discovery_path": str(Path("/p") / ".contentos" / "discovery.json"),
             "candidates": 2, "established": 1, "rising": 1, "dropped": 3, "breakouts": 3,
-            "cost_estimate_usd": 1.15, "partial": False, "warnings": [],
+            "cost_estimate_usd": 1.15, "partial": False, "warnings": [], "search_instagram": True,
         })
+
+
+class CheckOnlyTests(NoNetworkTestCase):
+    WEB_ORDER = ("webwillow", "madeupmaya", "focusfern", "slowsam", "photophoebe")
+
+    def test_check_only_checks_the_web_finds_and_nothing_else(self) -> None:
+        with temp_project() as project:
+            _seed_project(project)
+            transport = _mock_transport()
+            doc, lines = _run_mock(project, transport, search_instagram=False)
+        posts = [call for call in transport.calls if call["method"] == "POST"]
+        self.assertFalse(any(apify.KEYWORD_ACTOR_RUNS_PATH in call["url"] for call in posts))
+        bodies = [call["json_body"] or {} for call in posts]
+        self.assertFalse(any("explore/tags" in json.dumps(body) for body in bodies))
+        details = [body for body in bodies if body.get("resultsType") == "details"]
+        self.assertEqual(len(details), 1)
+        # The watch list (habitlab) is not looked up: it only feeds the similar-accounts step.
+        self.assertEqual(details[0]["directUrls"],
+                         [f"https://www.instagram.com/{handle}/" for handle in self.WEB_ORDER])
+        self.assertIs(doc["search_instagram"], False)
+        self.assertEqual(doc["candidates"], [])
+        self.assertEqual({item["handle"]: item["reason"] for item in doc["dropped"]},
+                         {handle: EXPECTED_DROPPED[handle] for handle in self.WEB_ORDER})
+        self.assertIn("Step 1 of 3: checking Claude's finds.", lines)
+        self.assertIn("Step 2 of 3: skipped, checking Claude's finds only.", lines)
+
+    def test_a_web_candidate_keeps_its_reason_and_source_title(self) -> None:
+        find = {"handle": "planwithpia", "source_url": "https://example.invalid/list",
+                "source_title": "Planners to follow", "reason": "Weekly planning reels"}
+        with temp_project() as project:
+            _seed_project(project)
+            doc, _lines = _run_mock(project, _mock_transport(), search_instagram=False,
+                                    handles_file=None, web_entries=[find])
+        row = doc["candidates"][0]
+        self.assertEqual((row["handle"], row["reason"], row["source_title"]),
+                         ("planwithpia", "Weekly planning reels", "Planners to follow"))
+
+    def test_search_candidates_have_no_reason(self) -> None:
+        with temp_project() as project:
+            _seed_project(project)
+            doc, _lines = _run_mock(project, _mock_transport())
+        self.assertIs(doc["search_instagram"], True)
+        for row in doc["candidates"]:
+            with self.subTest(handle=row["handle"]):
+                self.assertIsNone(row["reason"])
+                self.assertIsNone(row["source_title"])
+
+    def test_check_only_needs_a_web_handle(self) -> None:
+        with temp_project() as project:
+            _seed_project(project)
+            with self.assertRaises(discover.DiscoverError) as ctx:
+                _run_mock(project, _mock_transport(), search_instagram=False, handles_file=None, web_entries=[])
+        self.assertEqual(ctx.exception.exit_code, codes.EXIT_USAGE)
+        self.assertEqual(str(ctx.exception), discover.CHECK_ONLY_NEEDS_HANDLES)
+
+    def test_check_only_estimate_counts_the_finds_and_their_reels(self) -> None:
+        many = discover.estimate(dict(CFG), 3, 2, 5, 30, search_instagram=False)
+        self.assertAlmostEqual(many["total_usd"], (30 + 20 * 15) * apify.PRICE_PER_RESULT, places=4)
+        few = discover.estimate(dict(CFG), 0, 0, 0, 4, search_instagram=False)
+        self.assertAlmostEqual(few["total_usd"], (4 + 4 * 15) * apify.PRICE_PER_RESULT, places=4)
+        self.assertEqual(discover.estimate(dict(CFG), 3, 2, 5, 30),
+                         discover.estimate(dict(CFG), 3, 2, 5, 30, search_instagram=True))
+
+    def test_the_check_only_flag_on_the_command(self) -> None:
+        with temp_project() as project:
+            _seed_project(project)
+            code, out, _err = _main(_mock_args(project, "--mock", "--yes", "--check-only"))
+        self.assertEqual(code, codes.EXIT_OK)
+        self.assertIn("Checked Claude's finds only.", out)
+        result = json.loads(out.strip().splitlines()[-1][len("RESULT "):])
+        self.assertIs(result["search_instagram"], False)
+
+    def test_an_old_discovery_file_reads_as_a_full_scan(self) -> None:
+        doc = {"candidates": [], "dropped": [], "breakouts": [], "cost_estimate_usd": 1.0,
+               "partial": False, "warnings": []}
+        self.assertIs(discover.result_line(doc, Path("/tmp/p"))["search_instagram"], True)
 
 
 if __name__ == "__main__":

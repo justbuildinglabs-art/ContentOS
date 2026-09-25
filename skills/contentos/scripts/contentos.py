@@ -230,6 +230,8 @@ def _discover_handler(args: argparse.Namespace) -> int:
     estimate goes to stdout as indented JSON whenever an error carries
     one, and the message to stderr. On success it prints the table, then
     the `RESULT {...}` line.
+
+    `--check-only` checks the web finds only (design spec, "0.6.1 changes").
     """
     project_dir = args.project.resolve()
     try:
@@ -243,6 +245,7 @@ def _discover_handler(args: argparse.Namespace) -> int:
             keywords=_split_list(args.keywords),
             seeds=_split_list(args.seeds),
             handles_file=args.handles_file,
+            search_instagram=not args.check_only,
             mock=args.mock,
             yes=args.yes,
             estimate_only=args.estimate_only,
@@ -711,6 +714,7 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--hashtags", default=None)
             sub.add_argument("--seeds", default=None)
             sub.add_argument("--handles-file", type=Path, default=None)
+            sub.add_argument("--check-only", action="store_true")
             sub.add_argument("--yes", action="store_true")
             sub.add_argument("--estimate-only", action="store_true")
         if name == "ui":
